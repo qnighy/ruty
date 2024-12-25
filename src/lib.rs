@@ -1,6 +1,22 @@
+mod parser;
+
+pub use parser::parse;
+
 #[derive(Debug, Clone, Default)]
 pub struct Ctx {
     pub fresh_id: u32,
+}
+
+macro_rules! impl_from {
+    ($(($to:ty, $from:ty, $fn:expr),)*) => {
+        $(
+            impl From<$from> for $to {
+                fn from(val: $from) -> Self {
+                    $fn(val)
+                }
+            }
+        )*
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -8,6 +24,11 @@ pub enum Expr {
     Integer(IntegerExpr),
     Write(WriteExpr),
 }
+
+impl_from!(
+    (Expr, IntegerExpr, Expr::Integer),
+    (Expr, WriteExpr, Expr::Write),
+);
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct IntegerExpr {
