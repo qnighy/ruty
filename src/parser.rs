@@ -1,11 +1,17 @@
 use anyhow::Error;
 
-use crate::{Expr, IntegerExpr};
+use crate::{Expr, IntegerExpr, IntegerType, StringType, Type};
 
-pub fn parse(input: &[u8]) -> Result<Expr, Error> {
+pub fn parse_expr(input: &[u8]) -> Result<Expr, Error> {
     let mut parser = Parser::new(input);
     let expr = parser.parse_expr()?;
     Ok(expr)
+}
+
+pub fn parse_type(input: &[u8]) -> Result<Type, Error> {
+    let mut parser = Parser::new(input);
+    let ty = parser.parse_type()?;
+    Ok(ty)
 }
 
 #[derive(Debug)]
@@ -34,10 +40,40 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_type(&mut self) -> Result<Type, Error> {
+        let token = self.lex()?;
+        match token.kind {
+            TokenKind::Const => {
+                let s = std::str::from_utf8(&self.input[token.start..token.end])?;
+                match s {
+                    "Integer" => Ok(IntegerType {}.into()),
+                    "String" => Ok(StringType {}.into()),
+                    _ => Err(Error::msg("unexpected token")),
+                }
+            }
+            _ => Err(Error::msg("unexpected token")),
+        }
+    }
+
     fn lex(&mut self) -> Result<Token, Error> {
         self.lex_space()?;
         let start = self.pos;
         let kind = match self.peek_byte() {
+            b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'\x80'.. => {
+                while self.peek_byte().is_ascii_alphanumeric()
+                    || self.peek_byte() == b'_'
+                    || self.peek_byte() >= 0x80
+                {
+                    self.pos += 1;
+                }
+                let s = std::str::from_utf8(&self.input[start..self.pos])?;
+                let ch = s.chars().next().unwrap();
+                if ch.is_uppercase() {
+                    TokenKind::Const
+                } else {
+                    TokenKind::Identifier
+                }
+            }
             b'0'..=b'9' => {
                 while self.peek_byte().is_ascii_digit() {
                     self.pos += 1;
@@ -111,6 +147,8 @@ struct Token {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum TokenKind {
+    Identifier,
+    Const,
     Integer,
     Eq,
     ColonColon,
@@ -124,6 +162,11 @@ mod tests {
 
     #[test]
     fn test_parse_integer_expr() {
-        assert_eq!(parse(b"42").unwrap(), IntegerExpr { value: 42 }.into(),)
+        assert_eq!(parse_expr(b"42").unwrap(), IntegerExpr { value: 42 }.into())
+    }
+
+    #[test]
+    fn test_parse_integer_type() {
+        assert_eq!(parse_type(b"Integer").unwrap(), IntegerType {}.into())
     }
 }

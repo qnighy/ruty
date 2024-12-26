@@ -1,6 +1,6 @@
 mod parser;
 
-pub use parser::parse;
+pub use parser::{parse_expr, parse_type};
 
 #[derive(Debug, Clone, Default)]
 pub struct Ctx {
@@ -54,5 +54,17 @@ pub struct LocalVariableWriteTarget {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Type {
-    Integer,
+    Integer(IntegerType),
+    String(StringType),
 }
+
+impl_from!(
+    (Type, IntegerType, Type::Integer),
+    (Type, StringType, Type::String),
+);
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct IntegerType {}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StringType {}
