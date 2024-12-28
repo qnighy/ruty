@@ -1,5 +1,7 @@
+mod checker;
 mod parser;
 
+pub use checker::typecheck_expr;
 pub use parser::{parse_expr, parse_type};
 
 #[derive(Debug, Clone, Default)]
