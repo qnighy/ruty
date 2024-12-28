@@ -1,0 +1,34 @@
+{
+  "name": "ruty-vscode",
+  "displayName": "Ruty extension",
+  "description": "LSP extension for Ruty",
+  "version": "0.0.0",
+  "private": true,
+  "publisher": "",
+  "repository": "",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [],
+  "browser": "./dist/index.js",
+  "scripts": {
+    "vscode:prepublish": "$npm_execpath run package",
+    "compile": "webpack",
+    "watch": "webpack --watch",
+    "package": "webpack --mode production --devtool hidden-source-map",
+    "open-in-browser": "vscode-test-web --extensionDevelopmentPath=. ./sample-project",
+    "tsc": "tsc -p . --noEmit"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.96.0",
+    "@vscode/test-web": "^0.0.65",
+    "process": "^0.11.10",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.7.2",
+    "webpack": "^5.97.1",
+    "webpack-cli": "^6.0.1"
+  }
+}
