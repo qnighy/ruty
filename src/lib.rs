@@ -21,14 +21,22 @@ macro_rules! impl_from {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Expr {
+    LocalVariable(LocalVariableExpr),
     Integer(IntegerExpr),
     Write(WriteExpr),
 }
 
 impl_from!(
+    (Expr, LocalVariableExpr, Expr::LocalVariable),
     (Expr, IntegerExpr, Expr::Integer),
     (Expr, WriteExpr, Expr::Write),
 );
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LocalVariableExpr {
+    pub name: String,
+    pub type_annotation: Option<Type>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct IntegerExpr {
@@ -45,6 +53,12 @@ pub struct WriteExpr {
 pub enum WriteTarget {
     LocalVariable(LocalVariableWriteTarget),
 }
+
+impl_from!((
+    WriteTarget,
+    LocalVariableWriteTarget,
+    WriteTarget::LocalVariable
+),);
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LocalVariableWriteTarget {
