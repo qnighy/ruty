@@ -42,7 +42,7 @@ const webExtensionConfig = {
   },
   plugins: [
     new webpack.ProvidePlugin({
-      process: 'process/browser'
+      process: import.meta.resolve('process/browser.js')
     })
   ],
   externals: {

@@ -12,22 +12,50 @@
   "categories": [
     "Programming Languages"
   ],
-  "activationEvents": [],
+  "contributes": {
+    "languages": [
+      {
+        "id": "ruty",
+        "aliases": [
+          "Ruty",
+          "ruty"
+        ],
+        "extensions": [
+          ".rt"
+        ]
+      }
+    ]
+  },
+  "activationEvents": [
+    "onLanguage:ruty"
+  ],
   "browser": "./dist/index.js",
   "scripts": {
-    "vscode:prepublish": "$npm_execpath run package",
-    "compile": "webpack",
-    "watch": "webpack --watch",
-    "package": "webpack --mode production --devtool hidden-source-map",
-    "open-in-browser": "vscode-test-web --extensionDevelopmentPath=. ./sample-project",
+    "vscode:prepublish": "$npm_execpath run build:release",
+    "build": "yarn run build:lsp && yarn run build:js",
+    "build:lsp": "cd ../lsp && cargo build --target wasm32-wasip1-threads && cp ../target/wasm32-wasip1-threads/debug/ruty-lsp.wasm ../vscode/dist/lsp.wasm",
+    "build:js": "webpack",
+    "watch": "yarn run build:lsp & yarn run watch:js",
+    "watch:js": "webpack --watch",
+    "build:release": "yarn run build:release:lsp && yarn run build:release:js",
+    "build:release:lsp": "cd ../lsp && cargo build --target wasm32-wasip1-threads --release && cp ../target/wasm32-wasip1-threads/release/ruty-lsp.wasm ../vscode/dist/lsp.wasm",
+    "build:release:js": "webpack --mode production --devtool hidden-source-map",
+    "open-in-browser": "vscode-test-web --extensionDevelopmentPath=. --coi ./sample-project",
     "tsc": "tsc -p . --noEmit"
   },
+  "extensionDependencies": [
+    "ms-vscode.wasm-wasi-core"
+  ],
   "devDependencies": {
+    "@types/node": "^22.10.2",
     "@types/vscode": "^1.96.0",
     "@vscode/test-web": "^0.0.65",
+    "@vscode/wasm-wasi": "^1.0.1",
+    "@vscode/wasm-wasi-lsp": "0.1.0-pre.8",
     "process": "^0.11.10",
     "ts-loader": "^9.5.1",
     "typescript": "^5.7.2",
+    "vscode-languageclient": "^9.0.1",
     "webpack": "^5.97.1",
     "webpack-cli": "^6.0.1"
   }

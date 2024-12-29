@@ -1,0 +1,2 @@
+[target.wasm32-wasip1-threads]
+rustflags = ["-C", "link-arg=--max-memory=16777216"]
