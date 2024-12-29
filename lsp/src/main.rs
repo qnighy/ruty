@@ -14,7 +14,6 @@ fn main() -> Result<(), anyhow::Error> {
     // Note that  we must have our logging only write out to stderr.
     eprintln!("starting generic LSP server");
 
-    wait_for_thread_api();
     // Create the transport. Includes the stdio (stdin and stdout) versions but this could
     // also be implemented to use sockets or HTTP.
     let (connection, io_threads) = Connection::stdio();
@@ -122,30 +121,4 @@ where
     R::Params: serde::de::DeserializeOwned,
 {
     req.extract(R::METHOD)
-}
-
-// #[cfg(not(target_family = "wasm"))]
-// fn wait_for_thread_api() {}
-//
-// #[cfg(target_family = "wasm")]
-fn wait_for_thread_api() {
-    use std::thread;
-    use std::time::Duration;
-
-    let mut wait = Duration::from_millis(100);
-    // Wait for the thread API to be available.
-    let handle = loop {
-        let result = thread::Builder::new()
-            .name("wait_for_thread_api".to_string())
-            .spawn(|| {});
-        match result {
-            Ok(handle) => break handle,
-            Err(err) => {
-                eprintln!("Thread API not available ({:?}), retrying...", err);
-                thread::sleep(wait);
-                wait *= 2;
-            }
-        }
-    };
-    handle.join().unwrap();
 }
