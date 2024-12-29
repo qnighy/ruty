@@ -3,14 +3,16 @@
     "target": "es2016",
     "lib": ["es2018", "WebWorker"],
     "module": "node16",
+    "allowImportingTsExtensions": true,
     "isolatedModules": true,
-    // "verbatimModuleSyntax": true,
+    "verbatimModuleSyntax": true,
     // "isolatedDeclarations": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
 
     "strict": true,
+    "noEmit": true,
     "skipLibCheck": true
   }
 }

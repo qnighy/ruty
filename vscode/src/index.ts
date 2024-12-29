@@ -5,7 +5,7 @@ import {
 } from '@vscode/wasm-wasi-lsp';
 import { Uri, type ExtensionContext, window, workspace } from 'vscode';
 import type { LanguageClientOptions } from 'vscode-languageclient';
-import { LanguageClient, type ServerOptions } from './lsp-client';
+import { LanguageClient, type ServerOptions } from './lsp-client.ts';
 
 export async function activate(context: ExtensionContext) {
   console.log("Ruty Extension activated")
