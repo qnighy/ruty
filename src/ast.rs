@@ -237,9 +237,14 @@ impl PositionIndex {
                 1
             };
 
+            if len > 1 {
+                while skip.len() < pos - start_pos {
+                    skip.push(false);
+                }
+            }
             match len {
                 1 => {
-                    skip.push(false);
+                    // Defer until multi-byte character appears
                 }
                 2 => {
                     skip.push(true);
@@ -273,10 +278,6 @@ impl PositionIndex {
             pos += len;
 
             if need_flush {
-                // Simplify skip vec for ASCII case
-                while skip.len() > 0 && !skip[skip.len() - 1] {
-                    skip.pop();
-                }
                 entries.push(PositionEntry {
                     pos: start_pos,
                     rc: start_rc,
@@ -289,11 +290,6 @@ impl PositionIndex {
         }
         {
             // flush
-
-            // Simplify skip vec for ASCII case
-            while skip.len() > 0 && !skip[skip.len() - 1] {
-                skip.pop();
-            }
             entries.push(PositionEntry {
                 pos: start_pos,
                 rc: start_rc,
