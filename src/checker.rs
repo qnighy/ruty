@@ -1,22 +1,31 @@
 use anyhow::Error;
 
-use crate::ast::{Expr, IntegerType, Type, WriteTarget, DUMMY_RANGE};
+use crate::{
+    ast::{Expr, IntegerType, Type, WriteTarget, DUMMY_RANGE},
+    Diagnostic,
+};
 
-pub fn typecheck_expr(expr: &Expr) -> Result<Type, Error> {
+pub fn typecheck_expr(diag: &mut Vec<Diagnostic>, expr: &Expr) -> Result<Type, Error> {
     match expr {
         Expr::Integer(_) => Ok(IntegerType { range: DUMMY_RANGE }.into()),
         Expr::LocalVariable(_) => todo!("type of local variable"),
         Expr::Write(expr) => {
-            let rhs_type = typecheck_expr(&expr.rhs)?;
+            let rhs_type = typecheck_expr(diag, &expr.rhs)?;
             let annot = match &*expr.lhs {
                 WriteTarget::LocalVariable(target) => &target.type_annotation,
             };
             if let Some(lhs_type) = annot {
                 match (lhs_type, rhs_type) {
-                    (Type::Integer(_), Type::Integer(_)) => Ok(lhs_type.clone()),
-                    (Type::String(_), Type::String(_)) => Ok(lhs_type.clone()),
-                    _ => Err(Error::msg("type mismatch")),
+                    (Type::Integer(_), Type::Integer(_)) => {}
+                    (Type::String(_), Type::String(_)) => {}
+                    _ => {
+                        diag.push(Diagnostic {
+                            range: *expr.lhs.range(),
+                            message: format!("type mismatch"),
+                        });
+                    }
                 }
+                Ok(lhs_type.clone())
             } else {
                 Ok(rhs_type)
             }
@@ -26,37 +35,58 @@ pub fn typecheck_expr(expr: &Expr) -> Result<Type, Error> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ast::pos_in, parse_expr};
+    use crate::{
+        ast::{pos_in, StringType},
+        parse_expr,
+    };
 
     use super::*;
 
-    fn typecheck_expr_text(s: &str) -> Result<Type, Error> {
-        let expr = parse_expr(s.as_bytes())?;
-        typecheck_expr(&expr)
+    fn typecheck_expr_text(s: &str) -> (Type, Vec<Diagnostic>) {
+        let expr = parse_expr(s.as_bytes()).unwrap();
+        let mut diag = Vec::new();
+        let ty = typecheck_expr(&mut diag, &expr).unwrap();
+        (ty, diag)
     }
 
     #[test]
     fn test_typecheck_integer() {
         assert_eq!(
-            typecheck_expr_text("42").unwrap(),
-            IntegerType { range: DUMMY_RANGE }.into()
+            typecheck_expr_text("42"),
+            (IntegerType { range: DUMMY_RANGE }.into(), vec![]),
         );
     }
 
     #[test]
     fn test_typecheck_assignment() {
         assert_eq!(
-            typecheck_expr_text("x = 42").unwrap(),
-            IntegerType { range: DUMMY_RANGE }.into()
+            typecheck_expr_text("x = 42"),
+            (IntegerType { range: DUMMY_RANGE }.into(), vec![]),
         );
         let src = "x @ Integer = 42";
         assert_eq!(
-            typecheck_expr_text(src).unwrap(),
-            IntegerType {
-                range: pos_in(src.as_bytes(), b"Integer")
-            }
-            .into()
+            typecheck_expr_text(src),
+            (
+                IntegerType {
+                    range: pos_in(src.as_bytes(), b"Integer")
+                }
+                .into(),
+                vec![],
+            ),
         );
-        assert!(typecheck_expr_text("x @ String = 42").is_err());
+        let src = "x @ String = 42";
+        assert_eq!(
+            typecheck_expr_text(src),
+            (
+                StringType {
+                    range: pos_in(src.as_bytes(), b"String"),
+                }
+                .into(),
+                vec![Diagnostic {
+                    range: pos_in(src.as_bytes(), b"x @ String"),
+                    message: "type mismatch".to_string(),
+                }],
+            ),
+        );
     }
 }
