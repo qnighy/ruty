@@ -121,6 +121,7 @@ dependencies = [
  "anyhow",
  "lsp-server",
  "lsp-types",
+ "ruty",
  "serde",
  "serde_json",
 ]

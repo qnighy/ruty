@@ -2,13 +2,22 @@
 
 #![allow(clippy::print_stderr)]
 
+use lsp_types::notification::{DidChangeTextDocument, DidOpenTextDocument, LogMessage};
+use lsp_types::notification::{Notification as _, PublishDiagnostics};
 use lsp_types::request::HoverRequest;
 use lsp_types::{
     request::GotoDefinition, GotoDefinitionResponse, InitializeParams, ServerCapabilities,
 };
-use lsp_types::{Hover, HoverContents, HoverProviderCapability, MarkedString, OneOf};
+use lsp_types::{
+    Diagnostic, DiagnosticSeverity, Hover, HoverContents, HoverProviderCapability,
+    LogMessageParams, MarkedString, MessageType, OneOf, Position, PublishDiagnosticsParams,
+    TextDocumentContentChangeEvent, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextDocumentSyncOptions,
+};
 
 use lsp_server::{Connection, ExtractError, Message, Notification, Request, RequestId, Response};
+use ruty::ast::PositionIndex;
+use ruty::{parse_expr, typecheck_expr};
 
 fn main() -> Result<(), anyhow::Error> {
     // Note that  we must have our logging only write out to stderr.
@@ -20,6 +29,13 @@ fn main() -> Result<(), anyhow::Error> {
 
     // Run the server and wait for the two threads to end (typically by trigger LSP Exit event).
     let server_capabilities = serde_json::to_value(&ServerCapabilities {
+        text_document_sync: Some(TextDocumentSyncCapability::Options(
+            TextDocumentSyncOptions {
+                open_close: Some(true),
+                change: Some(TextDocumentSyncKind::FULL),
+                ..Default::default()
+            },
+        )),
         hover_provider: Some(HoverProviderCapability::Simple(true)),
         definition_provider: Some(OneOf::Left(true)),
         ..Default::default()
@@ -109,6 +125,147 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<(), an
             }
             Message::Notification(not) => {
                 eprintln!("got notification: {not:?}");
+                let not = match cast_n::<DidOpenTextDocument>(not) {
+                    Ok(params) => {
+                        let src = params.text_document.text.as_str();
+                        let pos_index = PositionIndex::new(src.as_bytes());
+                        let Ok(expr) = parse_expr(src.as_bytes()) else {
+                            continue;
+                        };
+                        let mut diag = Vec::new();
+                        match typecheck_expr(&mut diag, &expr) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                connection.sender.send(Message::Notification(Notification {
+                                    method: LogMessage::METHOD.to_owned(),
+                                    params: serde_json::to_value(LogMessageParams {
+                                        typ: MessageType::ERROR,
+                                        message: format!("typecheck error: {e}"),
+                                    })
+                                    .unwrap(),
+                                }))?;
+                                continue;
+                            }
+                        }
+                        let diag_lsp = diag
+                            .iter()
+                            .map(|d| {
+                                let (start_row, start_column) = pos_index.rc_of(d.range.start);
+                                let (end_row, end_column) = pos_index.rc_of(d.range.end);
+                                Diagnostic {
+                                    range: lsp_types::Range {
+                                        start: Position {
+                                            line: start_row as u32,
+                                            character: start_column as u32,
+                                        },
+                                        end: Position {
+                                            line: end_row as u32,
+                                            character: end_column as u32,
+                                        },
+                                    },
+                                    severity: Some(DiagnosticSeverity::ERROR),
+                                    message: d.message.clone(),
+                                    ..Default::default()
+                                }
+                            })
+                            .collect::<Vec<_>>();
+                        connection.sender.send(Message::Notification(Notification {
+                            method: PublishDiagnostics::METHOD.to_owned(),
+                            params: serde_json::to_value(PublishDiagnosticsParams {
+                                uri: params.text_document.uri.clone(),
+                                diagnostics: diag_lsp,
+                                version: None,
+                            })
+                            .unwrap(),
+                        }))?;
+                        continue;
+                    }
+                    Err(err @ ExtractError::JsonError { .. }) => panic!("Json Error: {err:?}"),
+                    Err(ExtractError::MethodMismatch(req)) => req,
+                };
+                let not = match cast_n::<DidChangeTextDocument>(not) {
+                    Ok(params) => {
+                        let src = match &params.content_changes[..] {
+                            [TextDocumentContentChangeEvent {
+                                range: None,
+                                range_length: None,
+                                text,
+                            }] => text.as_str(),
+                            _ => {
+                                connection.sender.send(Message::Notification(Notification {
+                                    method: LogMessage::METHOD.to_owned(),
+                                    params: serde_json::to_value(LogMessageParams {
+                                        typ: MessageType::ERROR,
+                                        message: "unsupported content change".to_owned(),
+                                    })
+                                    .unwrap(),
+                                }))?;
+                                continue;
+                            }
+                        };
+                        let pos_index = PositionIndex::new(src.as_bytes());
+                        let Ok(expr) = parse_expr(src.as_bytes()) else {
+                            continue;
+                        };
+                        let mut diag = Vec::new();
+                        match typecheck_expr(&mut diag, &expr) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                connection.sender.send(Message::Notification(Notification {
+                                    method: LogMessage::METHOD.to_owned(),
+                                    params: serde_json::to_value(LogMessageParams {
+                                        typ: MessageType::ERROR,
+                                        message: format!("typecheck error: {e}"),
+                                    })
+                                    .unwrap(),
+                                }))?;
+                                continue;
+                            }
+                        }
+                        let diag_lsp = diag
+                            .iter()
+                            .map(|d| {
+                                let (start_row, start_column) = pos_index.rc_of(d.range.start);
+                                let (end_row, end_column) = pos_index.rc_of(d.range.end);
+                                Diagnostic {
+                                    range: lsp_types::Range {
+                                        start: Position {
+                                            line: start_row as u32,
+                                            character: start_column as u32,
+                                        },
+                                        end: Position {
+                                            line: end_row as u32,
+                                            character: end_column as u32,
+                                        },
+                                    },
+                                    severity: Some(DiagnosticSeverity::ERROR),
+                                    message: d.message.clone(),
+                                    ..Default::default()
+                                }
+                            })
+                            .collect::<Vec<_>>();
+                        connection.sender.send(Message::Notification(Notification {
+                            method: PublishDiagnostics::METHOD.to_owned(),
+                            params: serde_json::to_value(PublishDiagnosticsParams {
+                                uri: params.text_document.uri.clone(),
+                                diagnostics: diag_lsp,
+                                version: None,
+                            })
+                            .unwrap(),
+                        }))?;
+                        continue;
+                    }
+                    Err(err @ ExtractError::JsonError { .. }) => panic!("Json Error: {err:?}"),
+                    Err(ExtractError::MethodMismatch(req)) => req,
+                };
+                // let not = match cast_n::<DidCloseTextDocument>(not) {
+                //     Ok(params) => {
+                //         continue;
+                //     }
+                //     Err(err @ ExtractError::JsonError { .. }) => panic!("Json Error: {err:?}"),
+                //     Err(ExtractError::MethodMismatch(req)) => req,
+                // };
+                let _ = not;
             }
         }
     }
@@ -121,4 +278,12 @@ where
     R::Params: serde::de::DeserializeOwned,
 {
     req.extract(R::METHOD)
+}
+
+fn cast_n<N>(not: Notification) -> Result<N::Params, ExtractError<Notification>>
+where
+    N: lsp_types::notification::Notification,
+    N::Params: serde::de::DeserializeOwned,
+{
+    not.extract(N::METHOD)
 }
