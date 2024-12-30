@@ -1,6 +1,6 @@
 use anyhow::Error;
 
-use crate::{Expr, IntegerType, Type, WriteTarget};
+use crate::ast::{Expr, IntegerType, Type, WriteTarget};
 
 pub fn typecheck_expr(expr: &Expr) -> Result<Type, Error> {
     match expr {
@@ -26,7 +26,7 @@ pub fn typecheck_expr(expr: &Expr) -> Result<Type, Error> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{parse_expr, IntegerType};
+    use crate::parse_expr;
 
     use super::*;
 

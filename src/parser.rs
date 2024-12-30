@@ -1,6 +1,6 @@
 use anyhow::Error;
 
-use crate::{
+use crate::ast::{
     Expr, IntegerExpr, IntegerType, LocalVariableExpr, LocalVariableWriteTarget, StringType, Type,
     WriteExpr, WriteTarget,
 };
@@ -285,7 +285,7 @@ enum TokenKind {
 
 #[cfg(test)]
 mod tests {
-    use crate::IntegerExpr;
+    use crate::ast::IntegerExpr;
 
     use super::*;
 
