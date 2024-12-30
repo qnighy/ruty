@@ -237,6 +237,18 @@ impl PositionIndex {
                 1
             };
 
+            let need_early_flush = len > 1 && (pos - start_pos) - skip.len() > chunk_size;
+            if need_early_flush {
+                entries.push(PositionEntry {
+                    pos: start_pos,
+                    rc: start_rc,
+                    skip: skip.clone(),
+                });
+                start_rc = rc;
+                start_pos = pos;
+                skip.truncate(0);
+            }
+
             if len > 1 {
                 while skip.len() < pos - start_pos {
                     skip.push(false);
