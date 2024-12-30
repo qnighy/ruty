@@ -1,8 +1,8 @@
 use anyhow::Error;
 
 use crate::ast::{
-    Expr, IntegerExpr, IntegerType, LocalVariableExpr, LocalVariableWriteTarget, StringType, Type,
-    WriteExpr, WriteTarget,
+    CodeRange, Expr, IntegerExpr, IntegerType, LocalVariableExpr, LocalVariableWriteTarget,
+    StringType, Type, WriteExpr, WriteTarget,
 };
 
 pub fn parse_expr(input: &[u8]) -> Result<Expr, Error> {
@@ -44,6 +44,7 @@ impl<'a> Parser<'a> {
                 let (rhs, token) = self.parse_expr_lv_assignment()?;
                 let lhs: WriteTarget = match expr {
                     Expr::LocalVariable(expr) => LocalVariableWriteTarget {
+                        range: expr.range,
                         name: expr.name,
                         type_annotation: expr.type_annotation,
                     }
@@ -53,6 +54,7 @@ impl<'a> Parser<'a> {
                     }
                 };
                 let expr: Expr = WriteExpr {
+                    range: spanned(*lhs.range(), *rhs.range()),
                     lhs: Box::new(lhs),
                     rhs: Box::new(rhs),
                 }
@@ -73,7 +75,9 @@ impl<'a> Parser<'a> {
                     let ty = self.parse_type()?;
                     expr = match expr {
                         Expr::LocalVariable(mut e) => {
+                            let ty_range = *ty.range();
                             e.type_annotation = Some(ty);
+                            e.range = spanned(e.range, ty_range);
                             e.into()
                         }
                         _ => {
@@ -93,15 +97,17 @@ impl<'a> Parser<'a> {
         let token = self.lex()?;
         match token.kind {
             TokenKind::Identifier => {
-                let s = std::str::from_utf8(&self.input[token.start..token.end])?;
+                let s = std::str::from_utf8(&self.input[token.range.range()])?;
                 Ok(LocalVariableExpr {
+                    range: token.range,
                     name: s.to_owned(),
                     type_annotation: None,
                 }
                 .into())
             }
             TokenKind::Integer => Ok(IntegerExpr {
-                value: std::str::from_utf8(&self.input[token.start..token.end])?
+                range: token.range,
+                value: std::str::from_utf8(&self.input[token.range.range()])?
                     .parse()
                     .unwrap(),
             }
@@ -116,10 +122,10 @@ impl<'a> Parser<'a> {
         let token = self.lex()?;
         match token.kind {
             TokenKind::Const => {
-                let s = std::str::from_utf8(&self.input[token.start..token.end])?;
+                let s = std::str::from_utf8(&self.input[token.range.range()])?;
                 match s {
-                    "Integer" => Ok(IntegerType {}.into()),
-                    "String" => Ok(StringType {}.into()),
+                    "Integer" => Ok(IntegerType { range: token.range }.into()),
+                    "String" => Ok(StringType { range: token.range }.into()),
                     _ => Err(Error::msg("unexpected token")),
                 }
             }
@@ -215,7 +221,10 @@ impl<'a> Parser<'a> {
             }
         };
         let end = self.pos;
-        Ok(Token { kind, start, end })
+        Ok(Token {
+            kind,
+            range: CodeRange { start, end },
+        })
     }
 
     fn lex_space(&mut self) -> Result<bool, Error> {
@@ -255,8 +264,7 @@ impl<'a> Parser<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Token {
     kind: TokenKind,
-    start: usize,
-    end: usize,
+    range: CodeRange,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -283,27 +291,43 @@ enum TokenKind {
     EOF,
 }
 
+fn spanned(range1: CodeRange, range2: CodeRange) -> CodeRange {
+    CodeRange {
+        start: range1.start,
+        end: range2.end,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::ast::IntegerExpr;
+    use crate::ast::{pos_in, IntegerExpr};
 
     use super::*;
 
     #[test]
     fn test_parse_variable_expr() {
+        let src = b"x";
         assert_eq!(
-            parse_expr(b"x").unwrap(),
+            parse_expr(src).unwrap(),
             LocalVariableExpr {
+                range: pos_in(src, b"x"),
                 name: "x".to_owned(),
                 type_annotation: None,
             }
             .into()
         );
+        let src = b"x @ Integer";
         assert_eq!(
-            parse_expr(b"x @ Integer").unwrap(),
+            parse_expr(src).unwrap(),
             LocalVariableExpr {
+                range: pos_in(src, b"x @ Integer"),
                 name: "x".to_owned(),
-                type_annotation: Some(IntegerType {}.into()),
+                type_annotation: Some(
+                    IntegerType {
+                        range: pos_in(src, b"Integer")
+                    }
+                    .into()
+                ),
             }
             .into()
         )
@@ -311,36 +335,67 @@ mod tests {
 
     #[test]
     fn test_parse_integer_expr() {
-        assert_eq!(parse_expr(b"42").unwrap(), IntegerExpr { value: 42 }.into())
+        let src = b"42";
+        assert_eq!(
+            parse_expr(src).unwrap(),
+            IntegerExpr {
+                range: pos_in(src, b"42"),
+                value: 42,
+            }
+            .into()
+        )
     }
 
     #[test]
     fn test_parse_assignment_expr() {
+        let src = b"x = 42";
         assert_eq!(
-            parse_expr(b"x = 42").unwrap(),
+            parse_expr(src).unwrap(),
             WriteExpr {
+                range: pos_in(src, b"x = 42"),
                 lhs: Box::new(
                     LocalVariableWriteTarget {
+                        range: pos_in(src, b"x"),
                         name: "x".to_owned(),
                         type_annotation: None,
                     }
                     .into()
                 ),
-                rhs: Box::new(IntegerExpr { value: 42 }.into()),
-            }
-            .into()
-        );
-        assert_eq!(
-            parse_expr(b"x @ Integer = 42").unwrap(),
-            WriteExpr {
-                lhs: Box::new(
-                    LocalVariableWriteTarget {
-                        name: "x".to_owned(),
-                        type_annotation: Some(IntegerType {}.into()),
+                rhs: Box::new(
+                    IntegerExpr {
+                        range: pos_in(src, b"42"),
+                        value: 42
                     }
                     .into()
                 ),
-                rhs: Box::new(IntegerExpr { value: 42 }.into()),
+            }
+            .into()
+        );
+        let src = b"x @ Integer = 42";
+        assert_eq!(
+            parse_expr(src).unwrap(),
+            WriteExpr {
+                range: pos_in(src, b"x @ Integer = 42"),
+                lhs: Box::new(
+                    LocalVariableWriteTarget {
+                        range: pos_in(src, b"x @ Integer"),
+                        name: "x".to_owned(),
+                        type_annotation: Some(
+                            IntegerType {
+                                range: pos_in(src, b"Integer"),
+                            }
+                            .into()
+                        ),
+                    }
+                    .into()
+                ),
+                rhs: Box::new(
+                    IntegerExpr {
+                        range: pos_in(src, b"42"),
+                        value: 42,
+                    }
+                    .into()
+                ),
             }
             .into()
         )
@@ -348,6 +403,13 @@ mod tests {
 
     #[test]
     fn test_parse_integer_type() {
-        assert_eq!(parse_type(b"Integer").unwrap(), IntegerType {}.into())
+        let src = b"Integer";
+        assert_eq!(
+            parse_type(src).unwrap(),
+            IntegerType {
+                range: pos_in(src, b"Integer"),
+            }
+            .into()
+        )
     }
 }

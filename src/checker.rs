@@ -1,10 +1,10 @@
 use anyhow::Error;
 
-use crate::ast::{Expr, IntegerType, Type, WriteTarget};
+use crate::ast::{Expr, IntegerType, Type, WriteTarget, DUMMY_RANGE};
 
 pub fn typecheck_expr(expr: &Expr) -> Result<Type, Error> {
     match expr {
-        Expr::Integer(_) => Ok(IntegerType {}.into()),
+        Expr::Integer(_) => Ok(IntegerType { range: DUMMY_RANGE }.into()),
         Expr::LocalVariable(_) => todo!("type of local variable"),
         Expr::Write(expr) => {
             let rhs_type = typecheck_expr(&expr.rhs)?;
@@ -26,7 +26,7 @@ pub fn typecheck_expr(expr: &Expr) -> Result<Type, Error> {
 
 #[cfg(test)]
 mod tests {
-    use crate::parse_expr;
+    use crate::{ast::pos_in, parse_expr};
 
     use super::*;
 
@@ -37,18 +37,25 @@ mod tests {
 
     #[test]
     fn test_typecheck_integer() {
-        assert_eq!(typecheck_expr_text("42").unwrap(), IntegerType {}.into());
+        assert_eq!(
+            typecheck_expr_text("42").unwrap(),
+            IntegerType { range: DUMMY_RANGE }.into()
+        );
     }
 
     #[test]
     fn test_typecheck_assignment() {
         assert_eq!(
             typecheck_expr_text("x = 42").unwrap(),
-            IntegerType {}.into()
+            IntegerType { range: DUMMY_RANGE }.into()
         );
+        let src = "x @ Integer = 42";
         assert_eq!(
-            typecheck_expr_text("x @ Integer = 42").unwrap(),
-            IntegerType {}.into()
+            typecheck_expr_text(src).unwrap(),
+            IntegerType {
+                range: pos_in(src.as_bytes(), b"Integer")
+            }
+            .into()
         );
         assert!(typecheck_expr_text("x @ String = 42").is_err());
     }
