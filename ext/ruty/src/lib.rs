@@ -12,7 +12,9 @@ fn init(ruby: &Ruby) -> RbResult<()> {
 fn rb_erase_type(ruby: &Ruby, src: RString) -> RbResult<RString> {
     let src = RString::new_frozen(src);
     let slice = unsafe { src.as_slice() };
-    let expr = ruty::parse_expr(slice).unwrap();
+    let mut diag = Vec::new();
+    // TODO: handle diagnostics
+    let expr = ruty::parse_expr(&mut diag, slice);
     let erased = ruty::erase_type(slice, &expr);
     Ok(ruby.str_from_slice(&erased))
 }
