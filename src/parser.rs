@@ -10,7 +10,7 @@ use crate::{
     },
     Diagnostic,
 };
-use lexer::{Lexer, Token, TokenKind};
+use lexer::{Lexer, LexerState, Token, TokenKind};
 
 pub fn parse_expr(diag: &mut Vec<Diagnostic>, input: &[u8]) -> Expr {
     let mut parser = Parser::new(input);
@@ -92,7 +92,7 @@ impl<'a> Parser<'a> {
 
     fn parse_expr_lv_type_annotated(&mut self, diag: &mut Vec<Diagnostic>) -> (Expr, Token) {
         let mut expr = self.parse_expr_lv_primary(diag);
-        let mut token = self.lex();
+        let mut token = self.lex(LexerState::End);
         loop {
             match token.kind {
                 TokenKind::At => {
@@ -115,7 +115,7 @@ impl<'a> Parser<'a> {
                             expr
                         }
                     };
-                    token = self.lex();
+                    token = self.lex(LexerState::End);
                 }
                 _ => break,
             }
@@ -125,7 +125,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr_lv_primary(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
-        let token = self.lex();
+        let token = self.lex(LexerState::Begin);
         match token.kind {
             TokenKind::Identifier => {
                 let s = self.select(token.range);
@@ -152,7 +152,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_type(&mut self, diag: &mut Vec<Diagnostic>) -> Type {
-        let token = self.lex();
+        let token = self.lex(LexerState::Begin);
         match token.kind {
             TokenKind::Const => {
                 let s = self.select(token.range);
@@ -182,8 +182,8 @@ impl<'a> Parser<'a> {
         String::from_utf8_lossy(&self.input()[range.range()])
     }
 
-    fn lex(&mut self) -> Token {
-        self.lexer.lex()
+    fn lex(&mut self, state: LexerState) -> Token {
+        self.lexer.lex(state)
     }
 }
 

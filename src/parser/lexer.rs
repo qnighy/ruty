@@ -136,6 +136,38 @@ pub(super) enum TokenKind {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub(super) enum LexerState {
+    /// Expects an expression.
+    ///
+    /// ## Occurrences
+    ///
+    /// - The beginning of the file
+    /// - ...
+    ///
+    /// ## Effects
+    #[default]
+    Begin,
+    /// Expects a punctuator connecting expressions or following an expression.
+    ///
+    /// ## Occurrences
+    ///
+    /// - ...
+    ///
+    /// ## Effects
+    End,
+    /// Expects a method name.
+    ///
+    /// ## Occurrences
+    ///
+    /// - After `def`
+    /// - After `.`
+    /// - After `::`
+    ///
+    /// ## Effects
+    Meth,
+}
+
 #[derive(Debug)]
 pub(super) struct Lexer<'a> {
     input: &'a [u8],
@@ -151,7 +183,7 @@ impl<'a> Lexer<'a> {
         self.input
     }
 
-    pub(super) fn lex(&mut self) -> Token {
+    pub(super) fn lex(&mut self, _state: LexerState) -> Token {
         self.lex_space();
         let start = self.pos;
         let kind = match self.peek_byte() {
@@ -397,14 +429,78 @@ mod tests {
     fn lex_all(input: &[u8]) -> Vec<Token> {
         let mut lexer = Lexer::new(input);
         let mut tokens = Vec::new();
+        let mut state = LexerState::default();
         loop {
-            let token = lexer.lex();
+            let token = lexer.lex(state);
             if token.kind == TokenKind::EOF {
                 break;
             }
+            state = next_state_for_testing(&token);
             tokens.push(token);
         }
         tokens
+    }
+
+    fn next_state_for_testing(tok: &Token) -> LexerState {
+        match tok.kind {
+            TokenKind::KeywordCapitalDoubleUnderscoreEncoding => LexerState::End,
+            TokenKind::KeywordCapitalDoubleUnderscoreLine => LexerState::End,
+            TokenKind::KeywordCapitalDoubleUnderscoreFile => LexerState::End,
+            TokenKind::KeywordCapitalBegin => LexerState::Begin,
+            TokenKind::KeywordCapitalEnd => LexerState::Begin,
+            TokenKind::KeywordAlias => LexerState::Meth,
+            TokenKind::KeywordAnd => LexerState::Begin,
+            TokenKind::KeywordBegin => LexerState::Begin,
+            TokenKind::KeywordBreak => LexerState::Begin,
+            TokenKind::KeywordCase => LexerState::Begin,
+            TokenKind::KeywordClass => LexerState::Begin,
+            TokenKind::KeywordDef => LexerState::Meth,
+            TokenKind::KeywordDefinedQ => LexerState::Begin,
+            TokenKind::KeywordDo => LexerState::Begin,
+            TokenKind::KeywordElse => LexerState::Begin,
+            TokenKind::KeywordElsif => LexerState::Begin,
+            TokenKind::KeywordEnd => LexerState::End,
+            TokenKind::KeywordEnsure => LexerState::Begin,
+            TokenKind::KeywordFalse => LexerState::End,
+            TokenKind::KeywordFor => LexerState::Begin,
+            TokenKind::KeywordIf => LexerState::Begin,
+            TokenKind::KeywordIn => LexerState::Begin,
+            TokenKind::KeywordModule => LexerState::Begin,
+            TokenKind::KeywordNext => LexerState::Begin,
+            TokenKind::KeywordNil => LexerState::End,
+            TokenKind::KeywordNot => LexerState::Begin,
+            TokenKind::KeywordOr => LexerState::Begin,
+            TokenKind::KeywordRedo => LexerState::End,
+            TokenKind::KeywordRescue => LexerState::Begin,
+            TokenKind::KeywordRetry => LexerState::End,
+            TokenKind::KeywordReturn => LexerState::Begin,
+            TokenKind::KeywordSelf => LexerState::End,
+            TokenKind::KeywordSuper => LexerState::End,
+            TokenKind::KeywordThen => LexerState::Begin,
+            TokenKind::KeywordTrue => LexerState::End,
+            TokenKind::KeywordUndef => LexerState::Meth,
+            TokenKind::KeywordUnless => LexerState::Begin,
+            TokenKind::KeywordUntil => LexerState::Begin,
+            TokenKind::KeywordWhen => LexerState::Begin,
+            TokenKind::KeywordWhile => LexerState::Begin,
+            TokenKind::KeywordYield => LexerState::Begin,
+            TokenKind::Identifier => LexerState::End,
+            TokenKind::Const => LexerState::End,
+            TokenKind::IvarName => LexerState::End,
+            TokenKind::CvarName => LexerState::End,
+            TokenKind::GvarName => LexerState::End,
+            TokenKind::Integer => LexerState::End,
+            TokenKind::Colon => LexerState::Begin,
+            TokenKind::ColonColon => LexerState::Begin,
+            TokenKind::Eq => LexerState::Begin,
+            TokenKind::EqEq => LexerState::Begin,
+            TokenKind::EqEqEq => LexerState::Begin,
+            TokenKind::FatArrow => LexerState::Begin,
+            TokenKind::EqMatch => LexerState::Begin,
+            TokenKind::At => LexerState::Begin,
+            TokenKind::EOF => LexerState::Begin,
+            TokenKind::Unknown => LexerState::Begin,
+        }
     }
 
     fn token(kind: TokenKind, range: CodeRange) -> Token {
