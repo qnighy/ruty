@@ -1,7 +1,7 @@
 use anyhow::Error;
 
 use crate::{
-    ast::{Expr, IntegerType, Type, TypeAnnotation, WriteTarget, DUMMY_RANGE},
+    ast::{ErrorType, Expr, IntegerType, Type, TypeAnnotation, WriteTarget, DUMMY_RANGE},
     Diagnostic,
 };
 
@@ -13,6 +13,7 @@ pub fn typecheck_expr(diag: &mut Vec<Diagnostic>, expr: &Expr) -> Result<Type, E
             let rhs_type = typecheck_expr(diag, &expr.rhs)?;
             let annot = match &*expr.lhs {
                 WriteTarget::LocalVariable(target) => &target.type_annotation,
+                WriteTarget::Error(_) => &None,
             };
             if let Some(TypeAnnotation {
                 type_: lhs_type, ..
@@ -33,6 +34,7 @@ pub fn typecheck_expr(diag: &mut Vec<Diagnostic>, expr: &Expr) -> Result<Type, E
                 Ok(rhs_type)
             }
         }
+        Expr::Error(_) => Ok(ErrorType { range: DUMMY_RANGE }.into()),
     }
 }
 
@@ -46,8 +48,8 @@ mod tests {
     use super::*;
 
     fn typecheck_expr_text(s: &str) -> (Type, Vec<Diagnostic>) {
-        let expr = parse_expr(s.as_bytes()).unwrap();
         let mut diag = Vec::new();
+        let expr = parse_expr(&mut diag, s.as_bytes());
         let ty = typecheck_expr(&mut diag, &expr).unwrap();
         (ty, diag)
     }

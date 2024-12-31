@@ -31,6 +31,7 @@ fn collect_ranges_expr(ranges: &mut Vec<CodeRange>, expr: &Expr) {
             collect_ranges_write_target(ranges, &*expr.lhs);
             collect_ranges_expr(ranges, &*expr.rhs);
         }
+        Expr::Error(_) => {}
     }
 }
 
@@ -41,6 +42,7 @@ fn collect_ranges_write_target(ranges: &mut Vec<CodeRange>, target: &WriteTarget
                 ranges.push(ta.range);
             }
         }
+        WriteTarget::Error(_) => {}
     }
 }
 
@@ -57,7 +59,9 @@ mod tests {
     }
 
     fn et(src: &str) -> String {
-        let expr = crate::parse_expr(src.as_bytes()).unwrap();
+        let mut diag = Vec::new();
+        let expr = crate::parse_expr(&mut diag, src.as_bytes());
+        assert_eq!(diag, vec![]);
         let erased = erase_type(src.as_bytes(), &expr);
         String::from_utf8(erased).unwrap()
     }

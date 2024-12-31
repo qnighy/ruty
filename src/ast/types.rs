@@ -11,17 +11,20 @@ pub struct TypeAnnotation {
 pub enum Type {
     Integer(IntegerType),
     String(StringType),
+    Error(ErrorType),
 }
 
 impl_from!(
     (Type, IntegerType, Type::Integer),
     (Type, StringType, Type::String),
+    (Type, ErrorType, Type::Error),
 );
 
 impl_delegators!(
     enum Type {
         Integer(IntegerType),
         String(StringType),
+        Error(ErrorType),
     }
     range (mut range_mut): CodeRange,
 );
@@ -33,5 +36,10 @@ pub struct IntegerType {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StringType {
+    pub range: CodeRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ErrorType {
     pub range: CodeRange,
 }

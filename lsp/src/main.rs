@@ -129,10 +129,8 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<(), an
                     Ok(params) => {
                         let src = params.text_document.text.as_str();
                         let pos_index = PositionIndex::new(src.as_bytes());
-                        let Ok(expr) = parse_expr(src.as_bytes()) else {
-                            continue;
-                        };
                         let mut diag = Vec::new();
+                        let expr = parse_expr(&mut diag, src.as_bytes());
                         match typecheck_expr(&mut diag, &expr) {
                             Ok(_) => {}
                             Err(e) => {
@@ -204,10 +202,8 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<(), an
                             }
                         };
                         let pos_index = PositionIndex::new(src.as_bytes());
-                        let Ok(expr) = parse_expr(src.as_bytes()) else {
-                            continue;
-                        };
                         let mut diag = Vec::new();
+                        let expr = parse_expr(&mut diag, src.as_bytes());
                         match typecheck_expr(&mut diag, &expr) {
                             Ok(_) => {}
                             Err(e) => {

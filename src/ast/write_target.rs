@@ -3,17 +3,22 @@ use crate::ast::{CodeRange, TypeAnnotation};
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum WriteTarget {
     LocalVariable(LocalVariableWriteTarget),
+    Error(ErrorWriteTarget),
 }
 
-impl_from!((
-    WriteTarget,
-    LocalVariableWriteTarget,
-    WriteTarget::LocalVariable
-),);
+impl_from!(
+    (
+        WriteTarget,
+        LocalVariableWriteTarget,
+        WriteTarget::LocalVariable
+    ),
+    (WriteTarget, ErrorWriteTarget, WriteTarget::Error),
+);
 
 impl_delegators!(
     enum WriteTarget {
         LocalVariable(LocalVariableWriteTarget),
+        Error(ErrorWriteTarget),
     }
     range (mut range_mut): CodeRange,
 );
@@ -24,4 +29,9 @@ pub struct LocalVariableWriteTarget {
 
     pub name: String,
     pub type_annotation: Option<TypeAnnotation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ErrorWriteTarget {
+    pub range: CodeRange,
 }

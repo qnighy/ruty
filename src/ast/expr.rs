@@ -5,18 +5,21 @@ pub enum Expr {
     LocalVariable(LocalVariableExpr),
     Integer(IntegerExpr),
     Write(WriteExpr),
+    Error(ErrorExpr),
 }
 
 impl_from!(
     (Expr, LocalVariableExpr, Expr::LocalVariable),
     (Expr, IntegerExpr, Expr::Integer),
     (Expr, WriteExpr, Expr::Write),
+    (Expr, ErrorExpr, Expr::Error),
 );
 impl_delegators!(
     enum Expr {
         LocalVariable(LocalVariableExpr),
         Integer(IntegerExpr),
         Write(WriteExpr),
+        Error(ErrorExpr),
     }
     range (mut range_mut): CodeRange,
 );
@@ -42,4 +45,9 @@ pub struct WriteExpr {
 
     pub lhs: Box<WriteTarget>,
     pub rhs: Box<Expr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ErrorExpr {
+    pub range: CodeRange,
 }
