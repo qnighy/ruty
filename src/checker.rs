@@ -19,7 +19,11 @@ pub fn typecheck_expr(diag: &mut Vec<Diagnostic>, expr: &Expr) -> Result<Type, E
                 type_: lhs_type, ..
             }) = annot
             {
-                match (lhs_type, rhs_type) {
+                match (lhs_type, &rhs_type) {
+                    (_, Type::Error(_)) => {}
+                    (Type::Error(_), _) => {
+                        return Ok(rhs_type.clone());
+                    }
                     (Type::Integer(_), Type::Integer(_)) => {}
                     (Type::String(_), Type::String(_)) => {}
                     _ => {
