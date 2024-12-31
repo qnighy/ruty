@@ -1,8 +1,8 @@
-use crate::ast::{CodeRange, Expr, WriteTarget};
+use crate::ast::{CodeRange, Expr, Program, WriteTarget};
 
-pub fn erase_type(src: &[u8], tree: &Expr) -> Vec<u8> {
+pub fn erase_type(src: &[u8], program: &Program) -> Vec<u8> {
     let mut ranges = Vec::new();
-    collect_ranges_expr(&mut ranges, tree);
+    collect_ranges_program(&mut ranges, program);
     let mut erased = Vec::<u8>::with_capacity(src.len());
     let mut last = 0;
     for &range in &ranges {
@@ -19,8 +19,15 @@ pub fn erase_type(src: &[u8], tree: &Expr) -> Vec<u8> {
     erased
 }
 
+fn collect_ranges_program(ranges: &mut Vec<CodeRange>, program: &Program) {
+    collect_ranges_stmt_list(ranges, &program.stmt_list);
+}
+
 fn collect_ranges_expr(ranges: &mut Vec<CodeRange>, expr: &Expr) {
     match expr {
+        Expr::Seq(expr) => {
+            collect_ranges_stmt_list(ranges, &expr.stmt_list);
+        }
         Expr::LocalVariable(expr) => {
             if let Some(ta) = &expr.type_annotation {
                 ranges.push(ta.range);
@@ -32,6 +39,12 @@ fn collect_ranges_expr(ranges: &mut Vec<CodeRange>, expr: &Expr) {
             collect_ranges_expr(ranges, &*expr.rhs);
         }
         Expr::Error(_) => {}
+    }
+}
+
+fn collect_ranges_stmt_list(ranges: &mut Vec<CodeRange>, stmt_list: &crate::ast::StmtList) {
+    for stmt in &stmt_list.stmts {
+        collect_ranges_expr(ranges, &stmt.expr);
     }
 }
 
@@ -60,9 +73,9 @@ mod tests {
 
     fn et(src: &str) -> String {
         let mut diag = Vec::new();
-        let expr = crate::parse_expr(&mut diag, src.as_bytes());
+        let program = crate::parse(&mut diag, src.as_bytes());
         assert_eq!(diag, vec![]);
-        let erased = erase_type(src.as_bytes(), &expr);
+        let erased = erase_type(src.as_bytes(), &program);
         String::from_utf8(erased).unwrap()
     }
 }

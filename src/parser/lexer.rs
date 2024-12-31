@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::LazyLock};
 
 use crate::ast::CodeRange;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Token {
     pub(super) kind: TokenKind,
     pub(super) range: CodeRange,

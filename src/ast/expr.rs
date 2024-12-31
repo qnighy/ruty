@@ -1,7 +1,8 @@
-use crate::ast::{CodeRange, TypeAnnotation, WriteTarget};
+use crate::ast::{CodeRange, StmtList, TypeAnnotation, WriteTarget};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expr {
+    Seq(SeqExpr),
     LocalVariable(LocalVariableExpr),
     Integer(IntegerExpr),
     Write(WriteExpr),
@@ -9,6 +10,7 @@ pub enum Expr {
 }
 
 impl_from!(
+    (Expr, SeqExpr, Expr::Seq),
     (Expr, LocalVariableExpr, Expr::LocalVariable),
     (Expr, IntegerExpr, Expr::Integer),
     (Expr, WriteExpr, Expr::Write),
@@ -16,6 +18,7 @@ impl_from!(
 );
 impl_delegators!(
     enum Expr {
+        Seq(SeqExpr),
         LocalVariable(LocalVariableExpr),
         Integer(IntegerExpr),
         Write(WriteExpr),
@@ -23,6 +26,13 @@ impl_delegators!(
     }
     range (mut range_mut): CodeRange,
 );
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SeqExpr {
+    pub range: CodeRange,
+
+    pub stmt_list: StmtList,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LocalVariableExpr {

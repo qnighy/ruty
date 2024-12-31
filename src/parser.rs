@@ -5,34 +5,42 @@ use std::borrow::Cow;
 use crate::{
     ast::{
         CodeRange, ErrorExpr, ErrorType, ErrorWriteTarget, Expr, IntegerExpr, IntegerType,
-        LocalVariableExpr, LocalVariableWriteTarget, StringType, Type, TypeAnnotation, WriteExpr,
-        WriteTarget,
+        LocalVariableExpr, LocalVariableWriteTarget, Program, Stmt, StmtList, StringType, Type,
+        TypeAnnotation, WriteExpr, WriteTarget,
     },
     Diagnostic,
 };
 use lexer::{Lexer, LexerState, Token, TokenKind};
 
+pub fn parse(diag: &mut Vec<Diagnostic>, input: &[u8]) -> Program {
+    let mut parser = Parser::new(input);
+    let program = parser.parse_whole_program(diag);
+    program
+}
+
 pub fn parse_expr(diag: &mut Vec<Diagnostic>, input: &[u8]) -> Expr {
     let mut parser = Parser::new(input);
-    let expr = parser.parse_expr(diag);
+    let expr = parser.parse_whole_expr(diag);
     expr
 }
 
 pub fn parse_type(diag: &mut Vec<Diagnostic>, input: &[u8]) -> Type {
     let mut parser = Parser::new(input);
-    let ty = parser.parse_type(diag);
+    let ty = parser.parse_whole_type(diag);
     ty
 }
 
 #[derive(Debug)]
 struct Parser<'a> {
     lexer: Lexer<'a>,
+    next_token: Option<Token>,
 }
 
 impl<'a> Parser<'a> {
     fn new(input: &'a [u8]) -> Self {
         Self {
             lexer: Lexer::new(input),
+            next_token: None,
         }
     }
 
@@ -40,8 +48,66 @@ impl<'a> Parser<'a> {
         self.lexer.input()
     }
 
-    fn parse_expr(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
-        let (expr, token) = self.parse_expr_lv_assignment(diag);
+    fn parse_whole_program(&mut self, diag: &mut Vec<Diagnostic>) -> Program {
+        let stmt_list = self.parse_stmt_list(diag);
+        let token = self.fill_token(LexerState::End);
+        match token.kind {
+            TokenKind::EOF => {}
+            _ => {
+                diag.push(Diagnostic {
+                    range: token.range,
+                    message: format!("unexpected token"),
+                });
+            }
+        }
+        Program {
+            range: CodeRange {
+                start: 0,
+                end: self.input().len(),
+            },
+            stmt_list,
+        }
+    }
+
+    fn parse_stmt_list(&mut self, diag: &mut Vec<Diagnostic>) -> StmtList {
+        let mut semi_prefix = Vec::<CodeRange>::new();
+        let mut stmts = Vec::<Stmt>::new();
+        loop {
+            let token = self.fill_token(LexerState::Begin);
+            match token.kind {
+                TokenKind::EOF => break,
+                TokenKind::Semicolon => {
+                    self.bump();
+                    if let Some(last_stmt) = stmts.last_mut() {
+                        last_stmt.range = spanned(last_stmt.range, token.range);
+                        last_stmt.semi.push(token.range);
+                    } else {
+                        semi_prefix.push(token.range);
+                    }
+                }
+                _ => {
+                    let expr = self.parse_expr_lv_assignment(diag);
+                    stmts.push(Stmt {
+                        range: *expr.range(),
+                        expr,
+                        semi: Vec::new(),
+                    });
+                }
+            }
+        }
+        StmtList {
+            range: CodeRange {
+                start: semi_prefix.first().map_or(0, |r| r.start),
+                end: stmts.last().map_or(0, |stmt| stmt.range.end),
+            },
+            semi_prefix,
+            stmts,
+        }
+    }
+
+    fn parse_whole_expr(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
+        let expr = self.parse_expr_lv_assignment(diag);
+        let token = self.fill_token(LexerState::End);
         match token.kind {
             TokenKind::EOF => {}
             _ => {
@@ -54,11 +120,13 @@ impl<'a> Parser<'a> {
         expr
     }
 
-    fn parse_expr_lv_assignment(&mut self, diag: &mut Vec<Diagnostic>) -> (Expr, Token) {
-        let (expr, token) = self.parse_expr_lv_type_annotated(diag);
+    fn parse_expr_lv_assignment(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
+        let expr = self.parse_expr_lv_type_annotated(diag);
+        let token = self.fill_token(LexerState::End);
         match token.kind {
             TokenKind::Eq => {
-                let (rhs, token) = self.parse_expr_lv_assignment(diag);
+                self.bump();
+                let rhs = self.parse_expr_lv_assignment(diag);
                 let lhs: WriteTarget = match expr {
                     Expr::LocalVariable(expr) => LocalVariableWriteTarget {
                         range: expr.range,
@@ -83,19 +151,20 @@ impl<'a> Parser<'a> {
                     rhs: Box::new(rhs),
                 }
                 .into();
-                return (expr, token);
+                return expr;
             }
             _ => {}
         }
-        (expr, token)
+        expr
     }
 
-    fn parse_expr_lv_type_annotated(&mut self, diag: &mut Vec<Diagnostic>) -> (Expr, Token) {
+    fn parse_expr_lv_type_annotated(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
         let mut expr = self.parse_expr_lv_primary(diag);
-        let mut token = self.lex(LexerState::End);
         loop {
+            let token = self.fill_token(LexerState::End);
             match token.kind {
                 TokenKind::At => {
+                    self.bump();
                     let ty = self.parse_type(diag);
                     expr = match expr {
                         Expr::LocalVariable(mut e) => {
@@ -115,19 +184,19 @@ impl<'a> Parser<'a> {
                             expr
                         }
                     };
-                    token = self.lex(LexerState::End);
                 }
                 _ => break,
             }
         }
 
-        (expr, token)
+        expr
     }
 
     fn parse_expr_lv_primary(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
-        let token = self.lex(LexerState::Begin);
+        let token = self.fill_token(LexerState::Begin);
         match token.kind {
             TokenKind::Identifier => {
+                self.bump();
                 let s = self.select(token.range);
                 LocalVariableExpr {
                     range: token.range,
@@ -136,12 +205,16 @@ impl<'a> Parser<'a> {
                 }
                 .into()
             }
-            TokenKind::Integer => IntegerExpr {
-                range: token.range,
-                value: self.select(token.range).parse().unwrap(),
+            TokenKind::Integer => {
+                self.bump();
+                IntegerExpr {
+                    range: token.range,
+                    value: self.select(token.range).parse().unwrap(),
+                }
+                .into()
             }
-            .into(),
             _ => {
+                self.bump();
                 diag.push(Diagnostic {
                     range: token.range,
                     message: format!("unexpected token"),
@@ -151,8 +224,24 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_whole_type(&mut self, diag: &mut Vec<Diagnostic>) -> Type {
+        let ty = self.parse_type(diag);
+        let token = self.fill_token(LexerState::End);
+        match token.kind {
+            TokenKind::EOF => {}
+            _ => {
+                diag.push(Diagnostic {
+                    range: token.range,
+                    message: format!("unexpected token"),
+                });
+            }
+        }
+        ty
+    }
+
     fn parse_type(&mut self, diag: &mut Vec<Diagnostic>) -> Type {
-        let token = self.lex(LexerState::Begin);
+        let token = self.fill_token(LexerState::Begin);
+        self.bump();
         match token.kind {
             TokenKind::Const => {
                 let s = self.select(token.range);
@@ -178,12 +267,34 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn select(&self, range: CodeRange) -> Cow<'a, str> {
-        String::from_utf8_lossy(&self.input()[range.range()])
+    fn fill_token(&mut self, state: LexerState) -> Token {
+        if let Some(token) = self.next_token {
+            token
+        } else {
+            let token = self.lexer.lex(state);
+            self.next_token = Some(token);
+            token
+        }
     }
 
-    fn lex(&mut self, state: LexerState) -> Token {
-        self.lexer.lex(state)
+    fn bump(&mut self) {
+        if self.next_token.is_some() {
+            self.next_token = None;
+        } else {
+            panic!("bump: no token to bump");
+        }
+    }
+
+    // fn peek(&mut self) -> Token {
+    //     if let Some(token) = self.next_token {
+    //         token
+    //     } else {
+    //         panic!("peek: token not filled yet");
+    //     }
+    // }
+
+    fn select(&self, range: CodeRange) -> Cow<'a, str> {
+        String::from_utf8_lossy(&self.input()[range.range()])
     }
 }
 

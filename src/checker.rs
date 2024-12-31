@@ -1,11 +1,18 @@
 use crate::{
-    ast::{ErrorType, Expr, IntegerType, Type, TypeAnnotation, WriteTarget, DUMMY_RANGE},
+    ast::{
+        ErrorType, Expr, IntegerType, NilType, Program, StmtList, Type, TypeAnnotation,
+        WriteTarget, DUMMY_RANGE,
+    },
     Diagnostic,
 };
 
-pub fn typecheck_expr(diag: &mut Vec<Diagnostic>, expr: &Expr) -> Type {
+pub fn typecheck_program(diag: &mut Vec<Diagnostic>, program: &Program) {
+    typecheck_stmt_list(diag, &program.stmt_list);
+}
+
+fn typecheck_expr(diag: &mut Vec<Diagnostic>, expr: &Expr) -> Type {
     match expr {
-        Expr::Integer(_) => IntegerType { range: DUMMY_RANGE }.into(),
+        Expr::Seq(expr) => typecheck_stmt_list(diag, &expr.stmt_list),
         Expr::LocalVariable(_) => {
             diag.push(Diagnostic {
                 range: *expr.range(),
@@ -13,6 +20,7 @@ pub fn typecheck_expr(diag: &mut Vec<Diagnostic>, expr: &Expr) -> Type {
             });
             ErrorType { range: DUMMY_RANGE }.into()
         }
+        Expr::Integer(_) => IntegerType { range: DUMMY_RANGE }.into(),
         Expr::Write(expr) => {
             let rhs_type = typecheck_expr(diag, &expr.rhs);
             let annot = match &*expr.lhs {
@@ -28,6 +36,7 @@ pub fn typecheck_expr(diag: &mut Vec<Diagnostic>, expr: &Expr) -> Type {
                     (Type::Error(_), _) => {
                         return rhs_type.clone();
                     }
+                    (Type::Nil(_), Type::Nil(_)) => {}
                     (Type::Integer(_), Type::Integer(_)) => {}
                     (Type::String(_), Type::String(_)) => {}
                     _ => {
@@ -43,6 +52,18 @@ pub fn typecheck_expr(diag: &mut Vec<Diagnostic>, expr: &Expr) -> Type {
             }
         }
         Expr::Error(_) => ErrorType { range: DUMMY_RANGE }.into(),
+    }
+}
+
+fn typecheck_stmt_list(diag: &mut Vec<Diagnostic>, stmt_list: &StmtList) -> Type {
+    let stmts = &stmt_list.stmts;
+    if stmts.is_empty() {
+        NilType { range: DUMMY_RANGE }.into()
+    } else {
+        for stmt in &stmts[..stmts.len() - 1] {
+            typecheck_expr(diag, &stmt.expr);
+        }
+        typecheck_expr(diag, &stmts[stmts.len() - 1].expr)
     }
 }
 

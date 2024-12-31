@@ -17,7 +17,7 @@ use lsp_types::{
 
 use lsp_server::{Connection, ExtractError, Message, Notification, Request, RequestId, Response};
 use ruty::ast::PositionIndex;
-use ruty::{parse_expr, typecheck_expr};
+use ruty::{parse, typecheck_program};
 
 fn main() -> Result<(), anyhow::Error> {
     // Note that  we must have our logging only write out to stderr.
@@ -130,8 +130,8 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<(), an
                         let src = params.text_document.text.as_str();
                         let pos_index = PositionIndex::new(src.as_bytes());
                         let mut diag = Vec::new();
-                        let expr = parse_expr(&mut diag, src.as_bytes());
-                        typecheck_expr(&mut diag, &expr);
+                        let program = parse(&mut diag, src.as_bytes());
+                        typecheck_program(&mut diag, &program);
                         let diag_lsp = diag
                             .iter()
                             .map(|d| {
@@ -190,8 +190,8 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<(), an
                         };
                         let pos_index = PositionIndex::new(src.as_bytes());
                         let mut diag = Vec::new();
-                        let expr = parse_expr(&mut diag, src.as_bytes());
-                        typecheck_expr(&mut diag, &expr);
+                        let expr = parse(&mut diag, src.as_bytes());
+                        typecheck_program(&mut diag, &expr);
                         let diag_lsp = diag
                             .iter()
                             .map(|d| {

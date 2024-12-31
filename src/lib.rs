@@ -4,9 +4,9 @@ mod eraser;
 mod parser;
 
 use crate::ast::CodeRange;
-pub use checker::typecheck_expr;
+pub use checker::typecheck_program;
 pub use eraser::erase_type;
-pub use parser::{parse_expr, parse_type};
+pub use parser::{parse, parse_expr, parse_type};
 
 #[derive(Debug, Clone, Default)]
 pub struct Ctx {

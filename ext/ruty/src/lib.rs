@@ -14,7 +14,7 @@ fn rb_erase_type(ruby: &Ruby, src: RString) -> RbResult<RString> {
     let slice = unsafe { src.as_slice() };
     let mut diag = Vec::new();
     // TODO: handle diagnostics
-    let expr = ruty::parse_expr(&mut diag, slice);
-    let erased = ruty::erase_type(slice, &expr);
+    let program = ruty::parse(&mut diag, slice);
+    let erased = ruty::erase_type(slice, &program);
     Ok(ruby.str_from_slice(&erased))
 }
