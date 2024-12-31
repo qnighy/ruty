@@ -2,7 +2,7 @@ use anyhow::Error;
 
 use crate::ast::{
     CodeRange, Expr, IntegerExpr, IntegerType, LocalVariableExpr, LocalVariableWriteTarget,
-    StringType, Type, WriteExpr, WriteTarget,
+    StringType, Type, TypeAnnotation, WriteExpr, WriteTarget,
 };
 
 pub fn parse_expr(input: &[u8]) -> Result<Expr, Error> {
@@ -76,7 +76,10 @@ impl<'a> Parser<'a> {
                     expr = match expr {
                         Expr::LocalVariable(mut e) => {
                             let ty_range = *ty.range();
-                            e.type_annotation = Some(ty);
+                            e.type_annotation = Some(TypeAnnotation {
+                                range: spanned(token.range, ty_range),
+                                type_: ty,
+                            });
                             e.range = spanned(e.range, ty_range);
                             e.into()
                         }
@@ -322,12 +325,13 @@ mod tests {
             LocalVariableExpr {
                 range: pos_in(src, b"x @ Integer"),
                 name: "x".to_owned(),
-                type_annotation: Some(
-                    IntegerType {
+                type_annotation: Some(TypeAnnotation {
+                    range: pos_in(src, b"@ Integer"),
+                    type_: IntegerType {
                         range: pos_in(src, b"Integer")
                     }
                     .into()
-                ),
+                }),
             }
             .into()
         )
@@ -380,12 +384,13 @@ mod tests {
                     LocalVariableWriteTarget {
                         range: pos_in(src, b"x @ Integer"),
                         name: "x".to_owned(),
-                        type_annotation: Some(
-                            IntegerType {
+                        type_annotation: Some(TypeAnnotation {
+                            range: pos_in(src, b"@ Integer"),
+                            type_: IntegerType {
                                 range: pos_in(src, b"Integer"),
                             }
                             .into()
-                        ),
+                        }),
                     }
                     .into()
                 ),

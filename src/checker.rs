@@ -1,7 +1,7 @@
 use anyhow::Error;
 
 use crate::{
-    ast::{Expr, IntegerType, Type, WriteTarget, DUMMY_RANGE},
+    ast::{Expr, IntegerType, Type, TypeAnnotation, WriteTarget, DUMMY_RANGE},
     Diagnostic,
 };
 
@@ -14,7 +14,10 @@ pub fn typecheck_expr(diag: &mut Vec<Diagnostic>, expr: &Expr) -> Result<Type, E
             let annot = match &*expr.lhs {
                 WriteTarget::LocalVariable(target) => &target.type_annotation,
             };
-            if let Some(lhs_type) = annot {
+            if let Some(TypeAnnotation {
+                type_: lhs_type, ..
+            }) = annot
+            {
                 match (lhs_type, rhs_type) {
                     (Type::Integer(_), Type::Integer(_)) => {}
                     (Type::String(_), Type::String(_)) => {}

@@ -376,7 +376,7 @@ pub struct LocalVariableExpr {
     pub range: CodeRange,
 
     pub name: String,
-    pub type_annotation: Option<Type>,
+    pub type_annotation: Option<TypeAnnotation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -417,7 +417,14 @@ pub struct LocalVariableWriteTarget {
     pub range: CodeRange,
 
     pub name: String,
-    pub type_annotation: Option<Type>,
+    pub type_annotation: Option<TypeAnnotation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TypeAnnotation {
+    pub range: CodeRange,
+
+    pub type_: Type,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
