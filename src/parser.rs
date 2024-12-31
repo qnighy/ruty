@@ -1,9 +1,12 @@
+mod lexer;
+
 use anyhow::Error;
 
 use crate::ast::{
     CodeRange, Expr, IntegerExpr, IntegerType, LocalVariableExpr, LocalVariableWriteTarget,
     StringType, Type, TypeAnnotation, WriteExpr, WriteTarget,
 };
+use lexer::{Lexer, Token, TokenKind};
 
 pub fn parse_expr(input: &[u8]) -> Result<Expr, Error> {
     let mut parser = Parser::new(input);
@@ -19,13 +22,18 @@ pub fn parse_type(input: &[u8]) -> Result<Type, Error> {
 
 #[derive(Debug)]
 struct Parser<'a> {
-    input: &'a [u8],
-    pos: usize,
+    lexer: Lexer<'a>,
 }
 
 impl<'a> Parser<'a> {
     fn new(input: &'a [u8]) -> Self {
-        Self { input, pos: 0 }
+        Self {
+            lexer: Lexer::new(input),
+        }
+    }
+
+    fn input(&self) -> &'a [u8] {
+        self.lexer.input()
     }
 
     fn parse_expr(&mut self) -> Result<Expr, Error> {
@@ -100,7 +108,7 @@ impl<'a> Parser<'a> {
         let token = self.lex()?;
         match token.kind {
             TokenKind::Identifier => {
-                let s = std::str::from_utf8(&self.input[token.range.range()])?;
+                let s = std::str::from_utf8(&self.input()[token.range.range()])?;
                 Ok(LocalVariableExpr {
                     range: token.range,
                     name: s.to_owned(),
@@ -110,7 +118,7 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Integer => Ok(IntegerExpr {
                 range: token.range,
-                value: std::str::from_utf8(&self.input[token.range.range()])?
+                value: std::str::from_utf8(&self.input()[token.range.range()])?
                     .parse()
                     .unwrap(),
             }
@@ -125,7 +133,7 @@ impl<'a> Parser<'a> {
         let token = self.lex()?;
         match token.kind {
             TokenKind::Const => {
-                let s = std::str::from_utf8(&self.input[token.range.range()])?;
+                let s = std::str::from_utf8(&self.input()[token.range.range()])?;
                 match s {
                     "Integer" => Ok(IntegerType { range: token.range }.into()),
                     "String" => Ok(StringType { range: token.range }.into()),
@@ -137,161 +145,8 @@ impl<'a> Parser<'a> {
     }
 
     fn lex(&mut self) -> Result<Token, Error> {
-        self.lex_space()?;
-        let start = self.pos;
-        let kind = match self.peek_byte() {
-            b'\0' | b'\x04' | b'\x1A' => {
-                if self.pos < self.input.len() {
-                    self.pos += 1;
-                }
-                TokenKind::EOF
-            }
-            b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'\x80'.. => {
-                while self.peek_byte().is_ascii_alphanumeric()
-                    || self.peek_byte() == b'_'
-                    || self.peek_byte() >= 0x80
-                {
-                    self.pos += 1;
-                }
-                let s = std::str::from_utf8(&self.input[start..self.pos])?;
-                let ch = s.chars().next().unwrap();
-                if ch.is_uppercase() {
-                    TokenKind::Const
-                } else {
-                    TokenKind::Identifier
-                }
-            }
-            b'0'..=b'9' => {
-                while self.peek_byte().is_ascii_digit() {
-                    self.pos += 1;
-                }
-                TokenKind::Integer
-            }
-            b':' => {
-                self.pos += 1;
-                match self.peek_byte() {
-                    b':' => {
-                        self.pos += 1;
-                        TokenKind::ColonColon
-                    }
-                    _ => TokenKind::Colon,
-                }
-            }
-            b'=' => {
-                self.pos += 1;
-                match self.peek_byte() {
-                    b'=' => {
-                        self.pos += 1;
-                        match self.peek_byte() {
-                            b'=' => {
-                                self.pos += 1;
-                                TokenKind::EqEqEq
-                            }
-                            _ => TokenKind::EqEq,
-                        }
-                    }
-                    b'>' => {
-                        self.pos += 1;
-                        TokenKind::FatArrow
-                    }
-                    b'~' => {
-                        self.pos += 1;
-                        TokenKind::EqMatch
-                    }
-                    _ => TokenKind::Eq,
-                }
-            }
-            b'@' => {
-                self.pos += 1;
-                match self.peek_byte() {
-                    b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'\x80'.. => {
-                        todo!("parse identifier after @");
-                    }
-                    b'0'..=b'9' => {
-                        return Err(Error::msg(format!(
-                            "unexpected character: {:?}",
-                            self.peek_byte()
-                        )));
-                    }
-                    _ => TokenKind::At,
-                }
-            }
-            _ => {
-                return Err(Error::msg(format!(
-                    "unexpected character: {:?}",
-                    self.peek_byte()
-                )));
-            }
-        };
-        let end = self.pos;
-        Ok(Token {
-            kind,
-            range: CodeRange { start, end },
-        })
+        self.lexer.lex()
     }
-
-    fn lex_space(&mut self) -> Result<bool, Error> {
-        let start = self.pos;
-        loop {
-            match self.peek_byte() {
-                b'\t' | b'\n' | b'\x0C' | b'\r' | b'\x13' | b' ' => {
-                    self.pos += 1;
-                }
-                b'#' => {
-                    self.pos += 1;
-                    loop {
-                        match self.peek_byte() {
-                            b'\n' => {
-                                self.pos += 1;
-                                break;
-                            }
-                            _ => {
-                                self.pos += 1;
-                            }
-                        }
-                    }
-                }
-                _ => {
-                    break;
-                }
-            }
-        }
-        Ok(self.pos > start)
-    }
-
-    fn peek_byte(&mut self) -> u8 {
-        self.input.get(self.pos).copied().unwrap_or(0)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Token {
-    kind: TokenKind,
-    range: CodeRange,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum TokenKind {
-    Identifier,
-    Const,
-    Integer,
-    /// `:`
-    Colon,
-    /// `::`
-    ColonColon,
-    /// `=`
-    Eq,
-    /// `==`
-    EqEq,
-    /// `===`
-    EqEqEq,
-    /// `=>`
-    FatArrow,
-    /// `=~`
-    EqMatch,
-    /// `@`
-    At,
-    EOF,
 }
 
 fn spanned(range1: CodeRange, range2: CodeRange) -> CodeRange {
