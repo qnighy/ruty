@@ -10,6 +10,7 @@ pub(super) struct Token {
 pub(super) enum TokenKind {
     Identifier,
     Const,
+    IvarName,
     Integer,
     /// `:`
     Colon,
@@ -115,7 +116,10 @@ impl<'a> Lexer<'a> {
                 self.pos += 1;
                 match self.peek_byte() {
                     b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'\x80'.. => {
-                        todo!("parse identifier after @");
+                        while is_ident_continue(self.peek_byte()) {
+                            self.pos += 1;
+                        }
+                        TokenKind::IvarName
                     }
                     b'0'..=b'9' => {
                         while is_ident_continue(self.peek_byte()) {

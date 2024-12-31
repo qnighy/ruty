@@ -6,7 +6,13 @@ use crate::{
 pub fn typecheck_expr(diag: &mut Vec<Diagnostic>, expr: &Expr) -> Type {
     match expr {
         Expr::Integer(_) => IntegerType { range: DUMMY_RANGE }.into(),
-        Expr::LocalVariable(_) => todo!("type of local variable"),
+        Expr::LocalVariable(_) => {
+            diag.push(Diagnostic {
+                range: *expr.range(),
+                message: format!("undefined variable"),
+            });
+            ErrorType { range: DUMMY_RANGE }.into()
+        }
         Expr::Write(expr) => {
             let rhs_type = typecheck_expr(diag, &expr.rhs);
             let annot = match &*expr.lhs {
