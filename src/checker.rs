@@ -1,16 +1,14 @@
-use anyhow::Error;
-
 use crate::{
     ast::{ErrorType, Expr, IntegerType, Type, TypeAnnotation, WriteTarget, DUMMY_RANGE},
     Diagnostic,
 };
 
-pub fn typecheck_expr(diag: &mut Vec<Diagnostic>, expr: &Expr) -> Result<Type, Error> {
+pub fn typecheck_expr(diag: &mut Vec<Diagnostic>, expr: &Expr) -> Type {
     match expr {
-        Expr::Integer(_) => Ok(IntegerType { range: DUMMY_RANGE }.into()),
+        Expr::Integer(_) => IntegerType { range: DUMMY_RANGE }.into(),
         Expr::LocalVariable(_) => todo!("type of local variable"),
         Expr::Write(expr) => {
-            let rhs_type = typecheck_expr(diag, &expr.rhs)?;
+            let rhs_type = typecheck_expr(diag, &expr.rhs);
             let annot = match &*expr.lhs {
                 WriteTarget::LocalVariable(target) => &target.type_annotation,
                 WriteTarget::Error(_) => &None,
@@ -22,7 +20,7 @@ pub fn typecheck_expr(diag: &mut Vec<Diagnostic>, expr: &Expr) -> Result<Type, E
                 match (lhs_type, &rhs_type) {
                     (_, Type::Error(_)) => {}
                     (Type::Error(_), _) => {
-                        return Ok(rhs_type.clone());
+                        return rhs_type.clone();
                     }
                     (Type::Integer(_), Type::Integer(_)) => {}
                     (Type::String(_), Type::String(_)) => {}
@@ -33,12 +31,12 @@ pub fn typecheck_expr(diag: &mut Vec<Diagnostic>, expr: &Expr) -> Result<Type, E
                         });
                     }
                 }
-                Ok(lhs_type.clone())
+                lhs_type.clone()
             } else {
-                Ok(rhs_type)
+                rhs_type
             }
         }
-        Expr::Error(_) => Ok(ErrorType { range: DUMMY_RANGE }.into()),
+        Expr::Error(_) => ErrorType { range: DUMMY_RANGE }.into(),
     }
 }
 
@@ -54,7 +52,7 @@ mod tests {
     fn typecheck_expr_text(s: &str) -> (Type, Vec<Diagnostic>) {
         let mut diag = Vec::new();
         let expr = parse_expr(&mut diag, s.as_bytes());
-        let ty = typecheck_expr(&mut diag, &expr).unwrap();
+        let ty = typecheck_expr(&mut diag, &expr);
         (ty, diag)
     }
 

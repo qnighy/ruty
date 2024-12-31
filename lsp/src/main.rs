@@ -131,20 +131,7 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<(), an
                         let pos_index = PositionIndex::new(src.as_bytes());
                         let mut diag = Vec::new();
                         let expr = parse_expr(&mut diag, src.as_bytes());
-                        match typecheck_expr(&mut diag, &expr) {
-                            Ok(_) => {}
-                            Err(e) => {
-                                connection.sender.send(Message::Notification(Notification {
-                                    method: LogMessage::METHOD.to_owned(),
-                                    params: serde_json::to_value(LogMessageParams {
-                                        typ: MessageType::ERROR,
-                                        message: format!("typecheck error: {e}"),
-                                    })
-                                    .unwrap(),
-                                }))?;
-                                continue;
-                            }
-                        }
+                        typecheck_expr(&mut diag, &expr);
                         let diag_lsp = diag
                             .iter()
                             .map(|d| {
@@ -204,20 +191,7 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<(), an
                         let pos_index = PositionIndex::new(src.as_bytes());
                         let mut diag = Vec::new();
                         let expr = parse_expr(&mut diag, src.as_bytes());
-                        match typecheck_expr(&mut diag, &expr) {
-                            Ok(_) => {}
-                            Err(e) => {
-                                connection.sender.send(Message::Notification(Notification {
-                                    method: LogMessage::METHOD.to_owned(),
-                                    params: serde_json::to_value(LogMessageParams {
-                                        typ: MessageType::ERROR,
-                                        message: format!("typecheck error: {e}"),
-                                    })
-                                    .unwrap(),
-                                }))?;
-                                continue;
-                            }
-                        }
+                        typecheck_expr(&mut diag, &expr);
                         let diag_lsp = diag
                             .iter()
                             .map(|d| {
