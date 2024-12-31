@@ -8,9 +8,17 @@ pub(super) struct Token {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum TokenKind {
+    /// `foo` etc.
     Identifier,
+    /// `Foo` etc.
     Const,
+    /// `@foo` etc.
     IvarName,
+    /// `@@foo` etc.
+    CvarName,
+    /// `$foo` etc.
+    GvarName,
+    /// `123` etc.
     Integer,
     /// `:`
     Colon,
@@ -78,6 +86,18 @@ impl<'a> Lexer<'a> {
                 }
                 TokenKind::Integer
             }
+            b'$' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'\x80'.. => {
+                        while is_ident_continue(self.peek_byte()) {
+                            self.pos += 1;
+                        }
+                        TokenKind::GvarName
+                    }
+                    _ => TokenKind::Error,
+                }
+            }
             b':' => {
                 self.pos += 1;
                 match self.peek_byte() {
@@ -126,6 +146,24 @@ impl<'a> Lexer<'a> {
                             self.pos += 1;
                         }
                         TokenKind::Error
+                    }
+                    b'@' => {
+                        self.pos += 1;
+                        match self.peek_byte() {
+                            b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'\x80'.. => {
+                                while is_ident_continue(self.peek_byte()) {
+                                    self.pos += 1;
+                                }
+                                TokenKind::CvarName
+                            }
+                            b'0'..=b'9' => {
+                                while is_ident_continue(self.peek_byte()) {
+                                    self.pos += 1;
+                                }
+                                TokenKind::Error
+                            }
+                            _ => TokenKind::Error,
+                        }
                     }
                     _ => TokenKind::At,
                 }
