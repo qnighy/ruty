@@ -1,0 +1,33 @@
+PATH
+  remote: .
+  specs:
+    ruty (0.1.0)
+      rb_sys
+
+GEM
+  remote: https://rubygems.org/
+  specs:
+    minitest (5.25.4)
+    rake (13.2.1)
+    rake-compiler (1.2.8)
+      rake
+    rb_sys (0.9.105)
+
+PLATFORMS
+  aarch64-linux
+  aarch64-linux-musl
+  arm64-darwin
+  ruby
+  x64-mingw-ucrt
+  x86_64-darwin
+  x86_64-linux
+  x86_64-linux-musl
+
+DEPENDENCIES
+  minitest
+  rake
+  rake-compiler
+  ruty!
+
+BUNDLED WITH
+   2.4.20

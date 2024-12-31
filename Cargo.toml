@@ -8,4 +8,4 @@ anyhow = "1.0.95"
 bit-vec = "0.8.0"
 
 [workspace]
-members = ["lsp"]
+members = ["ext/ruty", "lsp"]

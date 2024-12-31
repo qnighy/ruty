@@ -1,0 +1,13 @@
+[package]
+name = "ruty-ruby-ext"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.95"
+magnus = { version = "0.7.1", default-features = false, features = ["rb-sys"] }
+ruty = { path = "../.." }
+
+[lib]
+crate-type = ["cdylib"]
+name = "ruty"
