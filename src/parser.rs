@@ -76,7 +76,7 @@ impl<'a> Parser<'a> {
 
     fn parse_expr_lv_type_annotated(&mut self) -> Result<(Expr, Token), Error> {
         let mut expr = self.parse_expr_lv_primary()?;
-        let mut token = self.lex()?;
+        let mut token = self.lex();
         loop {
             match token.kind {
                 TokenKind::At => {
@@ -95,7 +95,7 @@ impl<'a> Parser<'a> {
                             return Err(Error::msg("non-annotatable expression"));
                         }
                     };
-                    token = self.lex()?;
+                    token = self.lex();
                 }
                 _ => break,
             }
@@ -105,7 +105,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr_lv_primary(&mut self) -> Result<Expr, Error> {
-        let token = self.lex()?;
+        let token = self.lex();
         match token.kind {
             TokenKind::Identifier => {
                 let s = std::str::from_utf8(&self.input()[token.range.range()])?;
@@ -130,7 +130,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_type(&mut self) -> Result<Type, Error> {
-        let token = self.lex()?;
+        let token = self.lex();
         match token.kind {
             TokenKind::Const => {
                 let s = std::str::from_utf8(&self.input()[token.range.range()])?;
@@ -144,7 +144,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn lex(&mut self) -> Result<Token, Error> {
+    fn lex(&mut self) -> Token {
         self.lexer.lex()
     }
 }

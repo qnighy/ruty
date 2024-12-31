@@ -1,5 +1,4 @@
 use crate::ast::CodeRange;
-use anyhow::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Token {
@@ -29,6 +28,7 @@ pub(super) enum TokenKind {
     /// `@`
     At,
     EOF,
+    Error,
 }
 
 #[derive(Debug)]
@@ -46,8 +46,8 @@ impl<'a> Lexer<'a> {
         self.input
     }
 
-    pub(super) fn lex(&mut self) -> Result<Token, Error> {
-        self.lex_space()?;
+    pub(super) fn lex(&mut self) -> Token {
+        self.lex_space();
         let start = self.pos;
         let kind = match self.peek_byte() {
             b'\0' | b'\x04' | b'\x1A' => {
@@ -57,18 +57,18 @@ impl<'a> Lexer<'a> {
                 TokenKind::EOF
             }
             b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'\x80'.. => {
-                while self.peek_byte().is_ascii_alphanumeric()
-                    || self.peek_byte() == b'_'
-                    || self.peek_byte() >= 0x80
-                {
+                while is_ident_continue(self.peek_byte()) {
                     self.pos += 1;
                 }
-                let s = std::str::from_utf8(&self.input[start..self.pos])?;
-                let ch = s.chars().next().unwrap();
-                if ch.is_uppercase() {
-                    TokenKind::Const
+                if let Ok(s) = std::str::from_utf8(&self.input[start..self.pos]) {
+                    let ch = s.chars().next().unwrap();
+                    if ch.is_uppercase() {
+                        TokenKind::Const
+                    } else {
+                        TokenKind::Identifier
+                    }
                 } else {
-                    TokenKind::Identifier
+                    TokenKind::Error
                 }
             }
             b'0'..=b'9' => {
@@ -118,29 +118,27 @@ impl<'a> Lexer<'a> {
                         todo!("parse identifier after @");
                     }
                     b'0'..=b'9' => {
-                        return Err(Error::msg(format!(
-                            "unexpected character: {:?}",
-                            self.peek_byte()
-                        )));
+                        while is_ident_continue(self.peek_byte()) {
+                            self.pos += 1;
+                        }
+                        TokenKind::Error
                     }
                     _ => TokenKind::At,
                 }
             }
             _ => {
-                return Err(Error::msg(format!(
-                    "unexpected character: {:?}",
-                    self.peek_byte()
-                )));
+                self.pos += 1;
+                TokenKind::Error
             }
         };
         let end = self.pos;
-        Ok(Token {
+        Token {
             kind,
             range: CodeRange { start, end },
-        })
+        }
     }
 
-    fn lex_space(&mut self) -> Result<bool, Error> {
+    fn lex_space(&mut self) -> bool {
         let start = self.pos;
         loop {
             match self.peek_byte() {
@@ -166,12 +164,19 @@ impl<'a> Lexer<'a> {
                 }
             }
         }
-        Ok(self.pos > start)
+        self.pos > start
     }
 
     fn peek_byte(&mut self) -> u8 {
         self.input.get(self.pos).copied().unwrap_or(0)
     }
+}
+
+// fn is_ident_start(b: u8) -> bool {
+//     b.is_ascii_alphabetic() || b == b'_' || b >= 0x80
+// }
+fn is_ident_continue(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b >= 0x80
 }
 
 #[cfg(test)]
@@ -184,7 +189,7 @@ mod tests {
         let mut lexer = Lexer::new(input);
         let mut tokens = Vec::new();
         loop {
-            let token = lexer.lex().unwrap();
+            let token = lexer.lex();
             if token.kind == TokenKind::EOF {
                 break;
             }
