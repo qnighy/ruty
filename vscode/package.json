@@ -41,6 +41,7 @@
     "build:release:lsp": "cd ../lsp && cargo build --target wasm32-wasip1-threads --release && cp ../target/wasm32-wasip1-threads/release/ruty-lsp.wasm ../vscode/dist/lsp.wasm",
     "build:release:js": "webpack --mode production --devtool hidden-source-map",
     "open-in-browser": "vscode-test-web --extensionDevelopmentPath=. --coi ./sample-project",
+    "open-in-browser:open": "xdg-open http://localhost:3000 && vscode-test-web --extensionDevelopmentPath=. --coi ./sample-project --browser none",
     "tsc": "tsc -p . --noEmit"
   },
   "extensionDependencies": [
