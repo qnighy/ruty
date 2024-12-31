@@ -120,8 +120,20 @@ pub(super) enum TokenKind {
     EqMatch,
     /// `@`
     At,
+    /// End of file, which is one of:
+    ///
+    /// - The real end of file (0 bytes wide)
+    /// - The NUL (\\x00) character (1 byte wide)
+    /// - The EOT (\\x04) character (1 byte wide)
+    /// - The SUB (\\x1A) character (1 byte wide)
+    /// - The `__END__` keyword occupying the whole line (7 bytes wide)
+    ///
+    /// To simplify the lexer, the EOF result is not persisted.
+    /// Be careful not to consume the EOF token multiple times.
     EOF,
-    Error,
+    // Indicates a character sequence that the lexer cannot recognize.
+    // Always 1 byte or longer.
+    Unknown,
 }
 
 #[derive(Debug)]
@@ -172,7 +184,7 @@ impl<'a> Lexer<'a> {
                         }
                     }
                 } else {
-                    TokenKind::Error
+                    TokenKind::Unknown
                 }
             }
             b'0'..=b'9' => {
@@ -190,7 +202,7 @@ impl<'a> Lexer<'a> {
                         }
                         TokenKind::GvarName
                     }
-                    _ => TokenKind::Error,
+                    _ => TokenKind::Unknown,
                 }
             }
             b':' => {
@@ -240,7 +252,7 @@ impl<'a> Lexer<'a> {
                         while is_ident_continue(self.peek_byte()) {
                             self.pos += 1;
                         }
-                        TokenKind::Error
+                        TokenKind::Unknown
                     }
                     b'@' => {
                         self.pos += 1;
@@ -255,9 +267,9 @@ impl<'a> Lexer<'a> {
                                 while is_ident_continue(self.peek_byte()) {
                                     self.pos += 1;
                                 }
-                                TokenKind::Error
+                                TokenKind::Unknown
                             }
-                            _ => TokenKind::Error,
+                            _ => TokenKind::Unknown,
                         }
                     }
                     _ => TokenKind::At,
@@ -265,7 +277,7 @@ impl<'a> Lexer<'a> {
             }
             _ => {
                 self.pos += 1;
-                TokenKind::Error
+                TokenKind::Unknown
             }
         };
         let end = self.pos;
