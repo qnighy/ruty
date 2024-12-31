@@ -1,3 +1,5 @@
+use std::{collections::HashMap, sync::LazyLock};
+
 use crate::ast::CodeRange;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -6,8 +8,90 @@ pub(super) struct Token {
     pub(super) range: CodeRange,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum TokenKind {
+    /// `__ENCODING__`
+    KeywordCapitalDoubleUnderscoreEncoding,
+    /// `__LINE__`
+    KeywordCapitalDoubleUnderscoreLine,
+    /// `__FILE__`
+    KeywordCapitalDoubleUnderscoreFile,
+    /// `BEGIN`
+    KeywordCapitalBegin,
+    /// `END`
+    KeywordCapitalEnd,
+    /// `alias`
+    KeywordAlias,
+    /// `and`
+    KeywordAnd,
+    /// `begin`
+    KeywordBegin,
+    /// `break`
+    KeywordBreak,
+    /// `case`
+    KeywordCase,
+    /// `class`
+    KeywordClass,
+    /// `def`
+    KeywordDef,
+    /// `defined?`
+    KeywordDefinedQ,
+    /// `do`
+    KeywordDo,
+    /// `else`
+    KeywordElse,
+    /// `elsif`
+    KeywordElsif,
+    /// `end`
+    KeywordEnd,
+    /// `ensure`
+    KeywordEnsure,
+    /// `false`
+    KeywordFalse,
+    /// `for`
+    KeywordFor,
+    /// `if`
+    KeywordIf,
+    /// `in`
+    KeywordIn,
+    /// `module`
+    KeywordModule,
+    /// `next`
+    KeywordNext,
+    /// `nil`
+    KeywordNil,
+    /// `not`
+    KeywordNot,
+    /// `or`
+    KeywordOr,
+    /// `redo`
+    KeywordRedo,
+    /// `rescue`
+    KeywordRescue,
+    /// `retry`
+    KeywordRetry,
+    /// `return`
+    KeywordReturn,
+    /// `self`
+    KeywordSelf,
+    /// `super`
+    KeywordSuper,
+    /// `then`
+    KeywordThen,
+    /// `true`
+    KeywordTrue,
+    /// `undef`
+    KeywordUndef,
+    /// `unless`
+    KeywordUnless,
+    /// `until`
+    KeywordUntil,
+    /// `when`
+    KeywordWhen,
+    /// `while`
+    KeywordWhile,
+    /// `yield`
+    KeywordYield,
     /// `foo` etc.
     Identifier,
     /// `Foo` etc.
@@ -70,11 +154,22 @@ impl<'a> Lexer<'a> {
                     self.pos += 1;
                 }
                 if let Ok(s) = std::str::from_utf8(&self.input[start..self.pos]) {
-                    let ch = s.chars().next().unwrap();
-                    if ch.is_uppercase() {
-                        TokenKind::Const
+                    if let Some(kwd) = KEYWORDS.get(s).copied() {
+                        if kwd == TokenKind::EOF
+                            && (!self.is_beginning_of_line(start) || !self.is_end_of_line(self.pos))
+                        {
+                            // __END__ not in the beginning of a line should be treated as an identifier
+                            TokenKind::Identifier
+                        } else {
+                            kwd
+                        }
                     } else {
-                        TokenKind::Identifier
+                        let ch = s.chars().next().unwrap();
+                        if ch.is_uppercase() {
+                            TokenKind::Const
+                        } else {
+                            TokenKind::Identifier
+                        }
                     }
                 } else {
                     TokenKind::Error
@@ -212,6 +307,15 @@ impl<'a> Lexer<'a> {
     fn peek_byte(&mut self) -> u8 {
         self.input.get(self.pos).copied().unwrap_or(0)
     }
+
+    fn is_beginning_of_line(&self, pos: usize) -> bool {
+        pos == 0 || self.input[pos - 1] == b'\n'
+    }
+    fn is_end_of_line(&self, pos: usize) -> bool {
+        pos == self.input.len()
+            || self.input[pos] == b'\n'
+            || (self.input[pos] == b'\r' && self.input.get(pos + 1).copied() == Some(b'\n'))
+    }
 }
 
 // fn is_ident_start(b: u8) -> bool {
@@ -220,6 +324,57 @@ impl<'a> Lexer<'a> {
 fn is_ident_continue(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b >= 0x80
 }
+
+static KEYWORDS: LazyLock<HashMap<&'static str, TokenKind>> = LazyLock::new(|| {
+    HashMap::from_iter(vec![
+        (
+            "__ENCODING__",
+            TokenKind::KeywordCapitalDoubleUnderscoreEncoding,
+        ),
+        ("__LINE__", TokenKind::KeywordCapitalDoubleUnderscoreLine),
+        // It requires an additional position check
+        ("__END__", TokenKind::EOF),
+        ("__FILE__", TokenKind::KeywordCapitalDoubleUnderscoreFile),
+        ("BEGIN", TokenKind::KeywordCapitalBegin),
+        ("END", TokenKind::KeywordCapitalEnd),
+        ("alias", TokenKind::KeywordAlias),
+        ("and", TokenKind::KeywordAnd),
+        ("begin", TokenKind::KeywordBegin),
+        ("break", TokenKind::KeywordBreak),
+        ("case", TokenKind::KeywordCase),
+        ("class", TokenKind::KeywordClass),
+        ("def", TokenKind::KeywordDef),
+        ("defined?", TokenKind::KeywordDefinedQ),
+        ("do", TokenKind::KeywordDo),
+        ("else", TokenKind::KeywordElse),
+        ("elsif", TokenKind::KeywordElsif),
+        ("end", TokenKind::KeywordEnd),
+        ("ensure", TokenKind::KeywordEnsure),
+        ("false", TokenKind::KeywordFalse),
+        ("for", TokenKind::KeywordFor),
+        ("if", TokenKind::KeywordIf),
+        ("in", TokenKind::KeywordIn),
+        ("module", TokenKind::KeywordModule),
+        ("next", TokenKind::KeywordNext),
+        ("nil", TokenKind::KeywordNil),
+        ("not", TokenKind::KeywordNot),
+        ("or", TokenKind::KeywordOr),
+        ("redo", TokenKind::KeywordRedo),
+        ("rescue", TokenKind::KeywordRescue),
+        ("retry", TokenKind::KeywordRetry),
+        ("return", TokenKind::KeywordReturn),
+        ("self", TokenKind::KeywordSelf),
+        ("super", TokenKind::KeywordSuper),
+        ("then", TokenKind::KeywordThen),
+        ("true", TokenKind::KeywordTrue),
+        ("undef", TokenKind::KeywordUndef),
+        ("unless", TokenKind::KeywordUnless),
+        ("until", TokenKind::KeywordUntil),
+        ("when", TokenKind::KeywordWhen),
+        ("while", TokenKind::KeywordWhile),
+        ("yield", TokenKind::KeywordYield),
+    ])
+});
 
 #[cfg(test)]
 mod tests {
@@ -242,6 +397,71 @@ mod tests {
 
     fn token(kind: TokenKind, range: CodeRange) -> Token {
         Token { kind, range }
+    }
+
+    #[test]
+    fn test_lex_eof() {
+        let src = b"foo \0 bar";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::Identifier, pos_in(src, b"foo")),]
+        );
+        let src = b"foo \x04 bar";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::Identifier, pos_in(src, b"foo")),]
+        );
+        let src = b"foo \x1A bar";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::Identifier, pos_in(src, b"foo")),]
+        );
+        let src = b"foo \n__END__\n bar";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::Identifier, pos_in(src, b"foo")),]
+        );
+        let src = b"foo \n__END__\r\n bar";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::Identifier, pos_in(src, b"foo")),]
+        );
+        let src = b"foo \n__END__";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::Identifier, pos_in(src, b"foo")),]
+        );
+    }
+
+    #[test]
+    fn test_lex_non_eof() {
+        let src = b"foo \n__END__ \n bar";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"foo")),
+                token(TokenKind::Identifier, pos_in(src, b"__END__")),
+                token(TokenKind::Identifier, pos_in(src, b"bar")),
+            ]
+        );
+        let src = b"foo \n __END__\n bar";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"foo")),
+                token(TokenKind::Identifier, pos_in(src, b"__END__")),
+                token(TokenKind::Identifier, pos_in(src, b"bar")),
+            ]
+        );
+        let src = b"foo \n__END__\r bar";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"foo")),
+                token(TokenKind::Identifier, pos_in(src, b"__END__")),
+                token(TokenKind::Identifier, pos_in(src, b"bar")),
+            ]
+        );
     }
 
     #[test]
