@@ -108,6 +108,8 @@ pub(super) enum TokenKind {
     Colon,
     /// `::`
     ColonColon,
+    /// `;` or EOL in a certain condition, but most likely the latter.
+    Semicolon,
     /// `=`
     Eq,
     /// `==`
@@ -183,8 +185,8 @@ impl<'a> Lexer<'a> {
         self.input
     }
 
-    pub(super) fn lex(&mut self, _state: LexerState) -> Token {
-        self.lex_space();
+    pub(super) fn lex(&mut self, state: LexerState) -> Token {
+        self.lex_space(state);
         let start = self.pos;
         let kind = match self.peek_byte() {
             b'\0' | b'\x04' | b'\x1A' => {
@@ -192,6 +194,21 @@ impl<'a> Lexer<'a> {
                     self.pos += 1;
                 }
                 TokenKind::EOF
+            }
+            b'\n' => {
+                if self.pos >= 1 && self.input()[self.pos - 1] == b'\r' {
+                    // Include the preceding CR to form CRLF
+                    self.pos += 1;
+                    return Token {
+                        kind: TokenKind::Semicolon,
+                        range: CodeRange {
+                            start: self.pos - 1,
+                            end: self.pos,
+                        },
+                    };
+                }
+                self.pos += 1;
+                TokenKind::Semicolon
             }
             b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'\x80'.. => {
                 while is_ident_continue(self.peek_byte()) {
@@ -246,6 +263,10 @@ impl<'a> Lexer<'a> {
                     }
                     _ => TokenKind::Colon,
                 }
+            }
+            b';' => {
+                self.pos += 1;
+                TokenKind::Semicolon
             }
             b'=' => {
                 self.pos += 1;
@@ -319,26 +340,30 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn lex_space(&mut self) -> bool {
+    fn lex_space(&mut self, state: LexerState) -> bool {
+        let fold = match state {
+            LexerState::Begin => true,
+            LexerState::End => false,
+            LexerState::Meth => true,
+        };
         let start = self.pos;
         loop {
             match self.peek_byte() {
+                b'\n' if !fold => {
+                    if self.does_force_fold() {
+                        // No self.pos += 1 here beause does_force_fold already consumed it
+                    } else {
+                        // Should be consumed as a token
+                        break;
+                    }
+                }
                 b'\t' | b'\n' | b'\x0C' | b'\r' | b'\x13' | b' ' => {
                     self.pos += 1;
                 }
                 b'#' => {
-                    self.pos += 1;
-                    loop {
-                        match self.peek_byte() {
-                            b'\n' => {
-                                self.pos += 1;
-                                break;
-                            }
-                            _ => {
-                                self.pos += 1;
-                            }
-                        }
-                    }
+                    self.skip_line();
+                    // Do not eat the next LF (even if it exists)
+                    // The LF, if any, should be processed in the next iteration
                 }
                 _ => {
                     break;
@@ -348,8 +373,67 @@ impl<'a> Lexer<'a> {
         self.pos > start
     }
 
+    fn does_force_fold(&mut self) -> bool {
+        let rollback = self.pos;
+        // Skip the current LF byte
+        self.pos += 1;
+
+        loop {
+            match self.peek_byte() {
+                b'\t' | b'\x0C' | b'\r' | b'\x13' | b' ' => {
+                    self.pos += 1;
+                }
+                b'#' => {
+                    self.skip_line();
+                    if self.peek_byte() == b'\n' {
+                        self.pos += 1;
+                    }
+                }
+                _ => {
+                    break;
+                }
+            }
+        }
+        // Check if there is '.' (except '..') or '&.', which is force-fold indicator
+        let force_fold = match self.peek_byte() {
+            b'.' => match self.peek_byte_at(1) {
+                b'.' => false,
+                _ => true,
+            },
+            b'&' => match self.peek_byte_at(1) {
+                b'.' => true,
+                _ => false,
+            },
+            _ => false,
+        };
+        if !force_fold {
+            // Rollback when not force-folding as we want to re-scan the current LF byte
+            // as a semicolon token.
+            self.pos = rollback;
+        }
+        force_fold
+    }
+
+    // Stops before the next LF or EOF.
+    fn skip_line(&mut self) {
+        loop {
+            match self.peek_byte() {
+                b'\0' | b'\x04' | b'\x1A' | b'\n' => {
+                    break;
+                }
+                _ => {
+                    self.pos += 1;
+                }
+            }
+        }
+    }
+
     fn peek_byte(&mut self) -> u8 {
         self.input.get(self.pos).copied().unwrap_or(0)
+    }
+
+    fn peek_byte_at(&mut self, offset: usize) -> u8 {
+        self.input.get(self.pos + offset).copied().unwrap_or(0)
     }
 
     fn is_beginning_of_line(&self, pos: usize) -> bool {
@@ -422,7 +506,7 @@ static KEYWORDS: LazyLock<HashMap<&'static str, TokenKind>> = LazyLock::new(|| {
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::pos_in;
+    use crate::ast::{pos_in, pos_in_at};
 
     use super::*;
 
@@ -492,6 +576,7 @@ mod tests {
             TokenKind::Integer => LexerState::End,
             TokenKind::Colon => LexerState::Begin,
             TokenKind::ColonColon => LexerState::Begin,
+            TokenKind::Semicolon => LexerState::Begin,
             TokenKind::Eq => LexerState::Begin,
             TokenKind::EqEq => LexerState::Begin,
             TokenKind::EqEqEq => LexerState::Begin,
@@ -527,17 +612,26 @@ mod tests {
         let src = b"foo \n__END__\n bar";
         assert_eq!(
             lex_all(src),
-            vec![token(TokenKind::Identifier, pos_in(src, b"foo")),]
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"foo")),
+                token(TokenKind::Semicolon, pos_in(src, b"\n")),
+            ]
         );
         let src = b"foo \n__END__\r\n bar";
         assert_eq!(
             lex_all(src),
-            vec![token(TokenKind::Identifier, pos_in(src, b"foo")),]
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"foo")),
+                token(TokenKind::Semicolon, pos_in(src, b"\n")),
+            ]
         );
         let src = b"foo \n__END__";
         assert_eq!(
             lex_all(src),
-            vec![token(TokenKind::Identifier, pos_in(src, b"foo")),]
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"foo")),
+                token(TokenKind::Semicolon, pos_in(src, b"\n")),
+            ]
         );
     }
 
@@ -548,7 +642,9 @@ mod tests {
             lex_all(src),
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo")),
+                token(TokenKind::Semicolon, pos_in(src, b"\n")),
                 token(TokenKind::Identifier, pos_in(src, b"__END__")),
+                token(TokenKind::Semicolon, pos_in_at(src, b"\n", 1)),
                 token(TokenKind::Identifier, pos_in(src, b"bar")),
             ]
         );
@@ -557,7 +653,9 @@ mod tests {
             lex_all(src),
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo")),
+                token(TokenKind::Semicolon, pos_in(src, b"\n")),
                 token(TokenKind::Identifier, pos_in(src, b"__END__")),
+                token(TokenKind::Semicolon, pos_in_at(src, b"\n", 1)),
                 token(TokenKind::Identifier, pos_in(src, b"bar")),
             ]
         );
@@ -566,6 +664,7 @@ mod tests {
             lex_all(src),
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo")),
+                token(TokenKind::Semicolon, pos_in(src, b"\n")),
                 token(TokenKind::Identifier, pos_in(src, b"__END__")),
                 token(TokenKind::Identifier, pos_in(src, b"bar")),
             ]
@@ -580,7 +679,64 @@ mod tests {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo")),
                 token(TokenKind::Identifier, pos_in(src, b"bar")),
+                token(TokenKind::Semicolon, pos_in(src, b"\n")),
                 token(TokenKind::Identifier, pos_in(src, b"baz")),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lex_semicolon() {
+        let src = b"foo;bar";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"foo")),
+                token(TokenKind::Semicolon, pos_in(src, b";")),
+                token(TokenKind::Identifier, pos_in(src, b"bar")),
+            ]
+        );
+
+        let src = b"foo\nbar";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"foo")),
+                token(TokenKind::Semicolon, pos_in(src, b"\n")),
+                token(TokenKind::Identifier, pos_in(src, b"bar")),
+            ]
+        );
+
+        let src = b"do\nbar";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::KeywordDo, pos_in(src, b"do")),
+                token(TokenKind::Identifier, pos_in(src, b"bar")),
+            ]
+        );
+
+        let src = b"foo\n  .bar";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"foo")),
+                // TODO: promote it to TokenKind::Dot
+                token(TokenKind::Unknown, pos_in(src, b".")),
+                token(TokenKind::Identifier, pos_in(src, b"bar")),
+            ]
+        );
+
+        let src = b"foo\n  ..bar";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"foo")),
+                token(TokenKind::Semicolon, pos_in(src, b"\n")),
+                // TODO: promote them to TokenKind::DotDot
+                token(TokenKind::Unknown, pos_in(src, b".")),
+                token(TokenKind::Unknown, pos_in_at(src, b".", 1)),
+                token(TokenKind::Identifier, pos_in(src, b"bar")),
             ]
         );
     }
@@ -593,7 +749,9 @@ mod tests {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo")),
                 token(TokenKind::Identifier, pos_in(src, b"bar")),
+                token(TokenKind::Semicolon, pos_in_at(src, b"\n", 1)),
                 token(TokenKind::Identifier, pos_in(src, b"baz")),
+                token(TokenKind::Semicolon, pos_in_at(src, b"\n", 3)),
             ]
         );
     }
