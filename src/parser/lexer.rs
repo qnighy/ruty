@@ -173,3 +173,91 @@ impl<'a> Lexer<'a> {
         self.input.get(self.pos).copied().unwrap_or(0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::ast::pos_in;
+
+    use super::*;
+
+    fn lex_all(input: &[u8]) -> Vec<Token> {
+        let mut lexer = Lexer::new(input);
+        let mut tokens = Vec::new();
+        loop {
+            let token = lexer.lex().unwrap();
+            if token.kind == TokenKind::EOF {
+                break;
+            }
+            tokens.push(token);
+        }
+        tokens
+    }
+
+    fn token(kind: TokenKind, range: CodeRange) -> Token {
+        Token { kind, range }
+    }
+
+    #[test]
+    fn test_lex_spaces() {
+        let src = b"foo bar\nbaz";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"foo")),
+                token(TokenKind::Identifier, pos_in(src, b"bar")),
+                token(TokenKind::Identifier, pos_in(src, b"baz")),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lex_comments() {
+        let src = b"# comment2\nfoo bar # comment1\n# comment3\nbaz\n";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"foo")),
+                token(TokenKind::Identifier, pos_in(src, b"bar")),
+                token(TokenKind::Identifier, pos_in(src, b"baz")),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lex_ident() {
+        let src = b"foo bar123 \xE3\x81\x82";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"foo")),
+                token(TokenKind::Identifier, pos_in(src, b"bar123")),
+                token(TokenKind::Identifier, pos_in(src, b"\xE3\x81\x82")),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lex_const() {
+        let src = b"Foo Bar123 \xCE\xA9";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::Const, pos_in(src, b"Foo")),
+                token(TokenKind::Const, pos_in(src, b"Bar123")),
+                token(TokenKind::Const, pos_in(src, b"\xCE\xA9")),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lex_integer() {
+        let src = b"123 456";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::Integer, pos_in(src, b"123")),
+                token(TokenKind::Integer, pos_in(src, b"456")),
+            ]
+        );
+    }
+}
