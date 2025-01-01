@@ -52,6 +52,8 @@ pub(super) enum TokenKind {
     KeywordFor,
     /// `if`
     KeywordIf,
+    /// `if` postfix
+    KeywordIfInfix,
     /// `in`
     KeywordIn,
     /// `module`
@@ -84,32 +86,116 @@ pub(super) enum TokenKind {
     KeywordUndef,
     /// `unless`
     KeywordUnless,
+    /// `unless` postfix
+    KeywordUnlessInfix,
     /// `until`
     KeywordUntil,
+    /// `until` postfix
+    KeywordUntilInfix,
     /// `when`
     KeywordWhen,
     /// `while`
     KeywordWhile,
+    /// `while` postfix
+    KeywordWhileInfix,
     /// `yield`
     KeywordYield,
+
     /// `foo` etc.
     Identifier,
     /// `Foo` etc.
     Const,
+    /// `foo!` etc.
+    MethodName,
+    /// `foo:` etc.
+    Label,
+    /// `:foo` etc.
+    Symbol,
     /// `@foo` etc.
     IvarName,
     /// `@@foo` etc.
     CvarName,
     /// `$foo` etc.
     GvarName,
+
+    // TODO: merge Integer/Float/Rational/Imaginary into Numeric
     /// `123` etc.
     Integer,
+    /// `123.0` etc.
+    Float,
+    /// `123r` etc.
+    Rational,
+    /// `123i` etc.
+    Imaginary,
+    /// `?a` etc.
+    CharLiteral,
+
+    /// `"`, `'`, `:"`, `/` etc. in expr context.
+    StringBegin,
+    /// `"` etc. in String-like context.
+    StringEnd,
+    /// `":` etc. in String-like context.
+    StringEndColon,
+    /// `foo` as in `"foo"`
+    StringContent,
+    /// `#{`
+    StringInterpolationBegin,
+
+    /// `+=` etc.
+    OpAssign,
+
+    /// `!`
+    Excl,
+    /// `!=`
+    ExclEq,
+    /// `!~`
+    ExclTilde,
+    /// `%`
+    Percent,
+    /// `&`
+    Amp,
+    /// `&&`
+    AmpAmp,
+    /// `&.`
+    AmpDot,
+    /// `(`
+    LParen,
+    /// `)`
+    RParen,
+    /// `*`
+    Star,
+    /// `**`
+    StarStar,
+    /// `+`
+    Plus,
+    /// `,`
+    Comma,
+    /// `-`
+    Minus,
+    /// `->`
+    Arrow,
+    /// `.`
+    Dot,
+    /// `..`
+    DotDot,
+    /// `...`
+    DotDotDot,
+    /// `/`
+    Slash,
     /// `:`
     Colon,
     /// `::`
     ColonColon,
     /// `;` or EOL in a certain condition, but most likely the latter.
     Semicolon,
+    /// `<`
+    Lt,
+    /// `<<`
+    LtLt,
+    /// `<=`
+    LtEq,
+    /// `<=>`
+    LtEqGt,
     /// `=`
     Eq,
     /// `==`
@@ -120,8 +206,32 @@ pub(super) enum TokenKind {
     FatArrow,
     /// `=~`
     EqMatch,
+    /// `>`
+    Gt,
+    /// `>=`
+    GtEq,
+    /// `>>`
+    GtGt,
+    /// `?`
+    Question,
     /// `@`
     At,
+    /// `[`
+    LBracket,
+    /// `]`
+    RBracket,
+    /// `^`
+    Caret,
+    /// `{`
+    LBrace,
+    /// `|`
+    Vert,
+    /// `||`
+    VertVert,
+    /// `}`
+    RBrace,
+    /// `~`
+    Tilde,
     /// End of file, which is one of:
     ///
     /// - The real end of file (0 bytes wide)
@@ -242,6 +352,35 @@ impl<'a> Lexer<'a> {
                 }
                 TokenKind::Integer
             }
+            // `!`
+            // `!@`
+            // `!=`
+            // `!~`
+            b'!' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'=' => {
+                        self.pos += 1;
+                        TokenKind::ExclEq
+                    }
+                    b'@' if state == LexerState::Meth => {
+                        self.pos += 1;
+                        TokenKind::MethodName
+                    }
+                    b'~' => {
+                        self.pos += 1;
+                        TokenKind::ExclTilde
+                    }
+                    _ => TokenKind::Excl,
+                }
+            }
+            b'"' => {
+                self.pos += 1;
+                TokenKind::StringBegin
+            }
+            b'#' => {
+                unreachable!("Should have been skipped by lex_space");
+            }
             b'$' => {
                 self.pos += 1;
                 match self.peek_byte() {
@@ -254,9 +393,186 @@ impl<'a> Lexer<'a> {
                     _ => TokenKind::Unknown,
                 }
             }
+            b'%' => {
+                self.pos += 1;
+                TokenKind::Percent
+            }
+            // `&`
+            // `&&`
+            // `&&=`
+            // `&.`
+            // `&=`
+            b'&' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'&' => {
+                        self.pos += 1;
+                        match self.peek_byte() {
+                            b'=' => {
+                                self.pos += 1;
+                                TokenKind::OpAssign
+                            }
+                            _ => TokenKind::AmpAmp,
+                        }
+                    }
+                    b'.' => {
+                        self.pos += 1;
+                        TokenKind::AmpDot
+                    }
+                    b'=' => {
+                        self.pos += 1;
+                        TokenKind::OpAssign
+                    }
+                    _ => TokenKind::Amp,
+                }
+            }
+            b'\'' => {
+                self.pos += 1;
+                TokenKind::StringBegin
+            }
+            b'(' => {
+                self.pos += 1;
+                TokenKind::LParen
+            }
+            b')' => {
+                self.pos += 1;
+                TokenKind::RParen
+            }
+            // `*`
+            // `**`
+            // `**=`
+            // `*=`
+            b'*' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'*' => {
+                        self.pos += 1;
+                        match self.peek_byte() {
+                            b'=' => {
+                                self.pos += 1;
+                                TokenKind::OpAssign
+                            }
+                            _ => TokenKind::StarStar,
+                        }
+                    }
+                    b'=' => {
+                        self.pos += 1;
+                        TokenKind::OpAssign
+                    }
+                    _ => TokenKind::Star,
+                }
+            }
+            // `+`
+            // `+@`
+            // `+=`
+            b'+' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'@' if state == LexerState::Meth => {
+                        self.pos += 1;
+                        TokenKind::MethodName
+                    }
+                    b'=' => {
+                        self.pos += 1;
+                        TokenKind::OpAssign
+                    }
+                    _ => TokenKind::Plus,
+                }
+            }
+            b',' => {
+                self.pos += 1;
+                TokenKind::Comma
+            }
+            // `-`
+            // `-@`
+            // `-=`
+            // `->`
+            // `-123`
+            b'-' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'0'..=b'9'
+                        if state == LexerState::Begin && self.peek_byte_at(1).is_ascii_digit() =>
+                    {
+                        while self.peek_byte().is_ascii_digit() {
+                            self.pos += 1;
+                        }
+                        TokenKind::Integer
+                    }
+                    b'@' if state == LexerState::Meth => {
+                        self.pos += 1;
+                        TokenKind::MethodName
+                    }
+                    b'=' => {
+                        self.pos += 1;
+                        TokenKind::OpAssign
+                    }
+                    b'>' => {
+                        self.pos += 1;
+                        TokenKind::Arrow
+                    }
+                    _ => TokenKind::Minus,
+                }
+            }
+            // `.`
+            // `..`
+            // `...`
+            // `.123` (which is an invalid float)
+            b'.' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'.' => {
+                        self.pos += 1;
+                        match self.peek_byte() {
+                            b'.' => {
+                                self.pos += 1;
+                                TokenKind::DotDotDot
+                            }
+                            _ => TokenKind::DotDot,
+                        }
+                    }
+                    b'0'..=b'9' => {
+                        while self.peek_byte().is_ascii_digit() {
+                            self.pos += 1;
+                        }
+                        TokenKind::Unknown
+                    }
+                    _ => TokenKind::Dot,
+                }
+            }
+            // `/`
+            // `/=`
+            b'/' => {
+                self.pos += 1;
+                if state == LexerState::Begin {
+                    TokenKind::StringBegin
+                } else {
+                    match self.peek_byte() {
+                        b'=' => {
+                            self.pos += 1;
+                            TokenKind::OpAssign
+                        }
+                        _ => TokenKind::Slash,
+                    }
+                }
+            }
             b':' => {
                 self.pos += 1;
                 match self.peek_byte() {
+                    b if is_ident_continue(b) => {
+                        while is_ident_continue(self.peek_byte()) {
+                            self.pos += 1;
+                        }
+                        TokenKind::Symbol
+                    }
+                    b'"' => {
+                        self.pos += 1;
+                        TokenKind::StringBegin
+                    }
+                    b'\'' => {
+                        self.pos += 1;
+                        TokenKind::StringBegin
+                    }
                     b':' => {
                         self.pos += 1;
                         TokenKind::ColonColon
@@ -267,6 +583,32 @@ impl<'a> Lexer<'a> {
             b';' => {
                 self.pos += 1;
                 TokenKind::Semicolon
+            }
+            b'<' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'<' => {
+                        self.pos += 1;
+                        match self.peek_byte() {
+                            b'=' => {
+                                self.pos += 1;
+                                TokenKind::OpAssign
+                            }
+                            _ => TokenKind::LtLt,
+                        }
+                    }
+                    b'=' => {
+                        self.pos += 1;
+                        match self.peek_byte() {
+                            b'>' => {
+                                self.pos += 1;
+                                TokenKind::LtEqGt
+                            }
+                            _ => TokenKind::LtEq,
+                        }
+                    }
+                    _ => TokenKind::Lt,
+                }
             }
             b'=' => {
                 self.pos += 1;
@@ -290,6 +632,49 @@ impl<'a> Lexer<'a> {
                         TokenKind::EqMatch
                     }
                     _ => TokenKind::Eq,
+                }
+            }
+            b'>' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'=' => {
+                        self.pos += 1;
+                        TokenKind::GtEq
+                    }
+                    b'>' => {
+                        self.pos += 1;
+                        match self.peek_byte() {
+                            b'=' => {
+                                self.pos += 1;
+                                TokenKind::OpAssign
+                            }
+                            _ => TokenKind::GtGt,
+                        }
+                    }
+                    _ => TokenKind::Gt,
+                }
+            }
+            b'?' => {
+                self.pos += 1;
+                if state == LexerState::End {
+                    TokenKind::Question
+                } else {
+                    match self.peek_byte() {
+                        b'\t' | b'\n' | b'\x0B' | b'\x0C' | b'\r' | b' ' => TokenKind::Question,
+                        b if is_ident_continue(b) => {
+                            let char_start = self.pos;
+                            while is_ident_continue(self.peek_byte()) {
+                                self.pos += 1;
+                            }
+                            if self.pos - char_start == 1 {
+                                TokenKind::CharLiteral
+                            } else {
+                                self.pos = char_start;
+                                TokenKind::Question
+                            }
+                        }
+                        _ => TokenKind::Question,
+                    }
                 }
             }
             b'@' => {
@@ -328,6 +713,85 @@ impl<'a> Lexer<'a> {
                     _ => TokenKind::At,
                 }
             }
+            b'[' => {
+                self.pos += 1;
+                if state == LexerState::Meth && self.peek_byte() == b']' {
+                    self.pos += 1;
+                    match self.peek_byte() {
+                        b'=' => {
+                            self.pos += 1;
+                            TokenKind::MethodName
+                        }
+                        _ => TokenKind::MethodName,
+                    }
+                } else {
+                    TokenKind::LBracket
+                }
+            }
+            b']' => {
+                self.pos += 1;
+                TokenKind::RBracket
+            }
+            b'^' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'=' => {
+                        self.pos += 1;
+                        TokenKind::OpAssign
+                    }
+                    _ => TokenKind::Caret,
+                }
+            }
+            b'`' => {
+                self.pos += 1;
+                if state == LexerState::Meth {
+                    TokenKind::MethodName
+                } else {
+                    TokenKind::StringBegin
+                }
+            }
+            b'{' => {
+                self.pos += 1;
+                TokenKind::LBrace
+            }
+            b'|' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'|' => {
+                        self.pos += 1;
+                        match self.peek_byte() {
+                            b'=' => {
+                                self.pos += 1;
+                                TokenKind::OpAssign
+                            }
+                            _ if state == LexerState::Begin => {
+                                self.pos -= 1;
+                                TokenKind::Vert
+                            }
+                            _ => TokenKind::VertVert,
+                        }
+                    }
+                    b'=' => {
+                        self.pos += 1;
+                        TokenKind::OpAssign
+                    }
+                    _ => TokenKind::Vert,
+                }
+            }
+            b'}' => {
+                self.pos += 1;
+                TokenKind::RBrace
+            }
+            b'~' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'@' if state == LexerState::Meth => {
+                        self.pos += 1;
+                        TokenKind::MethodName
+                    }
+                    _ => TokenKind::Tilde,
+                }
+            }
             _ => {
                 self.pos += 1;
                 TokenKind::Unknown
@@ -359,6 +823,15 @@ impl<'a> Lexer<'a> {
                 }
                 b'\t' | b'\n' | b'\x0C' | b'\r' | b'\x13' | b' ' => {
                     self.pos += 1;
+                }
+                b'\\' => {
+                    if self.peek_byte_at(1) == b'\n' {
+                        self.pos += 2;
+                    } else if self.peek_byte_at(1) == b'\r' && self.peek_byte_at(2) == b'\n' {
+                        self.pos += 3;
+                    } else {
+                        break;
+                    }
                 }
                 b'#' => {
                     self.skip_line();
@@ -548,6 +1021,7 @@ mod tests {
             TokenKind::KeywordFalse => LexerState::End,
             TokenKind::KeywordFor => LexerState::Begin,
             TokenKind::KeywordIf => LexerState::Begin,
+            TokenKind::KeywordIfInfix => LexerState::Begin,
             TokenKind::KeywordIn => LexerState::Begin,
             TokenKind::KeywordModule => LexerState::Begin,
             TokenKind::KeywordNext => LexerState::Begin,
@@ -564,25 +1038,76 @@ mod tests {
             TokenKind::KeywordTrue => LexerState::End,
             TokenKind::KeywordUndef => LexerState::Meth,
             TokenKind::KeywordUnless => LexerState::Begin,
+            TokenKind::KeywordUnlessInfix => LexerState::Begin,
             TokenKind::KeywordUntil => LexerState::Begin,
+            TokenKind::KeywordUntilInfix => LexerState::Begin,
             TokenKind::KeywordWhen => LexerState::Begin,
             TokenKind::KeywordWhile => LexerState::Begin,
+            TokenKind::KeywordWhileInfix => LexerState::Begin,
             TokenKind::KeywordYield => LexerState::Begin,
             TokenKind::Identifier => LexerState::End,
             TokenKind::Const => LexerState::End,
+            TokenKind::MethodName => LexerState::End,
+            TokenKind::Label => LexerState::Begin,
+            TokenKind::Symbol => LexerState::End,
             TokenKind::IvarName => LexerState::End,
             TokenKind::CvarName => LexerState::End,
             TokenKind::GvarName => LexerState::End,
             TokenKind::Integer => LexerState::End,
+            TokenKind::Float => LexerState::End,
+            TokenKind::Rational => LexerState::End,
+            TokenKind::Imaginary => LexerState::End,
+            TokenKind::CharLiteral => LexerState::End,
+            TokenKind::StringBegin => LexerState::Begin,
+            TokenKind::StringEnd => LexerState::End,
+            TokenKind::StringEndColon => LexerState::Begin,
+            TokenKind::StringContent => LexerState::Begin,
+            TokenKind::StringInterpolationBegin => LexerState::Begin,
+            TokenKind::OpAssign => LexerState::Begin,
+            TokenKind::Excl => LexerState::Begin,
+            TokenKind::ExclEq => LexerState::Begin,
+            TokenKind::ExclTilde => LexerState::Begin,
+            TokenKind::Percent => LexerState::Begin,
+            TokenKind::Amp => LexerState::Begin,
+            TokenKind::AmpAmp => LexerState::Begin,
+            TokenKind::AmpDot => LexerState::Meth,
+            TokenKind::LParen => LexerState::Begin,
+            TokenKind::RParen => LexerState::End,
+            TokenKind::Star => LexerState::Begin,
+            TokenKind::StarStar => LexerState::Begin,
+            TokenKind::Plus => LexerState::Begin,
+            TokenKind::Comma => LexerState::Begin,
+            TokenKind::Minus => LexerState::Begin,
+            TokenKind::Arrow => LexerState::Begin,
+            TokenKind::Dot => LexerState::Meth,
+            TokenKind::DotDot => LexerState::Begin,
+            TokenKind::DotDotDot => LexerState::Begin,
+            TokenKind::Slash => LexerState::Begin,
             TokenKind::Colon => LexerState::Begin,
             TokenKind::ColonColon => LexerState::Begin,
             TokenKind::Semicolon => LexerState::Begin,
+            TokenKind::Lt => LexerState::Begin,
+            TokenKind::LtLt => LexerState::Begin,
+            TokenKind::LtEq => LexerState::Begin,
+            TokenKind::LtEqGt => LexerState::Begin,
             TokenKind::Eq => LexerState::Begin,
             TokenKind::EqEq => LexerState::Begin,
             TokenKind::EqEqEq => LexerState::Begin,
             TokenKind::FatArrow => LexerState::Begin,
             TokenKind::EqMatch => LexerState::Begin,
+            TokenKind::Gt => LexerState::Begin,
+            TokenKind::GtEq => LexerState::Begin,
+            TokenKind::GtGt => LexerState::Begin,
+            TokenKind::Question => LexerState::Begin,
             TokenKind::At => LexerState::Begin,
+            TokenKind::LBracket => LexerState::Begin,
+            TokenKind::RBracket => LexerState::End,
+            TokenKind::Caret => LexerState::Begin,
+            TokenKind::LBrace => LexerState::Begin,
+            TokenKind::Vert => LexerState::Begin,
+            TokenKind::VertVert => LexerState::Begin,
+            TokenKind::RBrace => LexerState::End,
+            TokenKind::Tilde => LexerState::Begin,
             TokenKind::EOF => LexerState::Begin,
             TokenKind::Unknown => LexerState::Begin,
         }
@@ -721,8 +1246,7 @@ mod tests {
             lex_all(src),
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo")),
-                // TODO: promote it to TokenKind::Dot
-                token(TokenKind::Unknown, pos_in(src, b".")),
+                token(TokenKind::Dot, pos_in(src, b".")),
                 token(TokenKind::Identifier, pos_in(src, b"bar")),
             ]
         );
@@ -733,9 +1257,7 @@ mod tests {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo")),
                 token(TokenKind::Semicolon, pos_in(src, b"\n")),
-                // TODO: promote them to TokenKind::DotDot
-                token(TokenKind::Unknown, pos_in(src, b".")),
-                token(TokenKind::Unknown, pos_in_at(src, b".", 1)),
+                token(TokenKind::DotDot, pos_in(src, b"..")),
                 token(TokenKind::Identifier, pos_in(src, b"bar")),
             ]
         );
