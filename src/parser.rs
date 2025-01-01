@@ -50,7 +50,7 @@ impl<'a> Parser<'a> {
 
     fn parse_whole_program(&mut self, diag: &mut Vec<Diagnostic>) -> Program {
         let stmt_list = self.parse_stmt_list(diag);
-        let token = self.fill_token(LexerState::End);
+        let token = self.fill_token(diag, LexerState::End);
         match token.kind {
             TokenKind::EOF => {}
             _ => {
@@ -73,7 +73,7 @@ impl<'a> Parser<'a> {
         let mut semi_prefix = Vec::<CodeRange>::new();
         let mut stmts = Vec::<Stmt>::new();
         loop {
-            let token = self.fill_token(LexerState::Begin);
+            let token = self.fill_token(diag, LexerState::Begin);
             match token.kind {
                 TokenKind::EOF => break,
                 TokenKind::Semicolon => {
@@ -107,7 +107,7 @@ impl<'a> Parser<'a> {
 
     fn parse_whole_expr(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
         let expr = self.parse_expr_lv_assignment(diag);
-        let token = self.fill_token(LexerState::End);
+        let token = self.fill_token(diag, LexerState::End);
         match token.kind {
             TokenKind::EOF => {}
             _ => {
@@ -122,7 +122,7 @@ impl<'a> Parser<'a> {
 
     fn parse_expr_lv_assignment(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
         let expr = self.parse_expr_lv_type_annotated(diag);
-        let token = self.fill_token(LexerState::End);
+        let token = self.fill_token(diag, LexerState::End);
         match token.kind {
             TokenKind::Eq => {
                 self.bump();
@@ -161,7 +161,7 @@ impl<'a> Parser<'a> {
     fn parse_expr_lv_type_annotated(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
         let mut expr = self.parse_expr_lv_primary(diag);
         loop {
-            let token = self.fill_token(LexerState::End);
+            let token = self.fill_token(diag, LexerState::End);
             match token.kind {
                 TokenKind::At => {
                     self.bump();
@@ -193,7 +193,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr_lv_primary(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
-        let token = self.fill_token(LexerState::Begin);
+        let token = self.fill_token(diag, LexerState::Begin);
         match token.kind {
             TokenKind::Identifier => {
                 self.bump();
@@ -226,7 +226,7 @@ impl<'a> Parser<'a> {
 
     fn parse_whole_type(&mut self, diag: &mut Vec<Diagnostic>) -> Type {
         let ty = self.parse_type(diag);
-        let token = self.fill_token(LexerState::End);
+        let token = self.fill_token(diag, LexerState::End);
         match token.kind {
             TokenKind::EOF => {}
             _ => {
@@ -240,7 +240,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_type(&mut self, diag: &mut Vec<Diagnostic>) -> Type {
-        let token = self.fill_token(LexerState::Begin);
+        let token = self.fill_token(diag, LexerState::Begin);
         self.bump();
         match token.kind {
             TokenKind::Const => {
@@ -267,11 +267,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn fill_token(&mut self, state: LexerState) -> Token {
+    fn fill_token(&mut self, diag: &mut Vec<Diagnostic>, state: LexerState) -> Token {
         if let Some(token) = self.next_token {
             token
         } else {
-            let token = self.lexer.lex(state);
+            let token = self.lexer.lex(diag, state);
             self.next_token = Some(token);
             token
         }

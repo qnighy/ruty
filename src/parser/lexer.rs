@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::LazyLock};
 
-use crate::ast::CodeRange;
+use crate::{ast::CodeRange, Diagnostic};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Token {
@@ -295,8 +295,8 @@ impl<'a> Lexer<'a> {
         self.input
     }
 
-    pub(super) fn lex(&mut self, state: LexerState) -> Token {
-        self.lex_space(state);
+    pub(super) fn lex(&mut self, diag: &mut Vec<Diagnostic>, state: LexerState) -> Token {
+        self.lex_space(diag, state);
         let start = self.pos;
         let kind = match self.peek_byte() {
             b'\0' | b'\x04' | b'\x1A' => {
@@ -535,7 +535,14 @@ impl<'a> Lexer<'a> {
                         while self.peek_byte().is_ascii_digit() {
                             self.pos += 1;
                         }
-                        TokenKind::Unknown
+                        diag.push(Diagnostic {
+                            range: CodeRange {
+                                start,
+                                end: self.pos,
+                            },
+                            message: format!("Invalid float literal"),
+                        });
+                        TokenKind::Float
                     }
                     _ => TokenKind::Dot,
                 }
@@ -680,34 +687,45 @@ impl<'a> Lexer<'a> {
             b'@' => {
                 self.pos += 1;
                 match self.peek_byte() {
-                    b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'\x80'.. => {
+                    b if is_ident_continue(b) => {
+                        let is_numeric = b.is_ascii_digit();
                         while is_ident_continue(self.peek_byte()) {
                             self.pos += 1;
+                        }
+                        if is_numeric {
+                            diag.push(Diagnostic {
+                                range: CodeRange {
+                                    start,
+                                    end: self.pos,
+                                },
+                                message: format!("Invalid instance variable name"),
+                            });
                         }
                         TokenKind::IvarName
-                    }
-                    b'0'..=b'9' => {
-                        while is_ident_continue(self.peek_byte()) {
-                            self.pos += 1;
-                        }
-                        TokenKind::Unknown
                     }
                     b'@' => {
                         self.pos += 1;
                         match self.peek_byte() {
-                            b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'\x80'.. => {
+                            b if is_ident_continue(b) => {
+                                let is_numeric = b.is_ascii_digit();
                                 while is_ident_continue(self.peek_byte()) {
                                     self.pos += 1;
+                                }
+                                if is_numeric {
+                                    diag.push(Diagnostic {
+                                        range: CodeRange {
+                                            start,
+                                            end: self.pos,
+                                        },
+                                        message: format!("Invalid class variable name"),
+                                    });
                                 }
                                 TokenKind::CvarName
                             }
-                            b'0'..=b'9' => {
-                                while is_ident_continue(self.peek_byte()) {
-                                    self.pos += 1;
-                                }
-                                TokenKind::Unknown
+                            _ => {
+                                self.pos -= 1;
+                                TokenKind::At
                             }
-                            _ => TokenKind::Unknown,
                         }
                     }
                     _ => TokenKind::At,
@@ -804,7 +822,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn lex_space(&mut self, state: LexerState) -> bool {
+    fn lex_space(&mut self, diag: &mut Vec<Diagnostic>, state: LexerState) -> bool {
         let fold = match state {
             LexerState::Begin => true,
             LexerState::End => false,
@@ -984,11 +1002,12 @@ mod tests {
     use super::*;
 
     fn lex_all(input: &[u8]) -> Vec<Token> {
+        let mut diag = Vec::<Diagnostic>::new();
         let mut lexer = Lexer::new(input);
         let mut tokens = Vec::new();
         let mut state = LexerState::default();
         loop {
-            let token = lexer.lex(state);
+            let token = lexer.lex(&mut diag, state);
             if token.kind == TokenKind::EOF {
                 break;
             }
