@@ -1298,6 +1298,225 @@ mod tests {
     }
 
     #[test]
+    fn test_lex_keywords() {
+        let src = b"__ENCODING__";
+        assert_eq!(
+            lex_all(src),
+            vec![token(
+                TokenKind::KeywordCapitalDoubleUnderscoreEncoding,
+                pos_in(src, b"__ENCODING__")
+            ),]
+        );
+        let src = b"__LINE__";
+        assert_eq!(
+            lex_all(src),
+            vec![token(
+                TokenKind::KeywordCapitalDoubleUnderscoreLine,
+                pos_in(src, b"__LINE__")
+            ),]
+        );
+        let src = b"__FILE__";
+        assert_eq!(
+            lex_all(src),
+            vec![token(
+                TokenKind::KeywordCapitalDoubleUnderscoreFile,
+                pos_in(src, b"__FILE__")
+            ),]
+        );
+        let src = b"BEGIN";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordCapitalBegin, pos_in(src, b"BEGIN")),]
+        );
+        let src = b"END";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordCapitalEnd, pos_in(src, b"END")),]
+        );
+        let src = b"alias";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordAlias, pos_in(src, b"alias")),]
+        );
+        let src = b"and";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordAnd, pos_in(src, b"and")),]
+        );
+        let src = b"begin";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordBegin, pos_in(src, b"begin")),]
+        );
+        let src = b"break";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordBreak, pos_in(src, b"break")),]
+        );
+        let src = b"case";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordCase, pos_in(src, b"case")),]
+        );
+        let src = b"class";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordClass, pos_in(src, b"class")),]
+        );
+        let src = b"def";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordDef, pos_in(src, b"def")),]
+        );
+        // TODO
+        // let src = b"defined?";
+        // assert_eq!(
+        //     lex_all(src),
+        //     vec![token(TokenKind::KeywordDefinedQ, pos_in(src, b"defined?")),]
+        // );
+        let src = b"do";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordDo, pos_in(src, b"do")),]
+        );
+        let src = b"else";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordElse, pos_in(src, b"else")),]
+        );
+        let src = b"elsif";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordElsif, pos_in(src, b"elsif")),]
+        );
+        let src = b"end";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordEnd, pos_in(src, b"end")),]
+        );
+        let src = b"ensure";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordEnsure, pos_in(src, b"ensure")),]
+        );
+        let src = b"false";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordFalse, pos_in(src, b"false")),]
+        );
+        let src = b"for";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordFor, pos_in(src, b"for")),]
+        );
+        let src = b"if";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordIf, pos_in(src, b"if")),]
+        );
+        let src = b"in";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordIn, pos_in(src, b"in")),]
+        );
+        let src = b"module";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordModule, pos_in(src, b"module")),]
+        );
+        let src = b"next";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordNext, pos_in(src, b"next")),]
+        );
+        let src = b"nil";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordNil, pos_in(src, b"nil")),]
+        );
+        let src = b"not";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordNot, pos_in(src, b"not")),]
+        );
+        let src = b"or";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordOr, pos_in(src, b"or")),]
+        );
+        let src = b"redo";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordRedo, pos_in(src, b"redo")),]
+        );
+        let src = b"rescue";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordRescue, pos_in(src, b"rescue")),]
+        );
+        let src = b"retry";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordRetry, pos_in(src, b"retry")),]
+        );
+        let src = b"return";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordReturn, pos_in(src, b"return")),]
+        );
+        let src = b"self";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordSelf, pos_in(src, b"self")),]
+        );
+        let src = b"super";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordSuper, pos_in(src, b"super")),]
+        );
+        let src = b"then";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordThen, pos_in(src, b"then")),]
+        );
+        let src = b"true";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordTrue, pos_in(src, b"true")),]
+        );
+        let src = b"undef";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordUndef, pos_in(src, b"undef")),]
+        );
+        let src = b"unless";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordUnless, pos_in(src, b"unless")),]
+        );
+        let src = b"until";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordUntil, pos_in(src, b"until")),]
+        );
+        let src = b"when";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordWhen, pos_in(src, b"when")),]
+        );
+        let src = b"while";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordWhile, pos_in(src, b"while")),]
+        );
+        let src = b"yield";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordYield, pos_in(src, b"yield")),]
+        );
+    }
+
+    #[test]
     fn test_lex_ident() {
         let src = b"foo bar123 \xE3\x81\x82";
         assert_eq!(
