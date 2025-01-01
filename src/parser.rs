@@ -314,9 +314,18 @@ fn spanned(range1: CodeRange, range2: CodeRange) -> CodeRange {
 
 #[cfg(test)]
 mod tests {
+    #[allow(unused)]
+    use pretty_assertions::{assert_eq, assert_ne};
+
     use crate::ast::{pos_in, IntegerExpr};
 
     use super::*;
+
+    fn p_program(input: &[u8]) -> (Program, Vec<Diagnostic>) {
+        let mut diag = Vec::new();
+        let program = parse(&mut diag, input);
+        (program, diag)
+    }
 
     fn p_expr(input: &[u8]) -> (Expr, Vec<Diagnostic>) {
         let mut diag = Vec::new();
@@ -328,6 +337,60 @@ mod tests {
         let mut diag = Vec::new();
         let ty = parse_type(&mut diag, input);
         (ty, diag)
+    }
+
+    #[test]
+    fn test_parse_toplevel_stmts() {
+        let src = b"x; y\nz";
+        assert_eq!(
+            p_program(src),
+            (
+                Program {
+                    range: pos_in(src, b"x; y\nz"),
+                    stmt_list: StmtList {
+                        range: pos_in(src, b"x; y\nz"),
+                        semi_prefix: vec![],
+                        stmts: vec![
+                            Stmt {
+                                range: pos_in(src, b"x;"),
+                                expr: LocalVariableExpr {
+                                    range: pos_in(src, b"x"),
+                                    parens: vec![],
+                                    name: "x".to_owned(),
+                                    type_annotation: None,
+                                }
+                                .into(),
+                                semi: vec![pos_in(src, b";")],
+                            },
+                            Stmt {
+                                range: pos_in(src, b"y\n"),
+                                expr: LocalVariableExpr {
+                                    range: pos_in(src, b"y"),
+                                    parens: vec![],
+                                    name: "y".to_owned(),
+                                    type_annotation: None,
+                                }
+                                .into(),
+                                semi: vec![pos_in(src, b"\n")],
+                            },
+                            Stmt {
+                                range: pos_in(src, b"z"),
+                                expr: LocalVariableExpr {
+                                    range: pos_in(src, b"z"),
+                                    parens: vec![],
+                                    name: "z".to_owned(),
+                                    type_annotation: None,
+                                }
+                                .into(),
+                                semi: vec![],
+                            },
+                        ],
+                    },
+                }
+                .into(),
+                vec![],
+            )
+        );
     }
 
     #[test]
