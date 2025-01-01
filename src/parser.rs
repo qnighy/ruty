@@ -88,7 +88,7 @@ impl<'a> Parser<'a> {
                 _ => {
                     let expr = self.parse_expr_lv_assignment(diag);
                     stmts.push(Stmt {
-                        range: *expr.range(),
+                        range: *expr.outer_range(),
                         expr,
                         semi: Vec::new(),
                     });
@@ -136,17 +136,18 @@ impl<'a> Parser<'a> {
                     .into(),
                     _ => {
                         diag.push(Diagnostic {
-                            range: *expr.range(),
+                            range: *expr.outer_range(),
                             message: format!("non-assignable expression"),
                         });
                         ErrorWriteTarget {
-                            range: *expr.range(),
+                            range: *expr.outer_range(),
                         }
                         .into()
                     }
                 };
                 let expr: Expr = WriteExpr {
-                    range: spanned(*lhs.range(), *rhs.range()),
+                    range: spanned(*lhs.range(), *rhs.outer_range()),
+                    parens: Vec::new(),
                     lhs: Box::new(lhs),
                     rhs: Box::new(rhs),
                 }
@@ -200,6 +201,7 @@ impl<'a> Parser<'a> {
                 let s = self.select(token.range);
                 LocalVariableExpr {
                     range: token.range,
+                    parens: Vec::new(),
                     name: s.into_owned(),
                     type_annotation: None,
                 }
@@ -209,6 +211,7 @@ impl<'a> Parser<'a> {
                 self.bump();
                 IntegerExpr {
                     range: token.range,
+                    parens: Vec::new(),
                     value: self.select(token.range).parse().unwrap(),
                 }
                 .into()
@@ -219,7 +222,11 @@ impl<'a> Parser<'a> {
                     range: token.range,
                     message: format!("unexpected token"),
                 });
-                ErrorExpr { range: token.range }.into()
+                ErrorExpr {
+                    range: token.range,
+                    parens: Vec::new(),
+                }
+                .into()
             }
         }
     }
@@ -331,6 +338,7 @@ mod tests {
             (
                 LocalVariableExpr {
                     range: pos_in(src, b"x"),
+                    parens: vec![],
                     name: "x".to_owned(),
                     type_annotation: None,
                 }
@@ -344,6 +352,7 @@ mod tests {
             (
                 LocalVariableExpr {
                     range: pos_in(src, b"x @ Integer"),
+                    parens: vec![],
                     name: "x".to_owned(),
                     type_annotation: Some(TypeAnnotation {
                         range: pos_in(src, b"@ Integer"),
@@ -367,6 +376,7 @@ mod tests {
             (
                 IntegerExpr {
                     range: pos_in(src, b"42"),
+                    parens: vec![],
                     value: 42,
                 }
                 .into(),
@@ -383,6 +393,7 @@ mod tests {
             (
                 WriteExpr {
                     range: pos_in(src, b"x = 42"),
+                    parens: vec![],
                     lhs: Box::new(
                         LocalVariableWriteTarget {
                             range: pos_in(src, b"x"),
@@ -394,6 +405,7 @@ mod tests {
                     rhs: Box::new(
                         IntegerExpr {
                             range: pos_in(src, b"42"),
+                            parens: vec![],
                             value: 42
                         }
                         .into()
@@ -409,6 +421,7 @@ mod tests {
             (
                 WriteExpr {
                     range: pos_in(src, b"x @ Integer = 42"),
+                    parens: vec![],
                     lhs: Box::new(
                         LocalVariableWriteTarget {
                             range: pos_in(src, b"x @ Integer"),
@@ -426,6 +439,7 @@ mod tests {
                     rhs: Box::new(
                         IntegerExpr {
                             range: pos_in(src, b"42"),
+                            parens: vec![],
                             value: 42,
                         }
                         .into()

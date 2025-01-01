@@ -62,6 +62,12 @@ macro_rules! impl_delegators {
                 }
             }
         }
+        impl_delegators!(
+            enum $enum_name {
+                $($constr_name($subtype),)*
+            }
+            $($rest)*
+        );
     };
     (
         enum $enum_name:ident {

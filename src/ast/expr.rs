@@ -1,4 +1,4 @@
-use crate::ast::{CodeRange, StmtList, TypeAnnotation, WriteTarget};
+use crate::ast::{CodeRange, Paren, StmtList, TypeAnnotation, WriteTarget};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expr {
@@ -25,11 +25,23 @@ impl_delegators!(
         Error(ErrorExpr),
     }
     range (mut range_mut): CodeRange,
+    parens (mut parens_mut): Vec<Paren>,
 );
+
+impl Expr {
+    pub fn outer_range(&self) -> &CodeRange {
+        if let Some(last_paren) = self.parens().last() {
+            &last_paren.range
+        } else {
+            self.range()
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SeqExpr {
     pub range: CodeRange,
+    pub parens: Vec<Paren>,
 
     pub stmt_list: StmtList,
 }
@@ -37,6 +49,7 @@ pub struct SeqExpr {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LocalVariableExpr {
     pub range: CodeRange,
+    pub parens: Vec<Paren>,
 
     pub name: String,
     pub type_annotation: Option<TypeAnnotation>,
@@ -45,6 +58,7 @@ pub struct LocalVariableExpr {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct IntegerExpr {
     pub range: CodeRange,
+    pub parens: Vec<Paren>,
 
     pub value: i32,
 }
@@ -52,6 +66,7 @@ pub struct IntegerExpr {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct WriteExpr {
     pub range: CodeRange,
+    pub parens: Vec<Paren>,
 
     pub lhs: Box<WriteTarget>,
     pub rhs: Box<Expr>,
@@ -60,4 +75,5 @@ pub struct WriteExpr {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ErrorExpr {
     pub range: CodeRange,
+    pub parens: Vec<Paren>,
 }
