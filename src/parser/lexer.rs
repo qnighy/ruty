@@ -345,13 +345,29 @@ impl<'a> Lexer<'a> {
                 };
                 if let Ok(s) = std::str::from_utf8(&self.input[start..self.pos]) {
                     if let Some(kwd) = KEYWORDS.get(s).copied() {
-                        if kwd == TokenKind::EOF
-                            && (!self.is_beginning_of_line(start) || !self.is_end_of_line(self.pos))
-                        {
-                            // __END__ not in the beginning of a line should be treated as an identifier
-                            TokenKind::Identifier
-                        } else {
-                            kwd
+                        match kwd {
+                            TokenKind::EOF => {
+                                if self.is_beginning_of_line(start) && self.is_end_of_line(self.pos)
+                                {
+                                    TokenKind::EOF
+                                } else {
+                                    // __END__ not occupying the whole line should be treated as an ordinary identifier
+                                    TokenKind::Identifier
+                                }
+                            }
+                            TokenKind::KeywordIf if state == LexerState::End => {
+                                TokenKind::KeywordIfInfix
+                            }
+                            TokenKind::KeywordUnless if state == LexerState::End => {
+                                TokenKind::KeywordUnlessInfix
+                            }
+                            TokenKind::KeywordWhile if state == LexerState::End => {
+                                TokenKind::KeywordWhileInfix
+                            }
+                            TokenKind::KeywordUntil if state == LexerState::End => {
+                                TokenKind::KeywordUntilInfix
+                            }
+                            _ => kwd,
                         }
                     } else if suffixed {
                         TokenKind::MethodName
@@ -1434,6 +1450,14 @@ mod tests {
             lex_all(src),
             vec![token(TokenKind::KeywordIf, pos_in(src, b"if")),]
         );
+        let src = b"nil if";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::KeywordNil, pos_in(src, b"nil")),
+                token(TokenKind::KeywordIfInfix, pos_in(src, b"if")),
+            ]
+        );
         let src = b"in";
         assert_eq!(
             lex_all(src),
@@ -1514,10 +1538,26 @@ mod tests {
             lex_all(src),
             vec![token(TokenKind::KeywordUnless, pos_in(src, b"unless")),]
         );
+        let src = b"nil unless";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::KeywordNil, pos_in(src, b"nil")),
+                token(TokenKind::KeywordUnlessInfix, pos_in(src, b"unless")),
+            ]
+        );
         let src = b"until";
         assert_eq!(
             lex_all(src),
             vec![token(TokenKind::KeywordUntil, pos_in(src, b"until")),]
+        );
+        let src = b"nil until";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::KeywordNil, pos_in(src, b"nil")),
+                token(TokenKind::KeywordUntilInfix, pos_in(src, b"until")),
+            ]
         );
         let src = b"when";
         assert_eq!(
@@ -1528,6 +1568,14 @@ mod tests {
         assert_eq!(
             lex_all(src),
             vec![token(TokenKind::KeywordWhile, pos_in(src, b"while")),]
+        );
+        let src = b"nil while";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::KeywordNil, pos_in(src, b"nil")),
+                token(TokenKind::KeywordWhileInfix, pos_in(src, b"while")),
+            ]
         );
         let src = b"yield";
         assert_eq!(
