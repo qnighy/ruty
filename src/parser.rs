@@ -76,7 +76,7 @@ impl<'a> Parser<'a> {
             let token = self.fill_token(diag, LexerState::Begin);
             match token.kind {
                 TokenKind::EOF => break,
-                TokenKind::Semicolon => {
+                TokenKind::Semicolon | TokenKind::Newline => {
                     self.bump();
                     if let Some(last_stmt) = stmts.last_mut() {
                         last_stmt.range = spanned(last_stmt.range, token.range);

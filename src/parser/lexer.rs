@@ -186,8 +186,10 @@ pub(super) enum TokenKind {
     Colon,
     /// `::`
     ColonColon,
-    /// `;` or EOL in a certain condition, but most likely the latter.
+    /// `;`, but in most cases Newline is used instead.
     Semicolon,
+    /// EOL in certain contexts.
+    Newline,
     /// `<`
     Lt,
     /// `<<`
@@ -310,7 +312,7 @@ impl<'a> Lexer<'a> {
                     // Include the preceding CR to form CRLF
                     self.pos += 1;
                     return Token {
-                        kind: TokenKind::Semicolon,
+                        kind: TokenKind::Newline,
                         range: CodeRange {
                             start: self.pos - 1,
                             end: self.pos,
@@ -318,7 +320,7 @@ impl<'a> Lexer<'a> {
                     };
                 }
                 self.pos += 1;
-                TokenKind::Semicolon
+                TokenKind::Newline
             }
             b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'\x80'.. => {
                 while is_ident_continue(self.peek_byte()) {
@@ -942,7 +944,7 @@ impl<'a> Lexer<'a> {
         };
         if !force_fold {
             // Rollback when not force-folding as we want to re-scan the current LF byte
-            // as a semicolon token.
+            // as a Newline token.
             self.pos = rollback;
         }
         force_fold
@@ -1148,6 +1150,7 @@ mod tests {
             TokenKind::Colon => LexerState::Begin,
             TokenKind::ColonColon => LexerState::Begin,
             TokenKind::Semicolon => LexerState::Begin,
+            TokenKind::Newline => LexerState::Begin,
             TokenKind::Lt => LexerState::Begin,
             TokenKind::LtLt => LexerState::Begin,
             TokenKind::LtEq => LexerState::Begin,
@@ -1201,7 +1204,7 @@ mod tests {
             lex_all(src),
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo")),
-                token(TokenKind::Semicolon, pos_in(src, b"\n")),
+                token(TokenKind::Newline, pos_in(src, b"\n")),
             ]
         );
         let src = b"foo \n__END__\r\n bar";
@@ -1209,7 +1212,7 @@ mod tests {
             lex_all(src),
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo")),
-                token(TokenKind::Semicolon, pos_in(src, b"\n")),
+                token(TokenKind::Newline, pos_in(src, b"\n")),
             ]
         );
         let src = b"foo \n__END__";
@@ -1217,7 +1220,7 @@ mod tests {
             lex_all(src),
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo")),
-                token(TokenKind::Semicolon, pos_in(src, b"\n")),
+                token(TokenKind::Newline, pos_in(src, b"\n")),
             ]
         );
     }
@@ -1229,9 +1232,9 @@ mod tests {
             lex_all(src),
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo")),
-                token(TokenKind::Semicolon, pos_in(src, b"\n")),
+                token(TokenKind::Newline, pos_in(src, b"\n")),
                 token(TokenKind::Identifier, pos_in(src, b"__END__")),
-                token(TokenKind::Semicolon, pos_in_at(src, b"\n", 1)),
+                token(TokenKind::Newline, pos_in_at(src, b"\n", 1)),
                 token(TokenKind::Identifier, pos_in(src, b"bar")),
             ]
         );
@@ -1240,9 +1243,9 @@ mod tests {
             lex_all(src),
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo")),
-                token(TokenKind::Semicolon, pos_in(src, b"\n")),
+                token(TokenKind::Newline, pos_in(src, b"\n")),
                 token(TokenKind::Identifier, pos_in(src, b"__END__")),
-                token(TokenKind::Semicolon, pos_in_at(src, b"\n", 1)),
+                token(TokenKind::Newline, pos_in_at(src, b"\n", 1)),
                 token(TokenKind::Identifier, pos_in(src, b"bar")),
             ]
         );
@@ -1251,7 +1254,7 @@ mod tests {
             lex_all(src),
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo")),
-                token(TokenKind::Semicolon, pos_in(src, b"\n")),
+                token(TokenKind::Newline, pos_in(src, b"\n")),
                 token(TokenKind::Identifier, pos_in(src, b"__END__")),
                 token(TokenKind::Identifier, pos_in(src, b"bar")),
             ]
@@ -1266,7 +1269,7 @@ mod tests {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo")),
                 token(TokenKind::Identifier, pos_in(src, b"bar")),
-                token(TokenKind::Semicolon, pos_in(src, b"\n")),
+                token(TokenKind::Newline, pos_in(src, b"\n")),
                 token(TokenKind::Identifier, pos_in(src, b"baz")),
             ]
         );
@@ -1289,7 +1292,7 @@ mod tests {
             lex_all(src),
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo")),
-                token(TokenKind::Semicolon, pos_in(src, b"\n")),
+                token(TokenKind::Newline, pos_in(src, b"\n")),
                 token(TokenKind::Identifier, pos_in(src, b"bar")),
             ]
         );
@@ -1318,7 +1321,7 @@ mod tests {
             lex_all(src),
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo")),
-                token(TokenKind::Semicolon, pos_in(src, b"\n")),
+                token(TokenKind::Newline, pos_in(src, b"\n")),
                 token(TokenKind::DotDot, pos_in(src, b"..")),
                 token(TokenKind::Identifier, pos_in(src, b"bar")),
             ]
@@ -1333,9 +1336,9 @@ mod tests {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo")),
                 token(TokenKind::Identifier, pos_in(src, b"bar")),
-                token(TokenKind::Semicolon, pos_in_at(src, b"\n", 1)),
+                token(TokenKind::Newline, pos_in_at(src, b"\n", 1)),
                 token(TokenKind::Identifier, pos_in(src, b"baz")),
-                token(TokenKind::Semicolon, pos_in_at(src, b"\n", 3)),
+                token(TokenKind::Newline, pos_in_at(src, b"\n", 3)),
             ]
         );
     }
