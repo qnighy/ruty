@@ -432,7 +432,13 @@ impl<'a> Lexer<'a> {
             }
             b'%' => {
                 self.pos += 1;
-                TokenKind::Percent
+                match self.peek_byte() {
+                    b'=' => {
+                        self.pos += 1;
+                        TokenKind::OpAssign
+                    }
+                    _ => TokenKind::Percent,
+                }
             }
             // `&`
             // `&&`
@@ -1624,6 +1630,58 @@ mod tests {
     }
 
     #[test]
+    fn test_lex_static_symbol() {
+        let src = b":foo :bar123 :Baz";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::Symbol, pos_in(src, b":foo")),
+                token(TokenKind::Symbol, pos_in(src, b":bar123")),
+                token(TokenKind::Symbol, pos_in(src, b":Baz")),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lex_ivar_name() {
+        let src = b"@foo @bar123 @Baz";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::IvarName, pos_in(src, b"@foo")),
+                token(TokenKind::IvarName, pos_in(src, b"@bar123")),
+                token(TokenKind::IvarName, pos_in(src, b"@Baz")),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lex_cvar_name() {
+        let src = b"@@foo @@bar123 @@Baz";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::CvarName, pos_in(src, b"@@foo")),
+                token(TokenKind::CvarName, pos_in(src, b"@@bar123")),
+                token(TokenKind::CvarName, pos_in(src, b"@@Baz")),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lex_gvar_name() {
+        let src = b"$foo $bar123 $Baz";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::GvarName, pos_in(src, b"$foo")),
+                token(TokenKind::GvarName, pos_in(src, b"$bar123")),
+                token(TokenKind::GvarName, pos_in(src, b"$Baz")),
+            ]
+        );
+    }
+
+    #[test]
     fn test_lex_integer() {
         let src = b"123 456";
         assert_eq!(
@@ -1631,6 +1689,78 @@ mod tests {
             vec![
                 token(TokenKind::Integer, pos_in(src, b"123")),
                 token(TokenKind::Integer, pos_in(src, b"456")),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_char_literal() {
+        let src = b"?a";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::CharLiteral, pos_in(src, b"?a")),]
+        );
+    }
+
+    #[test]
+    fn test_op_assign() {
+        let src = b"**=";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::OpAssign, pos_in(src, b"**=")),]
+        );
+
+        let src = b"*= x /= y %=";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::OpAssign, pos_in(src, b"*=")),
+                token(TokenKind::Identifier, pos_in(src, b"x")),
+                token(TokenKind::OpAssign, pos_in(src, b"/=")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+                token(TokenKind::OpAssign, pos_in(src, b"%=")),
+            ]
+        );
+
+        let src = b"+= -=";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::OpAssign, pos_in(src, b"+=")),
+                token(TokenKind::OpAssign, pos_in(src, b"-=")),
+            ]
+        );
+
+        let src = b"<<= >>=";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::OpAssign, pos_in(src, b"<<=")),
+                token(TokenKind::OpAssign, pos_in(src, b">>=")),
+            ]
+        );
+
+        let src = b"&=";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::OpAssign, pos_in(src, b"&=")),]
+        );
+
+        let src = b"|= ^=";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::OpAssign, pos_in(src, b"|=")),
+                token(TokenKind::OpAssign, pos_in(src, b"^=")),
+            ]
+        );
+
+        let src = b"&&= ||=";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::OpAssign, pos_in(src, b"&&=")),
+                token(TokenKind::OpAssign, pos_in(src, b"||=")),
             ]
         );
     }
