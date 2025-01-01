@@ -1764,4 +1764,385 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn test_excl() {
+        let src = b"!";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::Excl, pos_in(src, b"!")),]
+        );
+    }
+
+    #[test]
+    fn test_excl_eq() {
+        let src = b"!=";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::ExclEq, pos_in(src, b"!=")),]
+        );
+    }
+
+    #[test]
+    fn test_excl_tilde() {
+        let src = b"!~";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::ExclTilde, pos_in(src, b"!~")),]
+        );
+    }
+
+    #[test]
+    fn test_percent() {
+        let src = b"%";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::Percent, pos_in(src, b"%")),]
+        );
+    }
+
+    #[test]
+    fn test_amp() {
+        let src = b"&";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::Amp, pos_in(src, b"&")),]
+        );
+    }
+
+    #[test]
+    fn test_amp_amp() {
+        let src = b"&&";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::AmpAmp, pos_in(src, b"&&")),]
+        );
+    }
+
+    #[test]
+    fn test_amp_dot() {
+        let src = b"&.";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::AmpDot, pos_in(src, b"&.")),]
+        );
+    }
+
+    #[test]
+    fn test_lparen() {
+        let src = b"(";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::LParen, pos_in(src, b"(")),]
+        );
+    }
+
+    #[test]
+    fn test_rparen() {
+        let src = b")";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::RParen, pos_in(src, b")")),]
+        );
+    }
+
+    #[test]
+    fn test_star() {
+        let src = b"*";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::Star, pos_in(src, b"*")),]
+        );
+    }
+
+    #[test]
+    fn test_star_star() {
+        let src = b"**";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::StarStar, pos_in(src, b"**")),]
+        );
+    }
+
+    #[test]
+    fn test_plus() {
+        let src = b"+";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::Plus, pos_in(src, b"+")),]
+        );
+    }
+
+    #[test]
+    fn test_comma() {
+        let src = b",";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::Comma, pos_in(src, b",")),]
+        );
+    }
+
+    #[test]
+    fn test_minus() {
+        let src = b"-";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::Minus, pos_in(src, b"-")),]
+        );
+    }
+
+    #[test]
+    fn test_arrow() {
+        let src = b"->";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::Arrow, pos_in(src, b"->")),]
+        );
+    }
+
+    #[test]
+    fn test_dot() {
+        let src = b".";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::Dot, pos_in(src, b".")),]
+        );
+    }
+
+    #[test]
+    fn test_dot_dot() {
+        let src = b"..";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::DotDot, pos_in(src, b"..")),]
+        );
+    }
+
+    #[test]
+    fn test_dot_dot_dot() {
+        let src = b"...";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::DotDotDot, pos_in(src, b"...")),]
+        );
+    }
+
+    #[test]
+    fn test_slash() {
+        let src = b"x /";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"x")),
+                token(TokenKind::Slash, pos_in(src, b"/")),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_colon() {
+        let src = b":";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::Colon, pos_in(src, b":")),]
+        );
+    }
+
+    #[test]
+    fn test_colon_colon() {
+        let src = b"::";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::ColonColon, pos_in(src, b"::")),]
+        );
+    }
+
+    #[test]
+    fn test_lt() {
+        let src = b"<";
+        assert_eq!(lex_all(src), vec![token(TokenKind::Lt, pos_in(src, b"<")),]);
+    }
+
+    #[test]
+    fn test_lt_lt() {
+        let src = b"<<";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::LtLt, pos_in(src, b"<<")),]
+        );
+    }
+
+    #[test]
+    fn test_lt_eq() {
+        let src = b"<=";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::LtEq, pos_in(src, b"<=")),]
+        );
+    }
+
+    #[test]
+    fn test_lt_eq_gt() {
+        let src = b"<=>";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::LtEqGt, pos_in(src, b"<=>")),]
+        );
+    }
+
+    #[test]
+    fn test_eq() {
+        let src = b"=";
+        assert_eq!(lex_all(src), vec![token(TokenKind::Eq, pos_in(src, b"=")),]);
+    }
+
+    #[test]
+    fn test_eq_eq() {
+        let src = b"==";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::EqEq, pos_in(src, b"==")),]
+        );
+    }
+
+    #[test]
+    fn test_eq_eq_eq() {
+        let src = b"===";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::EqEqEq, pos_in(src, b"===")),]
+        );
+    }
+
+    #[test]
+    fn test_fat_arrow() {
+        let src = b"=>";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::FatArrow, pos_in(src, b"=>")),]
+        );
+    }
+
+    #[test]
+    fn test_eq_match() {
+        let src = b"=~";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::EqMatch, pos_in(src, b"=~")),]
+        );
+    }
+
+    #[test]
+    fn test_gt() {
+        let src = b">";
+        assert_eq!(lex_all(src), vec![token(TokenKind::Gt, pos_in(src, b">")),]);
+    }
+
+    #[test]
+    fn test_gt_eq() {
+        let src = b">=";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::GtEq, pos_in(src, b">=")),]
+        );
+    }
+
+    #[test]
+    fn test_gt_gt() {
+        let src = b">>";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::GtGt, pos_in(src, b">>")),]
+        );
+    }
+
+    #[test]
+    fn test_question() {
+        let src = b"?";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::Question, pos_in(src, b"?")),]
+        );
+    }
+
+    #[test]
+    fn test_at() {
+        let src = b"@";
+        assert_eq!(lex_all(src), vec![token(TokenKind::At, pos_in(src, b"@")),]);
+    }
+
+    #[test]
+    fn test_lbracket() {
+        let src = b"[";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::LBracket, pos_in(src, b"[")),]
+        );
+    }
+
+    #[test]
+    fn test_rbracket() {
+        let src = b"]";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::RBracket, pos_in(src, b"]")),]
+        );
+    }
+
+    #[test]
+    fn test_caret() {
+        let src = b"^";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::Caret, pos_in(src, b"^")),]
+        );
+    }
+
+    #[test]
+    fn test_lbrace() {
+        let src = b"{";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::LBrace, pos_in(src, b"{")),]
+        );
+    }
+
+    #[test]
+    fn test_vert() {
+        let src = b"|";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::Vert, pos_in(src, b"|")),]
+        );
+    }
+
+    #[test]
+    fn test_vert_vert() {
+        let src = b"x ||";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"x")),
+                token(TokenKind::VertVert, pos_in(src, b"||")),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_rbrace() {
+        let src = b"}";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::RBrace, pos_in(src, b"}")),]
+        );
+    }
+
+    #[test]
+    fn test_tilde() {
+        let src = b"~";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::Tilde, pos_in(src, b"~")),]
+        );
+    }
 }
