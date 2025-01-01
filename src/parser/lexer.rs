@@ -324,6 +324,25 @@ impl<'a> Lexer<'a> {
                 while is_ident_continue(self.peek_byte()) {
                     self.pos += 1;
                 }
+                let suffixed = match self.peek_byte() {
+                    b'!' | b'?' if self.peek_byte_at(1) != b'=' => {
+                        self.pos += 1;
+                        true
+                    }
+                    b'=' if state == LexerState::Meth
+                        && match self.peek_byte_at(1) {
+                            // Ignore foo=> or foo=~
+                            b'>' | b'~' => false,
+                            // Ignore foo== but consume foo==> specially
+                            b'=' => self.peek_byte_at(2) == b'>',
+                            _ => true,
+                        } =>
+                    {
+                        self.pos += 1;
+                        true
+                    }
+                    _ => false,
+                };
                 if let Ok(s) = std::str::from_utf8(&self.input[start..self.pos]) {
                     if let Some(kwd) = KEYWORDS.get(s).copied() {
                         if kwd == TokenKind::EOF
@@ -334,6 +353,8 @@ impl<'a> Lexer<'a> {
                         } else {
                             kwd
                         }
+                    } else if suffixed {
+                        TokenKind::MethodName
                     } else {
                         let ch = s.chars().next().unwrap();
                         if ch.is_uppercase() {
@@ -1368,12 +1389,11 @@ mod tests {
             lex_all(src),
             vec![token(TokenKind::KeywordDef, pos_in(src, b"def")),]
         );
-        // TODO
-        // let src = b"defined?";
-        // assert_eq!(
-        //     lex_all(src),
-        //     vec![token(TokenKind::KeywordDefinedQ, pos_in(src, b"defined?")),]
-        // );
+        let src = b"defined?";
+        assert_eq!(
+            lex_all(src),
+            vec![token(TokenKind::KeywordDefinedQ, pos_in(src, b"defined?")),]
+        );
         let src = b"do";
         assert_eq!(
             lex_all(src),
@@ -1538,6 +1558,19 @@ mod tests {
                 token(TokenKind::Const, pos_in(src, b"Foo")),
                 token(TokenKind::Const, pos_in(src, b"Bar123")),
                 token(TokenKind::Const, pos_in(src, b"\xCE\xA9")),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lex_method_name_normal_ctx() {
+        let src = b"foo! bar123? Baz!";
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"foo!")),
+                token(TokenKind::MethodName, pos_in(src, b"bar123?")),
+                token(TokenKind::MethodName, pos_in(src, b"Baz!")),
             ]
         );
     }
