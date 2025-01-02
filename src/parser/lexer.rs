@@ -297,6 +297,10 @@ impl<'a> Lexer<'a> {
         self.input
     }
 
+    pub(super) fn pos(&self) -> usize {
+        self.pos
+    }
+
     pub(super) fn lex(&mut self, diag: &mut Vec<Diagnostic>, state: LexerState) -> Token {
         self.lex_space(diag, state);
         let start = self.pos;

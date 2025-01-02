@@ -5,8 +5,8 @@ use std::borrow::Cow;
 use crate::{
     ast::{
         CodeRange, ErrorExpr, ErrorType, ErrorWriteTarget, Expr, IntegerExpr, IntegerType,
-        LocalVariableExpr, LocalVariableWriteTarget, Program, Stmt, StmtList, StringType, Type,
-        TypeAnnotation, WriteExpr, WriteTarget,
+        LocalVariableExpr, LocalVariableWriteTarget, Program, Semicolon, SemicolonKind, Stmt,
+        StmtList, StringType, Type, TypeAnnotation, WriteExpr, WriteTarget,
     },
     Diagnostic,
 };
@@ -70,7 +70,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_stmt_list(&mut self, diag: &mut Vec<Diagnostic>) -> StmtList {
-        let mut semi_prefix = Vec::<CodeRange>::new();
+        let start_pos = self.lexer.pos();
+        let mut semi_prefix = Vec::<Semicolon>::new();
         let mut stmts = Vec::<Stmt>::new();
         loop {
             let token = self.fill_token(diag, LexerState::Begin);
@@ -78,11 +79,22 @@ impl<'a> Parser<'a> {
                 TokenKind::EOF => break,
                 TokenKind::Semicolon | TokenKind::Newline => {
                     self.bump();
+                    let kind = match token.kind {
+                        TokenKind::Semicolon => SemicolonKind::Semicolon,
+                        TokenKind::Newline => SemicolonKind::Newline,
+                        _ => unreachable!(),
+                    };
                     if let Some(last_stmt) = stmts.last_mut() {
                         last_stmt.range = spanned(last_stmt.range, token.range);
-                        last_stmt.semi.push(token.range);
+                        last_stmt.semi.push(Semicolon {
+                            range: token.range,
+                            kind,
+                        });
                     } else {
-                        semi_prefix.push(token.range);
+                        semi_prefix.push(Semicolon {
+                            range: token.range,
+                            kind,
+                        });
                     }
                 }
                 _ => {
@@ -95,11 +107,22 @@ impl<'a> Parser<'a> {
                 }
             }
         }
+        let start = if let Some(first_semi) = semi_prefix.first() {
+            first_semi.range.start
+        } else if let Some(first_stmt) = stmts.first() {
+            first_stmt.range.start
+        } else {
+            start_pos
+        };
+        let end = if let Some(last_stmt) = stmts.last() {
+            last_stmt.range.end
+        } else if let Some(last_semi) = semi_prefix.last() {
+            last_semi.range.end
+        } else {
+            start_pos
+        };
         StmtList {
-            range: CodeRange {
-                start: semi_prefix.first().map_or(0, |r| r.start),
-                end: stmts.last().map_or(0, |stmt| stmt.range.end),
-            },
+            range: CodeRange { start, end },
             semi_prefix,
             stmts,
         }
@@ -360,7 +383,10 @@ mod tests {
                                     type_annotation: None,
                                 }
                                 .into(),
-                                semi: vec![pos_in(src, b";")],
+                                semi: vec![Semicolon {
+                                    range: pos_in(src, b";"),
+                                    kind: SemicolonKind::Semicolon
+                                }],
                             },
                             Stmt {
                                 range: pos_in(src, b"y\n"),
@@ -371,7 +397,10 @@ mod tests {
                                     type_annotation: None,
                                 }
                                 .into(),
-                                semi: vec![pos_in(src, b"\n")],
+                                semi: vec![Semicolon {
+                                    range: pos_in(src, b"\n"),
+                                    kind: SemicolonKind::Newline
+                                }],
                             },
                             Stmt {
                                 range: pos_in(src, b"z"),
