@@ -52,6 +52,13 @@ fn typecheck_expr(diag: &mut Vec<Diagnostic>, expr: &Expr) -> Type {
             }
         }
         Expr::Error(_) => ErrorType { range: DUMMY_RANGE }.into(),
+        _ => {
+            diag.push(Diagnostic {
+                range: *expr.range(),
+                message: format!("TODO: typechecker not implemented for this expression"),
+            });
+            ErrorType { range: DUMMY_RANGE }.into()
+        }
     }
 }
 

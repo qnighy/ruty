@@ -4,10 +4,10 @@ use std::borrow::Cow;
 
 use crate::{
     ast::{
-        CodeRange, ErrorExpr, ErrorType, ErrorWriteTarget, Expr, IntegerExpr, IntegerType,
-        LocalVariableExpr, LocalVariableWriteTarget, Paren, Program, Semicolon, SemicolonKind,
-        SeqExpr, SeqParen, SeqParenKind, Stmt, StmtList, StringType, Type, TypeAnnotation,
-        WriteExpr, WriteTarget,
+        CodeRange, ErrorExpr, ErrorType, ErrorWriteTarget, Expr, FalseExpr, IntegerExpr,
+        IntegerType, LocalVariableExpr, LocalVariableWriteTarget, NilExpr, Paren, Program,
+        Semicolon, SemicolonKind, SeqExpr, SeqParen, SeqParenKind, Stmt, StmtList, StringType,
+        TrueExpr, Type, TypeAnnotation, WriteExpr, WriteTarget,
     },
     Diagnostic,
 };
@@ -224,6 +224,30 @@ impl<'a> Parser<'a> {
     fn parse_expr_lv_primary(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
         let token = self.fill_token(diag, LexerState::Begin);
         match token.kind {
+            TokenKind::KeywordNil => {
+                self.bump();
+                NilExpr {
+                    range: token.range,
+                    parens: Vec::new(),
+                }
+                .into()
+            }
+            TokenKind::KeywordFalse => {
+                self.bump();
+                FalseExpr {
+                    range: token.range,
+                    parens: Vec::new(),
+                }
+                .into()
+            }
+            TokenKind::KeywordTrue => {
+                self.bump();
+                TrueExpr {
+                    range: token.range,
+                    parens: Vec::new(),
+                }
+                .into()
+            }
             TokenKind::Identifier => {
                 self.bump();
                 let s = self.select(token.range);
@@ -635,6 +659,50 @@ mod tests {
                             }
                         ]
                     },
+                }
+                .into(),
+                vec![],
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_nil_expr() {
+        let src = b"nil";
+        assert_eq!(
+            p_expr(src),
+            (
+                NilExpr {
+                    range: pos_in(src, b"nil"),
+                    parens: vec![],
+                }
+                .into(),
+                vec![],
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_false_true_expr() {
+        let src = b"false";
+        assert_eq!(
+            p_expr(src),
+            (
+                FalseExpr {
+                    range: pos_in(src, b"false"),
+                    parens: vec![],
+                }
+                .into(),
+                vec![],
+            )
+        );
+        let src = b"true";
+        assert_eq!(
+            p_expr(src),
+            (
+                TrueExpr {
+                    range: pos_in(src, b"true"),
+                    parens: vec![],
                 }
                 .into(),
                 vec![],

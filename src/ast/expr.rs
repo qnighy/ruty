@@ -3,24 +3,33 @@ use crate::ast::{CodeRange, Paren, StmtList, TypeAnnotation, WriteTarget};
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expr {
     Seq(SeqExpr),
-    LocalVariable(LocalVariableExpr),
+    Nil(NilExpr),
+    False(FalseExpr),
+    True(TrueExpr),
     Integer(IntegerExpr),
+    LocalVariable(LocalVariableExpr),
     Write(WriteExpr),
     Error(ErrorExpr),
 }
 
 impl_from!(
     (Expr, SeqExpr, Expr::Seq),
-    (Expr, LocalVariableExpr, Expr::LocalVariable),
+    (Expr, NilExpr, Expr::Nil),
+    (Expr, FalseExpr, Expr::False),
+    (Expr, TrueExpr, Expr::True),
     (Expr, IntegerExpr, Expr::Integer),
+    (Expr, LocalVariableExpr, Expr::LocalVariable),
     (Expr, WriteExpr, Expr::Write),
     (Expr, ErrorExpr, Expr::Error),
 );
 impl_delegators!(
     enum Expr {
         Seq(SeqExpr),
-        LocalVariable(LocalVariableExpr),
+        Nil(NilExpr),
+        False(FalseExpr),
+        True(TrueExpr),
         Integer(IntegerExpr),
+        LocalVariable(LocalVariableExpr),
         Write(WriteExpr),
         Error(ErrorExpr),
     }
@@ -61,12 +70,21 @@ pub enum SeqParenKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct LocalVariableExpr {
+pub struct NilExpr {
     pub range: CodeRange,
     pub parens: Vec<Paren>,
+}
 
-    pub name: String,
-    pub type_annotation: Option<TypeAnnotation>,
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FalseExpr {
+    pub range: CodeRange,
+    pub parens: Vec<Paren>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TrueExpr {
+    pub range: CodeRange,
+    pub parens: Vec<Paren>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -75,6 +93,15 @@ pub struct IntegerExpr {
     pub parens: Vec<Paren>,
 
     pub value: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct LocalVariableExpr {
+    pub range: CodeRange,
+    pub parens: Vec<Paren>,
+
+    pub name: String,
+    pub type_annotation: Option<TypeAnnotation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

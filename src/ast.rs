@@ -9,7 +9,8 @@ mod types;
 mod write_target;
 
 pub use expr::{
-    ErrorExpr, Expr, IntegerExpr, LocalVariableExpr, SeqExpr, SeqParen, SeqParenKind, WriteExpr,
+    ErrorExpr, Expr, FalseExpr, IntegerExpr, LocalVariableExpr, NilExpr, SeqExpr, SeqParen,
+    SeqParenKind, TrueExpr, WriteExpr,
 };
 pub use paren::Paren;
 pub use pos::{pos_in, pos_in_at, CodeRange, PositionIndex, DUMMY_RANGE};

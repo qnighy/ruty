@@ -28,12 +28,15 @@ fn collect_ranges_expr(ranges: &mut Vec<CodeRange>, expr: &Expr) {
         Expr::Seq(expr) => {
             collect_ranges_stmt_list(ranges, &expr.stmt_list);
         }
+        Expr::Nil(_) => {}
+        Expr::False(_) => {}
+        Expr::True(_) => {}
+        Expr::Integer(_) => {}
         Expr::LocalVariable(expr) => {
             if let Some(ta) = &expr.type_annotation {
                 ranges.push(ta.range);
             }
         }
-        Expr::Integer(_) => {}
         Expr::Write(expr) => {
             collect_ranges_write_target(ranges, &*expr.lhs);
             collect_ranges_expr(ranges, &*expr.rhs);
