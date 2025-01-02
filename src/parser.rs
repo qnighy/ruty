@@ -5,8 +5,9 @@ use std::borrow::Cow;
 use crate::{
     ast::{
         CodeRange, ErrorExpr, ErrorType, ErrorWriteTarget, Expr, IntegerExpr, IntegerType,
-        LocalVariableExpr, LocalVariableWriteTarget, Program, Semicolon, SemicolonKind, Stmt,
-        StmtList, StringType, Type, TypeAnnotation, WriteExpr, WriteTarget,
+        LocalVariableExpr, LocalVariableWriteTarget, Paren, Program, Semicolon, SemicolonKind,
+        SeqExpr, SeqParen, SeqParenKind, Stmt, StmtList, StringType, Type, TypeAnnotation,
+        WriteExpr, WriteTarget,
     },
     Diagnostic,
 };
@@ -76,7 +77,11 @@ impl<'a> Parser<'a> {
         loop {
             let token = self.fill_token(diag, LexerState::Begin);
             match token.kind {
-                TokenKind::EOF => break,
+                TokenKind::EOF
+                | TokenKind::RParen
+                | TokenKind::RBrace
+                | TokenKind::RBracket
+                | TokenKind::KeywordEnd => break,
                 TokenKind::Semicolon | TokenKind::Newline => {
                     self.bump();
                     let kind = match token.kind {
@@ -238,6 +243,59 @@ impl<'a> Parser<'a> {
                     value: self.select(token.range).parse().unwrap(),
                 }
                 .into()
+            }
+            TokenKind::LParen => {
+                let open_range = token.range;
+                self.bump();
+                let stmt_list = self.parse_stmt_list(diag);
+                let close_range = loop {
+                    let token = self.fill_token(diag, LexerState::End);
+                    match token.kind {
+                        TokenKind::RParen => {
+                            self.bump();
+                            break token.range;
+                        }
+                        TokenKind::EOF => {
+                            diag.push(Diagnostic {
+                                range: token.range,
+                                message: format!("unexpected end of file"),
+                            });
+                            break token.range;
+                        }
+                        _ => {
+                            diag.push(Diagnostic {
+                                range: token.range,
+                                message: format!("unexpected token"),
+                            });
+                        }
+                    }
+                };
+                let is_simple = stmt_list.semi_prefix.is_empty()
+                    && stmt_list.stmts.len() == 1
+                    && stmt_list.stmts[0]
+                        .semi
+                        .iter()
+                        .all(|s| s.kind == SemicolonKind::Newline);
+                if is_simple {
+                    let mut expr = { stmt_list }.stmts.pop().unwrap().expr;
+                    expr.parens_mut().push(Paren {
+                        range: spanned(open_range, close_range),
+                        open_range,
+                        close_range,
+                    });
+                    expr
+                } else {
+                    Expr::Seq(SeqExpr {
+                        range: spanned(open_range, close_range),
+                        parens: Vec::new(),
+                        paren: SeqParen {
+                            kind: SeqParenKind::Paren,
+                            open_range,
+                            close_range,
+                        },
+                        stmt_list,
+                    })
+                }
             }
             _ => {
                 self.bump();
@@ -414,6 +472,168 @@ mod tests {
                                 semi: vec![],
                             },
                         ],
+                    },
+                }
+                .into(),
+                vec![],
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_parenthesized_expr() {
+        let src = b"(x)";
+        assert_eq!(
+            p_expr(src),
+            (
+                LocalVariableExpr {
+                    range: pos_in(src, b"x"),
+                    parens: vec![Paren {
+                        range: pos_in(src, b"(x)"),
+                        open_range: pos_in(src, b"("),
+                        close_range: pos_in(src, b")"),
+                    }],
+                    name: "x".to_owned(),
+                    type_annotation: None,
+                }
+                .into(),
+                vec![],
+            )
+        );
+        let src = b"(\nx\n)";
+        assert_eq!(
+            p_expr(src),
+            (
+                LocalVariableExpr {
+                    range: pos_in(src, b"x"),
+                    parens: vec![Paren {
+                        range: pos_in(src, b"(\nx\n)"),
+                        open_range: pos_in(src, b"("),
+                        close_range: pos_in(src, b")"),
+                    }],
+                    name: "x".to_owned(),
+                    type_annotation: None,
+                }
+                .into(),
+                vec![],
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_parenthesized_seq_expr() {
+        let src = b"(x;)";
+        assert_eq!(
+            p_expr(src),
+            (
+                SeqExpr {
+                    range: pos_in(src, b"(x;)"),
+                    parens: vec![],
+                    paren: SeqParen {
+                        kind: SeqParenKind::Paren,
+                        open_range: pos_in(src, b"("),
+                        close_range: pos_in(src, b")"),
+                    },
+                    stmt_list: StmtList {
+                        range: pos_in(src, b"x;"),
+                        semi_prefix: vec![],
+                        stmts: vec![Stmt {
+                            range: pos_in(src, b"x;"),
+                            expr: LocalVariableExpr {
+                                range: pos_in(src, b"x"),
+                                parens: vec![],
+                                name: "x".to_owned(),
+                                type_annotation: None,
+                            }
+                            .into(),
+                            semi: vec![Semicolon {
+                                range: pos_in(src, b";"),
+                                kind: SemicolonKind::Semicolon
+                            }],
+                        }]
+                    },
+                }
+                .into(),
+                vec![],
+            )
+        );
+        let src = b"(;x)";
+        assert_eq!(
+            p_expr(src),
+            (
+                SeqExpr {
+                    range: pos_in(src, b"(;x)"),
+                    parens: vec![],
+                    paren: SeqParen {
+                        kind: SeqParenKind::Paren,
+                        open_range: pos_in(src, b"("),
+                        close_range: pos_in(src, b")"),
+                    },
+                    stmt_list: StmtList {
+                        range: pos_in(src, b";x"),
+                        semi_prefix: vec![Semicolon {
+                            range: pos_in(src, b";"),
+                            kind: SemicolonKind::Semicolon
+                        }],
+                        stmts: vec![Stmt {
+                            range: pos_in(src, b"x"),
+                            expr: LocalVariableExpr {
+                                range: pos_in(src, b"x"),
+                                parens: vec![],
+                                name: "x".to_owned(),
+                                type_annotation: None,
+                            }
+                            .into(),
+                            semi: vec![],
+                        }]
+                    },
+                }
+                .into(),
+                vec![],
+            )
+        );
+        let src = b"(x\ny)";
+        assert_eq!(
+            p_expr(src),
+            (
+                SeqExpr {
+                    range: pos_in(src, b"(x\ny)"),
+                    parens: vec![],
+                    paren: SeqParen {
+                        kind: SeqParenKind::Paren,
+                        open_range: pos_in(src, b"("),
+                        close_range: pos_in(src, b")"),
+                    },
+                    stmt_list: StmtList {
+                        range: pos_in(src, b"x\ny"),
+                        semi_prefix: vec![],
+                        stmts: vec![
+                            Stmt {
+                                range: pos_in(src, b"x\n"),
+                                expr: LocalVariableExpr {
+                                    range: pos_in(src, b"x"),
+                                    parens: vec![],
+                                    name: "x".to_owned(),
+                                    type_annotation: None,
+                                }
+                                .into(),
+                                semi: vec![Semicolon {
+                                    range: pos_in(src, b"\n"),
+                                    kind: SemicolonKind::Newline
+                                }],
+                            },
+                            Stmt {
+                                range: pos_in(src, b"y"),
+                                expr: LocalVariableExpr {
+                                    range: pos_in(src, b"y"),
+                                    parens: vec![],
+                                    name: "y".to_owned(),
+                                    type_annotation: None,
+                                }
+                                .into(),
+                                semi: vec![],
+                            }
+                        ]
                     },
                 }
                 .into(),

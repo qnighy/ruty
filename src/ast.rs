@@ -8,7 +8,9 @@ mod stmt;
 mod types;
 mod write_target;
 
-pub use expr::{ErrorExpr, Expr, IntegerExpr, LocalVariableExpr, SeqExpr, WriteExpr};
+pub use expr::{
+    ErrorExpr, Expr, IntegerExpr, LocalVariableExpr, SeqExpr, SeqParen, SeqParenKind, WriteExpr,
+};
 pub use paren::Paren;
 pub use pos::{pos_in, pos_in_at, CodeRange, PositionIndex, DUMMY_RANGE};
 pub use stmt::{Program, Semicolon, SemicolonKind, Stmt, StmtList};

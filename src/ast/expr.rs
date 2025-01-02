@@ -43,7 +43,21 @@ pub struct SeqExpr {
     pub range: CodeRange,
     pub parens: Vec<Paren>,
 
+    pub paren: SeqParen,
     pub stmt_list: StmtList,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SeqParen {
+    pub kind: SeqParenKind,
+    pub open_range: CodeRange,
+    pub close_range: CodeRange,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SeqParenKind {
+    Paren,
+    BeginEnd,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
