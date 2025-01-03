@@ -1,6 +1,6 @@
 use crate::encoding::EncodingImpl;
 
-use crate::encoding::impls::{Ascii8bitImpl, UsAsciiImpl, Utf8Impl};
+use crate::encoding::impls::{Ascii8bitImpl, Cesu8Impl, UsAsciiImpl, Utf8Impl};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[allow(non_camel_case_types)]
@@ -403,7 +403,7 @@ impl Encoding {
             EncodingClass::UTF_8 => &Utf8Impl,
             EncodingClass::US_ASCII => &UsAsciiImpl,
 
-            EncodingClass::CESU_8 => &Ascii8bitImpl,
+            EncodingClass::CESU_8 => &Cesu8Impl,
             EncodingClass::UTF_7 => &Ascii8bitImpl,
             EncodingClass::UTF_16BE => &Ascii8bitImpl,
             EncodingClass::UTF_16LE => &Ascii8bitImpl,
