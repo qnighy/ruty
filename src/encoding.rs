@@ -21,3 +21,34 @@ impl Encoding {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct EncodingState(pub u16);
+
+fn is_unicode_const_starter(ch: char) -> bool {
+    fn is_titlecase(ch: char) -> bool {
+        match ch {
+            '\u{01C5}'
+            | '\u{01C8}'
+            | '\u{01CB}'
+            | '\u{01F2}'
+            | '\u{1F88}'..='\u{1F8F}'
+            | '\u{1F98}'..='\u{1F9F}'
+            | '\u{1FA8}'..='\u{1FAF}'
+            | '\u{1FBC}'
+            | '\u{1FCC}'
+            | '\u{1FFC}' => true,
+            _ => false,
+        }
+    }
+
+    fn is_ruby_special_uppercase(ch: char) -> bool {
+        match ch {
+            '\u{2160}'..='\u{216F}'
+            | '\u{24B6}'..='\u{24CF}'
+            | '\u{1F130}'..='\u{1F149}'
+            | '\u{1F150}'..='\u{1F169}'
+            | '\u{1F170}'..='\u{1F189}' => true,
+            _ => false,
+        }
+    }
+
+    ch.is_uppercase() || is_titlecase(ch) || is_ruby_special_uppercase(ch)
+}

@@ -1,4 +1,4 @@
-use crate::encoding::{EncNext, EncodingImpl, EncodingState};
+use crate::encoding::{is_unicode_const_starter, CharPlus, EncNext, EncodingImpl, EncodingState};
 
 pub(in crate::encoding) struct Utf8Impl;
 
@@ -52,6 +52,12 @@ impl EncodingImpl for Utf8Impl {
                 valid(4, unicode)
             }
             _ => INVALID,
+        }
+    }
+    fn is_const_starter(&self, ch: CharPlus) -> bool {
+        match ch {
+            CharPlus::Unicode(ch) => is_unicode_const_starter(ch),
+            _ => false,
         }
     }
 }
