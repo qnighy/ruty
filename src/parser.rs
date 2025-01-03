@@ -9,23 +9,24 @@ use crate::{
         Semicolon, SemicolonKind, SeqExpr, SeqParen, SeqParenKind, Stmt, StmtList, StringType,
         TrueExpr, Type, TypeAnnotation, WriteExpr, WriteTarget,
     },
+    encoding::EStrRef,
     Diagnostic,
 };
 use lexer::{Lexer, LexerState, Token, TokenKind};
 
-pub fn parse(diag: &mut Vec<Diagnostic>, input: &[u8]) -> Program {
+pub fn parse(diag: &mut Vec<Diagnostic>, input: EStrRef<'_>) -> Program {
     let mut parser = Parser::new(input);
     let program = parser.parse_whole_program(diag);
     program
 }
 
-pub fn parse_expr(diag: &mut Vec<Diagnostic>, input: &[u8]) -> Expr {
+pub fn parse_expr(diag: &mut Vec<Diagnostic>, input: EStrRef<'_>) -> Expr {
     let mut parser = Parser::new(input);
     let expr = parser.parse_whole_expr(diag);
     expr
 }
 
-pub fn parse_type(diag: &mut Vec<Diagnostic>, input: &[u8]) -> Type {
+pub fn parse_type(diag: &mut Vec<Diagnostic>, input: EStrRef<'_>) -> Type {
     let mut parser = Parser::new(input);
     let ty = parser.parse_whole_type(diag);
     ty
@@ -38,15 +39,19 @@ struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    fn new(input: &'a [u8]) -> Self {
+    fn new(input: EStrRef<'a>) -> Self {
         Self {
             lexer: Lexer::new(input),
             next_token: None,
         }
     }
 
-    fn input(&self) -> &'a [u8] {
-        self.lexer.input()
+    // fn input(&self) -> EStrRef<'a> {
+    //     self.lexer.input()
+    // }
+
+    fn bytes(&self) -> &'a [u8] {
+        self.lexer.bytes()
     }
 
     fn parse_whole_program(&mut self, diag: &mut Vec<Diagnostic>) -> Program {
@@ -64,7 +69,7 @@ impl<'a> Parser<'a> {
         Program {
             range: CodeRange {
                 start: 0,
-                end: self.input().len(),
+                end: self.bytes().len(),
             },
             stmt_list,
         }
@@ -406,7 +411,7 @@ impl<'a> Parser<'a> {
     // }
 
     fn select(&self, range: CodeRange) -> Cow<'a, str> {
-        String::from_utf8_lossy(&self.input()[range.range()])
+        String::from_utf8_lossy(&self.bytes()[range.range()])
     }
 }
 
@@ -426,19 +431,19 @@ mod tests {
 
     use super::*;
 
-    fn p_program(input: &[u8]) -> (Program, Vec<Diagnostic>) {
+    fn p_program(input: EStrRef<'_>) -> (Program, Vec<Diagnostic>) {
         let mut diag = Vec::new();
         let program = parse(&mut diag, input);
         (program, diag)
     }
 
-    fn p_expr(input: &[u8]) -> (Expr, Vec<Diagnostic>) {
+    fn p_expr(input: EStrRef<'_>) -> (Expr, Vec<Diagnostic>) {
         let mut diag = Vec::new();
         let expr = parse_expr(&mut diag, input);
         (expr, diag)
     }
 
-    fn p_type(input: &[u8]) -> (Type, Vec<Diagnostic>) {
+    fn p_type(input: EStrRef<'_>) -> (Type, Vec<Diagnostic>) {
         let mut diag = Vec::new();
         let ty = parse_type(&mut diag, input);
         (ty, diag)
@@ -446,7 +451,7 @@ mod tests {
 
     #[test]
     fn test_parse_toplevel_stmts() {
-        let src = b"x; y\nz";
+        let src = EStrRef::from("x; y\nz");
         assert_eq!(
             p_program(src),
             (
@@ -506,7 +511,7 @@ mod tests {
 
     #[test]
     fn test_parse_parenthesized_expr() {
-        let src = b"(x)";
+        let src = EStrRef::from("(x)");
         assert_eq!(
             p_expr(src),
             (
@@ -524,7 +529,7 @@ mod tests {
                 vec![],
             )
         );
-        let src = b"(\nx\n)";
+        let src = EStrRef::from("(\nx\n)");
         assert_eq!(
             p_expr(src),
             (
@@ -546,7 +551,7 @@ mod tests {
 
     #[test]
     fn test_parse_parenthesized_seq_expr() {
-        let src = b"(x;)";
+        let src = EStrRef::from("(x;)");
         assert_eq!(
             p_expr(src),
             (
@@ -581,7 +586,7 @@ mod tests {
                 vec![],
             )
         );
-        let src = b"(;x)";
+        let src = EStrRef::from("(;x)");
         assert_eq!(
             p_expr(src),
             (
@@ -616,7 +621,7 @@ mod tests {
                 vec![],
             )
         );
-        let src = b"(x\ny)";
+        let src = EStrRef::from("(x\ny)");
         assert_eq!(
             p_expr(src),
             (
@@ -668,7 +673,7 @@ mod tests {
 
     #[test]
     fn test_parse_nil_expr() {
-        let src = b"nil";
+        let src = EStrRef::from("nil");
         assert_eq!(
             p_expr(src),
             (
@@ -684,7 +689,7 @@ mod tests {
 
     #[test]
     fn test_parse_false_true_expr() {
-        let src = b"false";
+        let src = EStrRef::from("false");
         assert_eq!(
             p_expr(src),
             (
@@ -696,7 +701,7 @@ mod tests {
                 vec![],
             )
         );
-        let src = b"true";
+        let src = EStrRef::from("true");
         assert_eq!(
             p_expr(src),
             (
@@ -712,7 +717,7 @@ mod tests {
 
     #[test]
     fn test_parse_variable_expr() {
-        let src = b"x";
+        let src = EStrRef::from("x");
         assert_eq!(
             p_expr(src),
             (
@@ -726,7 +731,7 @@ mod tests {
                 vec![],
             )
         );
-        let src = b"x @ Integer";
+        let src = EStrRef::from("x @ Integer");
         assert_eq!(
             p_expr(src),
             (
@@ -750,7 +755,7 @@ mod tests {
 
     #[test]
     fn test_parse_integer_expr() {
-        let src = b"42";
+        let src = EStrRef::from("42");
         assert_eq!(
             p_expr(src),
             (
@@ -767,7 +772,7 @@ mod tests {
 
     #[test]
     fn test_parse_assignment_expr() {
-        let src = b"x = 42";
+        let src = EStrRef::from("x = 42");
         assert_eq!(
             p_expr(src),
             (
@@ -795,7 +800,7 @@ mod tests {
                 vec![],
             )
         );
-        let src = b"x @ Integer = 42";
+        let src = EStrRef::from("x @ Integer = 42");
         assert_eq!(
             p_expr(src),
             (
@@ -833,7 +838,7 @@ mod tests {
 
     #[test]
     fn test_parse_integer_type() {
-        let src = b"Integer";
+        let src = EStrRef::from("Integer");
         assert_eq!(
             p_type(src),
             (

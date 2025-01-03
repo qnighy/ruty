@@ -99,10 +99,12 @@ impl EString {
         self.as_estr().chars()
     }
 
+    pub fn is_valid(&self) -> bool {
+        self.as_estr().is_valid()
+    }
+
     pub fn starts_with_ruby_uppercase(&self) -> bool {
-        self.chars().next().map_or(false, |ch| {
-            self.encoding.encoding_impl().is_const_starter(ch)
-        })
+        self.as_estr().starts_with_ruby_uppercase()
     }
 }
 
@@ -168,11 +170,38 @@ impl<'a> EStrRef<'a> {
             state: self.state,
         }
     }
+
+    pub fn is_valid(&self) -> bool {
+        self.chars().all(|ch| match ch {
+            CharPlus::Unicode(_) => true,
+            CharPlus::NonUnicode(_) => true,
+            CharPlus::Invalid(_) => false,
+            CharPlus::Shift(_) => true,
+        })
+    }
+
+    pub fn starts_with_ruby_uppercase(&self) -> bool {
+        self.chars().next().map_or(false, |ch| {
+            self.encoding.encoding_impl().is_const_starter(ch)
+        })
+    }
 }
 
 impl<'a> From<&'a str> for EStrRef<'a> {
     fn from(s: &'a str) -> Self {
         Self::from_bytes(s.as_bytes(), Encoding::UTF_8)
+    }
+}
+
+impl<'a> From<EStrRef<'a>> for &'a [u8] {
+    fn from(s: EStrRef<'a>) -> Self {
+        s.bytes
+    }
+}
+
+impl AsRef<[u8]> for EStrRef<'_> {
+    fn as_ref(&self) -> &[u8] {
+        self.bytes
     }
 }
 

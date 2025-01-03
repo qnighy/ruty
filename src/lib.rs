@@ -1,6 +1,6 @@
 pub mod ast;
 mod checker;
-mod encoding;
+pub mod encoding;
 mod eraser;
 mod parser;
 

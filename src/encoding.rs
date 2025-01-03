@@ -4,12 +4,45 @@ mod estring;
 mod iface;
 mod impls;
 
+use std::{collections::HashMap, sync::LazyLock};
+
 pub use catalog::Encoding;
 pub use charplus::CharPlus;
-pub use estring::EString;
+pub use estring::{EStrMut, EStrRef, EString};
 use iface::{EncNext, EncodingImpl};
 
+struct AsciiCaseInsensitive<'a>(&'a str);
+
+impl PartialEq for AsciiCaseInsensitive<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.eq_ignore_ascii_case(other.0)
+    }
+}
+impl Eq for AsciiCaseInsensitive<'_> {}
+impl std::hash::Hash for AsciiCaseInsensitive<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        for b in self.0.bytes() {
+            state.write_u8(b.to_ascii_lowercase());
+        }
+    }
+}
+
+static ENCODING_MAP: LazyLock<HashMap<AsciiCaseInsensitive<'static>, Encoding>> =
+    LazyLock::new(|| {
+        let mut map = HashMap::<AsciiCaseInsensitive<'static>, Encoding>::new();
+        for &encoding in Encoding::all() {
+            for &alias in encoding.aliases() {
+                map.insert(AsciiCaseInsensitive(alias), encoding);
+            }
+        }
+        map
+    });
+
 impl Encoding {
+    pub fn find(name: &str) -> Option<Self> {
+        ENCODING_MAP.get(&AsciiCaseInsensitive(name)).copied()
+    }
+
     pub fn name(&self) -> &'static str {
         self.aliases()[0]
     }

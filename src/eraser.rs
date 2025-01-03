@@ -64,6 +64,8 @@ fn collect_ranges_write_target(ranges: &mut Vec<CodeRange>, target: &WriteTarget
 
 #[cfg(test)]
 mod tests {
+    use crate::encoding::EStrRef;
+
     use super::*;
 
     #[test]
@@ -76,7 +78,7 @@ mod tests {
 
     fn et(src: &str) -> String {
         let mut diag = Vec::new();
-        let program = crate::parse(&mut diag, src.as_bytes());
+        let program = crate::parse(&mut diag, EStrRef::from(src));
         assert_eq!(diag, vec![]);
         let erased = erase_type(src.as_bytes(), &program);
         String::from_utf8(erased).unwrap()

@@ -29,12 +29,22 @@ impl From<CodeRange> for Range<usize> {
 pub const DUMMY_RANGE: CodeRange = CodeRange { start: 0, end: 0 };
 
 // For testing
-pub fn pos_in(all_text: &[u8], sub_text: &[u8]) -> CodeRange {
+pub fn pos_in<T, U>(all_text: T, sub_text: U) -> CodeRange
+where
+    T: AsRef<[u8]>,
+    U: AsRef<[u8]>,
+{
     pos_in_at(all_text, sub_text, 0)
 }
 
 // For testing
-pub fn pos_in_at(all_text: &[u8], sub_text: &[u8], mut idx: usize) -> CodeRange {
+pub fn pos_in_at<T, U>(all_text: T, sub_text: U, mut idx: usize) -> CodeRange
+where
+    T: AsRef<[u8]>,
+    U: AsRef<[u8]>,
+{
+    let all_text: &[u8] = all_text.as_ref();
+    let sub_text: &[u8] = sub_text.as_ref();
     // find substring
     for (i, s) in all_text.windows(sub_text.len()).enumerate() {
         if s == sub_text {

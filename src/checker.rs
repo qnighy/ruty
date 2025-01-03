@@ -78,6 +78,7 @@ fn typecheck_stmt_list(diag: &mut Vec<Diagnostic>, stmt_list: &StmtList) -> Type
 mod tests {
     use crate::{
         ast::{pos_in, StringType},
+        encoding::EStrRef,
         parse_expr,
     };
 
@@ -85,7 +86,7 @@ mod tests {
 
     fn typecheck_expr_text(s: &str) -> (Type, Vec<Diagnostic>) {
         let mut diag = Vec::new();
-        let expr = parse_expr(&mut diag, s.as_bytes());
+        let expr = parse_expr(&mut diag, EStrRef::from(s));
         let ty = typecheck_expr(&mut diag, &expr);
         (ty, diag)
     }
