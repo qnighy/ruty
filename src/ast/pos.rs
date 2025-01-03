@@ -1,9 +1,9 @@
-use std::ops::Range;
-use std::str;
+use std::ops::{BitOr, BitOrAssign, Range};
+use std::{fmt, str};
 
 use bit_vec::BitVec;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CodeRange {
     pub start: usize,
     pub end: usize,
@@ -11,6 +11,21 @@ pub struct CodeRange {
 impl CodeRange {
     pub fn range(&self) -> Range<usize> {
         self.start..self.end
+    }
+    pub fn is_dummy(&self) -> bool {
+        self.start > self.end
+    }
+}
+impl fmt::Debug for CodeRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if *self == DUMMY_RANGE {
+            write!(f, "DUMMY_RANGE")
+        } else {
+            f.debug_struct("CodeRange")
+                .field("start", &self.start)
+                .field("end", &self.end)
+                .finish()
+        }
     }
 }
 impl From<Range<usize>> for CodeRange {
@@ -26,7 +41,28 @@ impl From<CodeRange> for Range<usize> {
         range.start..range.end
     }
 }
-pub const DUMMY_RANGE: CodeRange = CodeRange { start: 0, end: 0 };
+pub const DUMMY_RANGE: CodeRange = CodeRange { start: 1, end: 0 };
+
+impl BitOr for CodeRange {
+    type Output = CodeRange;
+    fn bitor(self, rhs: Self) -> Self::Output {
+        if rhs.is_dummy() {
+            self
+        } else if self.is_dummy() {
+            rhs
+        } else {
+            CodeRange {
+                start: self.start.min(rhs.start),
+                end: self.end.max(rhs.end),
+            }
+        }
+    }
+}
+impl BitOrAssign for CodeRange {
+    fn bitor_assign(&mut self, rhs: Self) {
+        *self = *self | rhs;
+    }
+}
 
 // For testing
 pub fn pos_in<T, U>(all_text: T, sub_text: U) -> CodeRange

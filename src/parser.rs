@@ -96,7 +96,7 @@ impl<'a> Parser<'a> {
                         _ => unreachable!(),
                     };
                     if let Some(last_stmt) = stmts.last_mut() {
-                        last_stmt.range = spanned(last_stmt.range, token.range);
+                        last_stmt.range = last_stmt.range | token.range;
                         last_stmt.semi.push(Semicolon {
                             range: token.range,
                             kind,
@@ -180,7 +180,7 @@ impl<'a> Parser<'a> {
                     }
                 };
                 let expr: Expr = WriteExpr {
-                    range: spanned(*lhs.range(), *rhs.outer_range()),
+                    range: *lhs.range() | *rhs.outer_range(),
                     parens: Vec::new(),
                     lhs: Box::new(lhs),
                     rhs: Box::new(rhs),
@@ -205,15 +205,15 @@ impl<'a> Parser<'a> {
                         Expr::LocalVariable(mut e) => {
                             let ty_range = *ty.range();
                             e.type_annotation = Some(TypeAnnotation {
-                                range: spanned(token.range, ty_range),
+                                range: token.range | ty_range,
                                 type_: ty,
                             });
-                            e.range = spanned(e.range, ty_range);
+                            e.range = e.range | ty_range;
                             e.into()
                         }
                         _ => {
                             diag.push(Diagnostic {
-                                range: spanned(token.range, *ty.range()),
+                                range: token.range | *ty.range(),
                                 message: format!("non-annotatable expression"),
                             });
                             expr
@@ -324,7 +324,7 @@ impl<'a> Parser<'a> {
                                 });
                             }
                             contents.push(StringContent::Interpolation(InterpolationContent {
-                                range: spanned(open_range, token.range),
+                                range: open_range | token.range,
                                 open_range,
                                 close_range: token.range,
                                 stmt_list,
@@ -342,7 +342,7 @@ impl<'a> Parser<'a> {
                 }
                 match delim {
                     StringDelimiter::Quote | StringDelimiter::DoubleQuote => StringExpr {
-                        range: spanned(token.range, close_range),
+                        range: token.range | close_range,
                         parens: Vec::new(),
                         open_range: token.range,
                         close_range,
@@ -350,7 +350,7 @@ impl<'a> Parser<'a> {
                     }
                     .into(),
                     StringDelimiter::Backtick => XStringExpr {
-                        range: spanned(token.range, close_range),
+                        range: token.range | close_range,
                         parens: Vec::new(),
                         open_range: token.range,
                         close_range,
@@ -358,7 +358,7 @@ impl<'a> Parser<'a> {
                     }
                     .into(),
                     StringDelimiter::Slash => RegexpExpr {
-                        range: spanned(token.range, close_range),
+                        range: token.range | close_range,
                         parens: Vec::new(),
                         open_range: token.range,
                         close_range,
@@ -402,14 +402,14 @@ impl<'a> Parser<'a> {
                 if is_simple {
                     let mut expr = { stmt_list }.stmts.pop().unwrap().expr;
                     expr.parens_mut().push(Paren {
-                        range: spanned(open_range, close_range),
+                        range: open_range | close_range,
                         open_range,
                         close_range,
                     });
                     expr
                 } else {
                     Expr::Seq(SeqExpr {
-                        range: spanned(open_range, close_range),
+                        range: open_range | close_range,
                         parens: Vec::new(),
                         paren: SeqParen {
                             kind: SeqParenKind::Paren,
@@ -506,13 +506,6 @@ impl<'a> Parser<'a> {
 
     fn select(&self, range: CodeRange) -> Cow<'a, str> {
         String::from_utf8_lossy(&self.bytes()[range.range()])
-    }
-}
-
-fn spanned(range1: CodeRange, range2: CodeRange) -> CodeRange {
-    CodeRange {
-        start: range1.start,
-        end: range2.end,
     }
 }
 
