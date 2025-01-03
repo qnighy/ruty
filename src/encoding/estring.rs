@@ -374,4 +374,15 @@ mod tests {
             "EString(\"\\x30\\x42\", UTF_16)"
         );
     }
+
+    #[test]
+    fn test_debug_with_non_unicode_char() {
+        assert_eq!(
+            format!(
+                "{:?}",
+                EStrRef::from_bytes(b"\xa1\xa2\xa1\xa4A", Encoding::EUC_JP)
+            ),
+            "EString(\"\\x{a1a2}\\x{a1a4}A\", EUC_JP)"
+        );
+    }
 }
