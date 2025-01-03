@@ -1,4 +1,4 @@
-use crate::ast::{CodeRange, Expr, Program, WriteTarget};
+use crate::ast::{CodeRange, Expr, Program, StringContent, WriteTarget};
 
 pub fn erase_type(src: &[u8], program: &Program) -> Vec<u8> {
     let mut ranges = Vec::new();
@@ -32,6 +32,15 @@ fn collect_ranges_expr(ranges: &mut Vec<CodeRange>, expr: &Expr) {
         Expr::False(_) => {}
         Expr::True(_) => {}
         Expr::Integer(_) => {}
+        Expr::String(expr) => {
+            collect_ranges_string_contents(ranges, &expr.contents);
+        }
+        Expr::Regexp(expr) => {
+            collect_ranges_string_contents(ranges, &expr.contents);
+        }
+        Expr::XString(expr) => {
+            collect_ranges_string_contents(ranges, &expr.contents);
+        }
         Expr::LocalVariable(expr) => {
             if let Some(ta) = &expr.type_annotation {
                 ranges.push(ta.range);
@@ -42,6 +51,17 @@ fn collect_ranges_expr(ranges: &mut Vec<CodeRange>, expr: &Expr) {
             collect_ranges_expr(ranges, &*expr.rhs);
         }
         Expr::Error(_) => {}
+    }
+}
+
+fn collect_ranges_string_contents(ranges: &mut Vec<CodeRange>, contents: &[StringContent]) {
+    for content in contents {
+        match content {
+            StringContent::Text(_) => {}
+            StringContent::Interpolation(content) => {
+                collect_ranges_stmt_list(ranges, &content.stmt_list);
+            }
+        }
     }
 }
 

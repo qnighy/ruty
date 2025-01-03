@@ -1,6 +1,10 @@
 use std::{collections::HashMap, sync::LazyLock};
 
-use crate::{ast::CodeRange, encoding::EStrRef, Diagnostic};
+use crate::{
+    ast::CodeRange,
+    encoding::{EStrRef, EncodingState},
+    Diagnostic,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Token {
@@ -140,6 +144,8 @@ pub(super) enum TokenKind {
     StringContent,
     /// `#{`
     StringInterpolationBegin,
+    /// `#@foo` etc.
+    StringVarInterpolation,
 
     /// `+=` etc.
     OpAssign,
@@ -280,6 +286,32 @@ pub(super) enum LexerState {
     ///
     /// ## Effects
     Meth,
+    StringLike(StringDelimiter),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(super) enum StringDelimiter {
+    /// `'`
+    Quote,
+    /// `"`
+    DoubleQuote,
+    /// `` ` ``
+    Backtick,
+    /// `/`
+    Slash,
+    // /// `%`
+    // Percent {},
+}
+
+impl StringDelimiter {
+    fn allow_interpolation(&self) -> bool {
+        match self {
+            StringDelimiter::Quote => false,
+            StringDelimiter::DoubleQuote => true,
+            StringDelimiter::Backtick => true,
+            StringDelimiter::Slash => true,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -306,6 +338,9 @@ impl<'a> Lexer<'a> {
     }
 
     pub(super) fn lex(&mut self, diag: &mut Vec<Diagnostic>, state: LexerState) -> Token {
+        if let LexerState::StringLike(delim) = state {
+            return self.lex_string_like(diag, delim);
+        }
         self.lex_space(diag, state);
         let start = self.pos;
         let kind = match self.peek_byte() {
@@ -923,11 +958,152 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    fn lex_string_like(&mut self, _diag: &mut Vec<Diagnostic>, delim: StringDelimiter) -> Token {
+        if self.pos >= self.bytes().len() {
+            return Token {
+                kind: TokenKind::EOF,
+                range: CodeRange {
+                    start: self.pos,
+                    end: self.pos,
+                },
+            };
+        }
+
+        let start = self.pos;
+        match self.peek_byte() {
+            b'\'' if delim == StringDelimiter::Quote => {
+                self.pos += 1;
+                Token {
+                    kind: TokenKind::StringEnd,
+                    range: CodeRange {
+                        start,
+                        end: self.pos,
+                    },
+                }
+            }
+            b'"' if delim == StringDelimiter::DoubleQuote => {
+                self.pos += 1;
+                Token {
+                    kind: TokenKind::StringEnd,
+                    range: CodeRange {
+                        start,
+                        end: self.pos,
+                    },
+                }
+            }
+            b'`' if delim == StringDelimiter::Backtick => {
+                self.pos += 1;
+                Token {
+                    kind: TokenKind::StringEnd,
+                    range: CodeRange {
+                        start,
+                        end: self.pos,
+                    },
+                }
+            }
+            b'/' if delim == StringDelimiter::Slash => {
+                self.pos += 1;
+                Token {
+                    kind: TokenKind::StringEnd,
+                    range: CodeRange {
+                        start,
+                        end: self.pos,
+                    },
+                }
+            }
+            b'#' if delim.allow_interpolation() && self.lookahead_interpolation() => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'{' => {
+                        self.pos += 1;
+                        Token {
+                            kind: TokenKind::StringInterpolationBegin,
+                            range: CodeRange {
+                                start,
+                                end: self.pos,
+                            },
+                        }
+                    }
+                    b'@' | b'$' => {
+                        self.pos += 1;
+                        if self.peek_byte() == b'@' {
+                            self.pos += 1;
+                        }
+                        while is_ident_continue(self.peek_byte()) {
+                            self.pos += 1;
+                        }
+                        Token {
+                            kind: TokenKind::StringVarInterpolation,
+                            range: CodeRange {
+                                start,
+                                end: self.pos,
+                            },
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            _ => {
+                while self.pos < self.bytes().len() {
+                    match self.peek_byte() {
+                        b'\'' if delim == StringDelimiter::Quote => break,
+                        b'"' if delim == StringDelimiter::DoubleQuote => break,
+                        b'`' if delim == StringDelimiter::Backtick => break,
+                        b'/' if delim == StringDelimiter::Slash => break,
+                        b'#' if delim.allow_interpolation() && self.lookahead_interpolation() => {
+                            break
+                        }
+                        b'\\' if self.pos + 2 <= self.bytes().len() => {
+                            self.pos += 2;
+                        }
+                        0x00..0x80 => {
+                            self.pos += 1;
+                        }
+                        _ => {
+                            let len = self
+                                .input
+                                .encoding()
+                                .next_len(&self.bytes()[self.pos..], EncodingState::default());
+                            self.pos += len;
+                        }
+                    }
+                }
+                Token {
+                    kind: TokenKind::StringContent,
+                    range: CodeRange {
+                        start,
+                        end: self.pos,
+                    },
+                }
+            }
+        }
+    }
+
+    fn lookahead_interpolation(&self) -> bool {
+        match self.peek_byte_at(1) {
+            b'{' => true,
+            b'@' => match self.peek_byte_at(2) {
+                b'@' => match self.peek_byte_at(3) {
+                    b'A'..=b'Z' | b'a'..=b'z' | b'_' | b'\x80'.. => true,
+                    _ => false,
+                },
+                b'A'..=b'Z' | b'a'..=b'z' | b'_' | b'\x80'.. => true,
+                _ => false,
+            },
+            b'$' => match self.peek_byte_at(2) {
+                b'A'..=b'Z' | b'a'..=b'z' | b'_' | b'\x80'.. => true,
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
     fn lex_space(&mut self, _diag: &mut Vec<Diagnostic>, state: LexerState) -> bool {
         let fold = match state {
             LexerState::Begin => true,
             LexerState::End => false,
             LexerState::Meth => true,
+            LexerState::StringLike(_) => unreachable!(),
         };
         let start = self.pos;
         loop {
@@ -1020,11 +1196,11 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn peek_byte(&mut self) -> u8 {
+    fn peek_byte(&self) -> u8 {
         self.bytes().get(self.pos).copied().unwrap_or(0)
     }
 
-    fn peek_byte_at(&mut self, offset: usize) -> u8 {
+    fn peek_byte_at(&self, offset: usize) -> u8 {
         self.bytes().get(self.pos + offset).copied().unwrap_or(0)
     }
 
@@ -1112,13 +1288,13 @@ mod tests {
             if token.kind == TokenKind::EOF {
                 break;
             }
-            state = next_state_for_testing(&token);
+            state = next_state_for_testing(&token, input.bytes(), state);
             tokens.push(token);
         }
         tokens
     }
 
-    fn next_state_for_testing(tok: &Token) -> LexerState {
+    fn next_state_for_testing(tok: &Token, bytes: &[u8], prev: LexerState) -> LexerState {
         match tok.kind {
             TokenKind::KeywordCapitalDoubleUnderscoreEncoding => LexerState::End,
             TokenKind::KeywordCapitalDoubleUnderscoreLine => LexerState::End,
@@ -1178,11 +1354,18 @@ mod tests {
             TokenKind::Rational => LexerState::End,
             TokenKind::Imaginary => LexerState::End,
             TokenKind::CharLiteral => LexerState::End,
-            TokenKind::StringBegin => LexerState::Begin,
+            TokenKind::StringBegin => LexerState::StringLike(match bytes[tok.range.start] {
+                b'\'' => StringDelimiter::Quote,
+                b'"' => StringDelimiter::DoubleQuote,
+                b'`' => StringDelimiter::Backtick,
+                b'/' => StringDelimiter::Slash,
+                _ => unreachable!(),
+            }),
             TokenKind::StringEnd => LexerState::End,
             TokenKind::StringEndColon => LexerState::Begin,
-            TokenKind::StringContent => LexerState::Begin,
+            TokenKind::StringContent => prev,
             TokenKind::StringInterpolationBegin => LexerState::Begin,
+            TokenKind::StringVarInterpolation => LexerState::End,
             TokenKind::OpAssign => LexerState::Begin,
             TokenKind::Excl => LexerState::Begin,
             TokenKind::ExclEq => LexerState::Begin,
@@ -1758,6 +1941,87 @@ mod tests {
         assert_eq!(
             lex_all(src),
             vec![token(TokenKind::CharLiteral, pos_in(src, b"?a")),]
+        );
+    }
+
+    #[test]
+    fn test_quote_string_tokens() {
+        let src = EStrRef::from("' foo '");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::StringBegin, pos_in(src, b"'")),
+                token(TokenKind::StringContent, pos_in(src, " foo ")),
+                token(TokenKind::StringEnd, pos_in_at(src, b"'", 1)),
+            ]
+        );
+        let src = EStrRef::from("'\\''");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::StringBegin, pos_in(src, b"'")),
+                token(TokenKind::StringContent, pos_in(src, "\\'")),
+                token(TokenKind::StringEnd, pos_in_at(src, b"'", 2)),
+            ]
+        );
+        let src = EStrRef::from("'\\\\'");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::StringBegin, pos_in(src, b"'")),
+                token(TokenKind::StringContent, pos_in(src, "\\\\")),
+                token(TokenKind::StringEnd, pos_in_at(src, b"'", 1)),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_double_quote_string_tokens() {
+        let src = EStrRef::from("\" foo \"");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::StringBegin, pos_in(src, b"\"")),
+                token(TokenKind::StringContent, pos_in(src, " foo ")),
+                token(TokenKind::StringEnd, pos_in_at(src, b"\"", 1)),
+            ]
+        );
+        let src = EStrRef::from("\" foo #{bar}");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::StringBegin, pos_in(src, b"\"")),
+                token(TokenKind::StringContent, pos_in(src, " foo ")),
+                token(TokenKind::StringInterpolationBegin, pos_in(src, "#{")),
+                token(TokenKind::Identifier, pos_in(src, b"bar")),
+                token(TokenKind::RBrace, pos_in(src, b"}")),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_backtick_string_tokens() {
+        let src = EStrRef::from("` foo `");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::StringBegin, pos_in(src, b"`")),
+                token(TokenKind::StringContent, pos_in(src, " foo ")),
+                token(TokenKind::StringEnd, pos_in_at(src, b"`", 1)),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_regexp_string_tokens() {
+        let src = EStrRef::from("/ foo /");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::StringBegin, pos_in(src, b"/")),
+                token(TokenKind::StringContent, pos_in(src, " foo ")),
+                token(TokenKind::StringEnd, pos_in_at(src, b"/", 1)),
+            ]
         );
     }
 

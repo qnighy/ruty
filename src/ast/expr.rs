@@ -7,6 +7,9 @@ pub enum Expr {
     False(FalseExpr),
     True(TrueExpr),
     Integer(IntegerExpr),
+    String(StringExpr),
+    Regexp(RegexpExpr),
+    XString(XStringExpr),
     LocalVariable(LocalVariableExpr),
     Write(WriteExpr),
     Error(ErrorExpr),
@@ -18,6 +21,9 @@ impl_from!(
     (Expr, FalseExpr, Expr::False),
     (Expr, TrueExpr, Expr::True),
     (Expr, IntegerExpr, Expr::Integer),
+    (Expr, StringExpr, Expr::String),
+    (Expr, RegexpExpr, Expr::Regexp),
+    (Expr, XStringExpr, Expr::XString),
     (Expr, LocalVariableExpr, Expr::LocalVariable),
     (Expr, WriteExpr, Expr::Write),
     (Expr, ErrorExpr, Expr::Error),
@@ -29,6 +35,9 @@ impl_delegators!(
         False(FalseExpr),
         True(TrueExpr),
         Integer(IntegerExpr),
+        String(StringExpr),
+        Regexp(RegexpExpr),
+        XString(XStringExpr),
         LocalVariable(LocalVariableExpr),
         Write(WriteExpr),
         Error(ErrorExpr),
@@ -93,6 +102,59 @@ pub struct IntegerExpr {
     pub parens: Vec<Paren>,
 
     pub value: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StringExpr {
+    pub range: CodeRange,
+    pub parens: Vec<Paren>,
+
+    pub open_range: CodeRange,
+    pub close_range: CodeRange,
+    pub contents: Vec<StringContent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RegexpExpr {
+    pub range: CodeRange,
+    pub parens: Vec<Paren>,
+
+    pub open_range: CodeRange,
+    pub close_range: CodeRange,
+    pub contents: Vec<StringContent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct XStringExpr {
+    pub range: CodeRange,
+    pub parens: Vec<Paren>,
+
+    pub open_range: CodeRange,
+    pub close_range: CodeRange,
+    pub contents: Vec<StringContent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum StringContent {
+    Text(TextContent),
+    Interpolation(InterpolationContent),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TextContent {
+    pub range: CodeRange,
+
+    // TODO: incorporate EString
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct InterpolationContent {
+    pub range: CodeRange,
+
+    pub open_range: CodeRange,
+    pub close_range: CodeRange,
+    pub stmt_list: StmtList,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

@@ -5,14 +5,15 @@ use std::borrow::Cow;
 use crate::{
     ast::{
         CodeRange, ErrorExpr, ErrorType, ErrorWriteTarget, Expr, FalseExpr, IntegerExpr,
-        IntegerType, LocalVariableExpr, LocalVariableWriteTarget, NilExpr, Paren, Program,
-        Semicolon, SemicolonKind, SeqExpr, SeqParen, SeqParenKind, Stmt, StmtList, StringType,
-        TrueExpr, Type, TypeAnnotation, WriteExpr, WriteTarget,
+        IntegerType, InterpolationContent, LocalVariableExpr, LocalVariableWriteTarget, NilExpr,
+        Paren, Program, RegexpExpr, Semicolon, SemicolonKind, SeqExpr, SeqParen, SeqParenKind,
+        Stmt, StmtList, StringContent, StringExpr, StringType, TextContent, TrueExpr, Type,
+        TypeAnnotation, WriteExpr, WriteTarget, XStringExpr,
     },
     encoding::EStrRef,
     Diagnostic,
 };
-use lexer::{Lexer, LexerState, Token, TokenKind};
+use lexer::{Lexer, LexerState, StringDelimiter, Token, TokenKind};
 
 pub fn parse(diag: &mut Vec<Diagnostic>, input: EStrRef<'_>) -> Program {
     let mut parser = Parser::new(input);
@@ -273,6 +274,99 @@ impl<'a> Parser<'a> {
                 }
                 .into()
             }
+            TokenKind::StringBegin => {
+                self.bump();
+                let delim = match self.bytes()[token.range.start] {
+                    b'\'' => StringDelimiter::Quote,
+                    b'"' => StringDelimiter::DoubleQuote,
+                    b'`' => StringDelimiter::Backtick,
+                    b'/' => StringDelimiter::Slash,
+                    _ => unreachable!(),
+                };
+                let mut contents = Vec::<StringContent>::new();
+                let close_range;
+                loop {
+                    let token = self.fill_token(diag, LexerState::StringLike(delim));
+                    match token.kind {
+                        TokenKind::StringEnd => {
+                            self.bump();
+                            close_range = token.range;
+                            break;
+                        }
+                        TokenKind::EOF => {
+                            diag.push(Diagnostic {
+                                range: token.range,
+                                message: format!("unexpected end of file"),
+                            });
+                            close_range = token.range;
+                            break;
+                        }
+                        TokenKind::StringContent => {
+                            self.bump();
+                            let s = self.select(token.range);
+                            contents.push(StringContent::Text(TextContent {
+                                range: token.range,
+                                // TODO: unescape
+                                value: s.into_owned(),
+                            }));
+                        }
+                        TokenKind::StringInterpolationBegin => {
+                            self.bump();
+                            let open_range = token.range;
+                            let stmt_list = self.parse_stmt_list(diag);
+                            let token = self.fill_token(diag, LexerState::End);
+                            if let TokenKind::RBrace = token.kind {
+                                self.bump();
+                            } else {
+                                diag.push(Diagnostic {
+                                    range: token.range,
+                                    message: format!("expected '}}'"),
+                                });
+                            }
+                            contents.push(StringContent::Interpolation(InterpolationContent {
+                                range: spanned(open_range, token.range),
+                                open_range,
+                                close_range: token.range,
+                                stmt_list,
+                            }));
+                        }
+                        // TokenKind::StringVarInterpolation => {}
+                        _ => {
+                            self.bump();
+                            diag.push(Diagnostic {
+                                range: token.range,
+                                message: format!("unexpected token"),
+                            });
+                        }
+                    }
+                }
+                match delim {
+                    StringDelimiter::Quote | StringDelimiter::DoubleQuote => StringExpr {
+                        range: spanned(token.range, close_range),
+                        parens: Vec::new(),
+                        open_range: token.range,
+                        close_range,
+                        contents,
+                    }
+                    .into(),
+                    StringDelimiter::Backtick => XStringExpr {
+                        range: spanned(token.range, close_range),
+                        parens: Vec::new(),
+                        open_range: token.range,
+                        close_range,
+                        contents,
+                    }
+                    .into(),
+                    StringDelimiter::Slash => RegexpExpr {
+                        range: spanned(token.range, close_range),
+                        parens: Vec::new(),
+                        open_range: token.range,
+                        close_range,
+                        contents,
+                    }
+                    .into(),
+                }
+            }
             TokenKind::LParen => {
                 let open_range = token.range;
                 self.bump();
@@ -427,7 +521,7 @@ mod tests {
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
 
-    use crate::ast::{pos_in, IntegerExpr};
+    use crate::ast::{pos_in, pos_in_at, IntegerExpr};
 
     use super::*;
 
@@ -768,6 +862,134 @@ mod tests {
                 vec![],
             )
         )
+    }
+
+    #[test]
+    fn test_parse_string_expr() {
+        let src = EStrRef::from("'foo'");
+        assert_eq!(
+            p_expr(src),
+            (
+                StringExpr {
+                    range: pos_in(src, b"'foo'"),
+                    parens: vec![],
+                    open_range: pos_in(src, b"'"),
+                    close_range: pos_in_at(src, b"'", 1),
+                    contents: vec![StringContent::Text(TextContent {
+                        range: pos_in(src, b"foo"),
+                        value: "foo".to_owned(),
+                    })],
+                }
+                .into(),
+                vec![],
+            )
+        );
+        let src = EStrRef::from("\"foo\"");
+        assert_eq!(
+            p_expr(src),
+            (
+                StringExpr {
+                    range: pos_in(src, b"\"foo\""),
+                    parens: vec![],
+                    open_range: pos_in(src, b"\""),
+                    close_range: pos_in_at(src, b"\"", 1),
+                    contents: vec![StringContent::Text(TextContent {
+                        range: pos_in(src, b"foo"),
+                        value: "foo".to_owned(),
+                    })],
+                }
+                .into(),
+                vec![],
+            )
+        );
+        let src = EStrRef::from("\"foo #{bar} baz\"");
+        assert_eq!(
+            p_expr(src),
+            (
+                StringExpr {
+                    range: pos_in(src, b"\"foo #{bar} baz\""),
+                    parens: vec![],
+                    open_range: pos_in(src, b"\""),
+                    close_range: pos_in_at(src, b"\"", 1),
+                    contents: vec![
+                        StringContent::Text(TextContent {
+                            range: pos_in(src, b"foo "),
+                            value: "foo ".to_owned(),
+                        }),
+                        StringContent::Interpolation(InterpolationContent {
+                            range: pos_in(src, b"#{bar}"),
+                            open_range: pos_in(src, b"#{"),
+                            close_range: pos_in(src, b"}"),
+                            stmt_list: StmtList {
+                                range: pos_in(src, b"bar"),
+                                semi_prefix: vec![],
+                                stmts: vec![Stmt {
+                                    range: pos_in(src, b"bar"),
+                                    expr: LocalVariableExpr {
+                                        range: pos_in(src, b"bar"),
+                                        parens: vec![],
+                                        name: "bar".to_owned(),
+                                        type_annotation: None,
+                                    }
+                                    .into(),
+                                    semi: vec![],
+                                }],
+                            },
+                        }),
+                        StringContent::Text(TextContent {
+                            range: pos_in(src, b" baz"),
+                            value: " baz".to_owned(),
+                        }),
+                    ],
+                }
+                .into(),
+                vec![],
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_regexp_expr() {
+        let src = EStrRef::from("/foo/");
+        assert_eq!(
+            p_expr(src),
+            (
+                RegexpExpr {
+                    range: pos_in(src, b"/foo/"),
+                    parens: vec![],
+                    open_range: pos_in(src, b"/"),
+                    close_range: pos_in_at(src, b"/", 1),
+                    contents: vec![StringContent::Text(TextContent {
+                        range: pos_in(src, b"foo"),
+                        value: "foo".to_owned(),
+                    })],
+                }
+                .into(),
+                vec![],
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_xstring_expr() {
+        let src = EStrRef::from("`foo`");
+        assert_eq!(
+            p_expr(src),
+            (
+                XStringExpr {
+                    range: pos_in(src, b"`foo`"),
+                    parens: vec![],
+                    open_range: pos_in(src, b"`"),
+                    close_range: pos_in_at(src, b"`", 1),
+                    contents: vec![StringContent::Text(TextContent {
+                        range: pos_in(src, b"foo"),
+                        value: "foo".to_owned(),
+                    })],
+                }
+                .into(),
+                vec![],
+            )
+        );
     }
 
     #[test]

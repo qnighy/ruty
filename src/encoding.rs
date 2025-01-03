@@ -50,6 +50,25 @@ impl Encoding {
     pub fn aliases(&self) -> &'static [&'static str] {
         self.aliases_impl()
     }
+
+    pub fn next_len(&self, bytes: &[u8], mut state: EncodingState) -> usize {
+        if bytes.is_empty() {
+            return 0;
+        }
+        loop {
+            match self.encoding_impl().next_char(bytes, state) {
+                EncNext::Valid { len, .. } => return len,
+                EncNext::Invalid { len } => return len,
+                EncNext::Shift { len, next_state } => {
+                    if len > 0 {
+                        return len;
+                    } else {
+                        state = next_state;
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
