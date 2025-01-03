@@ -1,10 +1,11 @@
 use crate::encoding::EncodingImpl;
 
-#[allow(unused)]
-use crate::encoding::impls::Utf16Impl;
 use crate::encoding::impls::{
-    Ascii8bitImpl, Cesu8Impl, UsAsciiImpl, Utf16BeImpl, Utf16BomImpl, Utf16LeImpl, Utf8Impl,
+    Ascii8bitImpl, Cesu8Impl, UsAsciiImpl, Utf16BeImpl, Utf16BomImpl, Utf16LeImpl, Utf32BeImpl,
+    Utf32BomImpl, Utf32LeImpl, Utf8Impl,
 };
+#[allow(unused)]
+use crate::encoding::impls::{Utf16Impl, Utf32Impl};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[allow(non_camel_case_types)]
@@ -412,9 +413,9 @@ impl Encoding {
             EncodingClass::UTF_16BE => &Utf16BeImpl,
             EncodingClass::UTF_16LE => &Utf16LeImpl,
             EncodingClass::UTF_16 => &Utf16BomImpl,
-            EncodingClass::UTF_32BE => &Ascii8bitImpl,
-            EncodingClass::UTF_32LE => &Ascii8bitImpl,
-            EncodingClass::UTF_32 => &Ascii8bitImpl,
+            EncodingClass::UTF_32BE => &Utf32BeImpl,
+            EncodingClass::UTF_32LE => &Utf32LeImpl,
+            EncodingClass::UTF_32 => &Utf32BomImpl,
             EncodingClass::ISO_8859_1 => &Ascii8bitImpl,
             EncodingClass::ISO_8859_2 => &Ascii8bitImpl,
             EncodingClass::ISO_8859_3 => &Ascii8bitImpl,

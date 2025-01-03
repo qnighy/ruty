@@ -4,26 +4,26 @@ const STATE_BOM_BE: EncodingState = EncodingState(1);
 const STATE_BOM_LE: EncodingState = EncodingState(2);
 const STATE_BOM_INVALID: EncodingState = EncodingState(3);
 
-pub(in crate::encoding) struct Utf16Impl<const LE: bool, const BOM: bool>;
+pub(in crate::encoding) struct Utf32Impl<const LE: bool, const BOM: bool>;
 #[allow(unused)]
-pub(in crate::encoding) type Utf16BeImpl = Utf16Impl<false, false>;
+pub(in crate::encoding) type Utf32BeImpl = Utf32Impl<false, false>;
 #[allow(non_upper_case_globals)]
-pub(in crate::encoding) const Utf16BeImpl: Utf16Impl<false, false> = Utf16Impl;
+pub(in crate::encoding) const Utf32BeImpl: Utf32Impl<false, false> = Utf32Impl;
 #[allow(unused)]
-pub(in crate::encoding) type Utf16LeImpl = Utf16Impl<true, false>;
+pub(in crate::encoding) type Utf32LeImpl = Utf32Impl<true, false>;
 #[allow(non_upper_case_globals)]
-pub(in crate::encoding) const Utf16LeImpl: Utf16Impl<true, false> = Utf16Impl;
+pub(in crate::encoding) const Utf32LeImpl: Utf32Impl<true, false> = Utf32Impl;
 #[allow(unused)]
-pub(in crate::encoding) type Utf16BomImpl = Utf16Impl<false, true>;
+pub(in crate::encoding) type Utf32BomImpl = Utf32Impl<false, true>;
 #[allow(non_upper_case_globals)]
-pub(in crate::encoding) const Utf16BomImpl: Utf16Impl<false, true> = Utf16Impl;
+pub(in crate::encoding) const Utf32BomImpl: Utf32Impl<false, true> = Utf32Impl;
 
-impl<const LE: bool, const BOM: bool> EncodingImpl for Utf16Impl<LE, BOM> {
+impl<const LE: bool, const BOM: bool> EncodingImpl for Utf32Impl<LE, BOM> {
     fn is_stateless(&self) -> bool {
         !BOM
     }
     fn next_char(&self, bytes: &[u8], state: EncodingState) -> EncNext {
-        if bytes.len() < 2 {
+        if bytes.len() < 4 {
             return EncNext::Invalid { len: 1 };
         }
         let le = if BOM {
@@ -33,16 +33,16 @@ impl<const LE: bool, const BOM: bool> EncodingImpl for Utf16Impl<LE, BOM> {
                 STATE_BOM_INVALID => return INVALID,
                 _ => {
                     // Check for BOM
-                    match (bytes[0], bytes[1]) {
-                        (0xFE, 0xFF) => {
+                    match (bytes[0], bytes[1], bytes[2], bytes[3]) {
+                        (0x00, 0x00, 0xFE, 0xFF) => {
                             return EncNext::Shift {
-                                len: 2,
+                                len: 4,
                                 next_state: STATE_BOM_BE,
                             }
                         }
-                        (0xFF, 0xFE) => {
+                        (0xFF, 0xFE, 0x00, 0x00) => {
                             return EncNext::Shift {
-                                len: 2,
+                                len: 4,
                                 next_state: STATE_BOM_LE,
                             }
                         }
@@ -59,18 +59,7 @@ impl<const LE: bool, const BOM: bool> EncodingImpl for Utf16Impl<LE, BOM> {
             LE
         };
         match unit(le, bytes) {
-            unicode @ 0x0000..0xD800 | unicode @ 0xE000..0x10000 => valid(2, unicode),
-            hi @ 0xD800..0xDC00 => {
-                if bytes.len() < 4 {
-                    return INVALID;
-                }
-                let lo = unit(le, &bytes[2..]);
-                if !(0xDC00..0xE000).contains(&lo) {
-                    return INVALID;
-                }
-                let unicode = 0x10000 + ((hi - 0xD800) << 10) + (lo - 0xDC00);
-                valid(4, unicode)
-            }
+            unicode @ 0x0000..0xD800 | unicode @ 0xE000..0x110000 => valid(2, unicode),
             _ => INVALID,
         }
     }
@@ -82,7 +71,7 @@ impl<const LE: bool, const BOM: bool> EncodingImpl for Utf16Impl<LE, BOM> {
     }
 }
 
-const INVALID: EncNext = EncNext::Invalid { len: 2 };
+const INVALID: EncNext = EncNext::Invalid { len: 4 };
 
 fn valid(len: usize, unicode: u32) -> EncNext {
     EncNext::Valid {
@@ -93,8 +82,14 @@ fn valid(len: usize, unicode: u32) -> EncNext {
 
 fn unit(le: bool, bytes: &[u8]) -> u32 {
     if le {
-        (u32::from(bytes[1]) << 8) | u32::from(bytes[0])
+        (u32::from(bytes[3]) << 24)
+            | (u32::from(bytes[2]) << 16)
+            | (u32::from(bytes[1]) << 8)
+            | u32::from(bytes[0])
     } else {
-        (u32::from(bytes[0]) << 8) | u32::from(bytes[1])
+        (u32::from(bytes[0]) << 24)
+            | (u32::from(bytes[1]) << 16)
+            | (u32::from(bytes[2]) << 8)
+            | u32::from(bytes[3])
     }
 }
