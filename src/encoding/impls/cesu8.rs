@@ -33,9 +33,9 @@ impl EncodingImpl for Cesu8Impl {
                 if unicode < 0x800 || (0xDC00..0xE000).contains(&unicode) {
                     return INVALID;
                 } else if (0xD800..0xDC00).contains(&unicode) {
-                    let lo = unicode;
-                    let hi = match self.next_surrogate(&bytes[3..]) {
-                        Some(hi) => hi,
+                    let hi = unicode;
+                    let lo = match self.next_surrogate(&bytes[3..]) {
+                        Some(lo) => lo,
                         None => return INVALID,
                     };
                     let unicode = 0x10000 + ((hi - 0xDC00) << 10) + (lo - 0xD800);

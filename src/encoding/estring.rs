@@ -210,7 +210,7 @@ impl<'a> fmt::Debug for EStrRef<'a> {
         if self.encoding == Encoding::UTF_8 {
             write!(f, "{:?}", StringBody(*self))
         } else {
-            f.debug_tuple("EStrRef")
+            f.debug_tuple("EString")
                 .field(&StringBody(*self))
                 .field(&self.encoding)
                 .finish()
@@ -350,6 +350,28 @@ mod tests {
                 EStrRef::from_bytes(b"\xef\xbf\xbe", Encoding::UTF_8)
             ),
             "\"\\u{fffe}\""
+        );
+    }
+
+    #[test]
+    fn test_debug_with_bom() {
+        assert_eq!(
+            format!(
+                "{:?}",
+                EStrRef::from_bytes(b"\xfe\xff\x30\x42", Encoding::UTF_16)
+            ),
+            "EString(\"\\xfe\\xffあ\", UTF_16)"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                EStrRef::from_bytes(b"\xff\xfe\x42\x30", Encoding::UTF_16)
+            ),
+            "EString(\"\\xff\\xfeあ\", UTF_16)"
+        );
+        assert_eq!(
+            format!("{:?}", EStrRef::from_bytes(b"\x30\x42", Encoding::UTF_16)),
+            "EString(\"\\x30\\x42\", UTF_16)"
         );
     }
 }
