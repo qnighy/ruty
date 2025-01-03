@@ -52,3 +52,10 @@ fn is_unicode_const_starter(ch: char) -> bool {
 
     ch.is_uppercase() || is_titlecase(ch) || is_ruby_special_uppercase(ch)
 }
+
+fn is_jisx0208_const_starter(b0: u8, b1: u8) -> bool {
+    match (b0, b1) {
+        (0xA3, 0xC1..=0xDA) | (0xA6, 0xA1..=0xB8) | (0xA7, 0xA1..=0xC1) => true,
+        _ => false,
+    }
+}

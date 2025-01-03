@@ -98,6 +98,12 @@ impl EString {
     pub fn chars(&self) -> Chars<'_> {
         self.as_estr().chars()
     }
+
+    pub fn starts_with_ruby_uppercase(&self) -> bool {
+        self.chars().next().map_or(false, |ch| {
+            self.encoding.encoding_impl().is_const_starter(ch)
+        })
+    }
 }
 
 impl From<String> for EString {

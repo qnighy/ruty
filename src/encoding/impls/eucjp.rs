@@ -1,4 +1,7 @@
-use crate::encoding::{is_unicode_const_starter, CharPlus, EncNext, EncodingImpl, EncodingState};
+use crate::encoding::{
+    is_jisx0208_const_starter, is_unicode_const_starter, CharPlus, EncNext, EncodingImpl,
+    EncodingState,
+};
 
 pub(in crate::encoding) struct EucJpImpl;
 
@@ -35,6 +38,9 @@ impl EncodingImpl for EucJpImpl {
     fn is_const_starter(&self, ch: CharPlus) -> bool {
         match ch {
             CharPlus::Unicode(ch) => is_unicode_const_starter(ch),
+            CharPlus::NonUnicode(bytes) => {
+                bytes.len() == 2 && is_jisx0208_const_starter(bytes[0], bytes[1])
+            }
             _ => false,
         }
     }

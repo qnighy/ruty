@@ -1,8 +1,8 @@
 use crate::encoding::EncodingImpl;
 
 use crate::encoding::impls::{
-    Ascii8bitImpl, Cesu8Impl, EucJpImpl, UsAsciiImpl, Utf16BeImpl, Utf16BomImpl, Utf16LeImpl,
-    Utf32BeImpl, Utf32BomImpl, Utf32LeImpl, Utf8Impl,
+    Ascii8bitImpl, Cesu8Impl, EucJpImpl, ShiftJisImpl, UsAsciiImpl, Utf16BeImpl, Utf16BomImpl,
+    Utf16LeImpl, Utf32BeImpl, Utf32BomImpl, Utf32LeImpl, Utf8Impl,
 };
 #[allow(unused)]
 use crate::encoding::impls::{Utf16Impl, Utf32Impl};
@@ -442,8 +442,8 @@ impl Encoding {
             EncodingClass::IBM037 => &Ascii8bitImpl,
             EncodingClass::Emacs_Mule => &Ascii8bitImpl,
             EncodingClass::EUC_JP => &EucJpImpl,
-            EncodingClass::Shift_JIS => &Ascii8bitImpl,
-            EncodingClass::Windows_31J => &Ascii8bitImpl,
+            EncodingClass::Shift_JIS => &ShiftJisImpl,
+            EncodingClass::Windows_31J => &ShiftJisImpl,
             EncodingClass::ISO_2022_JP => &Ascii8bitImpl,
             EncodingClass::EUC_KR => &Ascii8bitImpl,
             EncodingClass::CP949 => &Ascii8bitImpl,
