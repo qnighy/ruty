@@ -11,6 +11,7 @@ pub enum Expr {
     Regexp(RegexpExpr),
     XString(XStringExpr),
     LocalVariable(LocalVariableExpr),
+    Call(CallExpr),
     Write(WriteExpr),
     Error(ErrorExpr),
 }
@@ -25,6 +26,7 @@ impl_from!(
     (Expr, RegexpExpr, Expr::Regexp),
     (Expr, XStringExpr, Expr::XString),
     (Expr, LocalVariableExpr, Expr::LocalVariable),
+    (Expr, CallExpr, Expr::Call),
     (Expr, WriteExpr, Expr::Write),
     (Expr, ErrorExpr, Expr::Error),
 );
@@ -39,6 +41,7 @@ impl_delegators!(
         Regexp(RegexpExpr),
         XString(XStringExpr),
         LocalVariable(LocalVariableExpr),
+        Call(CallExpr),
         Write(WriteExpr),
         Error(ErrorExpr),
     }
@@ -164,6 +167,35 @@ pub struct LocalVariableExpr {
 
     pub name: String,
     pub type_annotation: Option<TypeAnnotation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CallExpr {
+    pub range: CodeRange,
+    pub parens: Vec<Paren>,
+
+    pub style: CallStyle,
+    pub receiver: Box<Expr>,
+    pub method: String,
+    pub method_range: CodeRange,
+    // TODO: support complex args
+    pub args: Vec<Expr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum CallStyle {
+    /// `obj.meth` etc.
+    Dot,
+    /// `meth` etc.
+    ImplicitSelf,
+    /// `obj.()` etc.
+    CallOp,
+    /// `-x` etc.
+    UnOp,
+    /// `not x`
+    SpelloutUnOp,
+    /// `x + y` etc.
+    BinOp,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

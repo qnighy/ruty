@@ -46,6 +46,12 @@ fn collect_ranges_expr(ranges: &mut Vec<CodeRange>, expr: &Expr) {
                 ranges.push(ta.range);
             }
         }
+        Expr::Call(expr) => {
+            collect_ranges_expr(ranges, &expr.receiver);
+            for arg in &expr.args {
+                collect_ranges_expr(ranges, arg);
+            }
+        }
         Expr::Write(expr) => {
             collect_ranges_write_target(ranges, &*expr.lhs);
             collect_ranges_expr(ranges, &*expr.rhs);

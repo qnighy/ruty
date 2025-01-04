@@ -4,11 +4,11 @@ use std::borrow::Cow;
 
 use crate::{
     ast::{
-        CodeRange, ErrorExpr, ErrorType, ErrorWriteTarget, Expr, FalseExpr, IntegerExpr,
-        IntegerType, InterpolationContent, LocalVariableExpr, LocalVariableWriteTarget, NilExpr,
-        Paren, Program, RegexpExpr, Semicolon, SemicolonKind, SeqExpr, SeqParen, SeqParenKind,
-        Stmt, StmtList, StringContent, StringExpr, StringType, TextContent, TrueExpr, Type,
-        TypeAnnotation, WriteExpr, WriteTarget, XStringExpr,
+        CallExpr, CallStyle, CodeRange, ErrorExpr, ErrorType, ErrorWriteTarget, Expr, FalseExpr,
+        IntegerExpr, IntegerType, InterpolationContent, LocalVariableExpr,
+        LocalVariableWriteTarget, NilExpr, Paren, Program, RegexpExpr, Semicolon, SemicolonKind,
+        SeqExpr, SeqParen, SeqParenKind, Stmt, StmtList, StringContent, StringExpr, StringType,
+        TextContent, TrueExpr, Type, TypeAnnotation, WriteExpr, WriteTarget, XStringExpr,
     },
     encoding::EStrRef,
     Diagnostic,
@@ -109,7 +109,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 _ => {
-                    let expr = self.parse_expr_lv_assignment(diag);
+                    let expr = self.parse_expr_lv_spelled_not(diag);
                     stmts.push(Stmt {
                         range: *expr.outer_range(),
                         expr,
@@ -140,7 +140,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_whole_expr(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
-        let expr = self.parse_expr_lv_assignment(diag);
+        let expr = self.parse_expr_lv_spelled_not(diag);
         let token = self.fill_token(diag, LexerState::End);
         match token.kind {
             TokenKind::EOF => {}
@@ -154,8 +154,35 @@ impl<'a> Parser<'a> {
         expr
     }
 
+    fn parse_expr_lv_spelled_not(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
+        // TODO: expressions like `false | not(true)` should also be handled
+        let token = self.fill_token(diag, LexerState::Begin);
+        match token.kind {
+            TokenKind::KeywordNot => {
+                let meth = match token.kind {
+                    TokenKind::KeywordNot => "!",
+                    _ => unreachable!(),
+                };
+                self.bump();
+                let expr = self.parse_expr_lv_assignment(diag);
+                CallExpr {
+                    range: token.range | *expr.outer_range(),
+                    parens: Vec::new(),
+
+                    style: CallStyle::SpelloutUnOp,
+                    receiver: Box::new(expr),
+                    method: meth.to_owned(),
+                    method_range: token.range,
+                    args: vec![],
+                }
+                .into()
+            }
+            _ => self.parse_expr_lv_assignment(diag),
+        }
+    }
+
     fn parse_expr_lv_assignment(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
-        let expr = self.parse_expr_lv_type_annotated(diag);
+        let expr = self.parse_expr_lv_eq(diag);
         let token = self.fill_token(diag, LexerState::End);
         match token.kind {
             TokenKind::Eq => {
@@ -191,6 +218,333 @@ impl<'a> Parser<'a> {
             _ => {}
         }
         expr
+    }
+
+    fn parse_expr_lv_eq(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
+        let mut expr = self.parse_expr_lv_ineq(diag);
+        let mut count = 0;
+        loop {
+            let token = self.fill_token(diag, LexerState::End);
+            match token.kind {
+                TokenKind::EqEq
+                | TokenKind::ExclEq
+                | TokenKind::EqEqEq
+                | TokenKind::EqMatch
+                | TokenKind::ExclTilde => {
+                    count += 1;
+                    if count > 1 {
+                        diag.push(Diagnostic {
+                            range: token.range,
+                            message: format!("these operators cannot be chained"),
+                        });
+                    }
+                    let meth = match token.kind {
+                        TokenKind::EqEq => "==",
+                        TokenKind::ExclEq => "!=",
+                        TokenKind::EqEqEq => "===",
+                        TokenKind::EqMatch => "=~",
+                        TokenKind::ExclTilde => "!~",
+                        _ => unimplemented!(),
+                    };
+                    self.bump();
+                    let rhs = self.parse_expr_lv_ineq(diag);
+                    expr = CallExpr {
+                        range: *expr.outer_range() | *rhs.outer_range(),
+                        parens: Vec::new(),
+
+                        style: CallStyle::BinOp,
+                        receiver: Box::new(expr),
+                        method: meth.to_owned(),
+                        method_range: token.range,
+                        args: vec![rhs],
+                    }
+                    .into();
+                }
+                _ => break,
+            }
+        }
+        expr
+    }
+
+    fn parse_expr_lv_ineq(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
+        let mut expr = self.parse_expr_lv_bitwise_or(diag);
+        loop {
+            let token = self.fill_token(diag, LexerState::End);
+            match token.kind {
+                TokenKind::Lt | TokenKind::LtEq | TokenKind::Gt | TokenKind::GtEq => {
+                    let meth = match token.kind {
+                        TokenKind::Lt => "<",
+                        TokenKind::LtEq => "<=",
+                        TokenKind::Gt => ">",
+                        TokenKind::GtEq => ">=",
+                        _ => unimplemented!(),
+                    };
+                    self.bump();
+                    let rhs = self.parse_expr_lv_bitwise_or(diag);
+                    expr = CallExpr {
+                        range: *expr.outer_range() | *rhs.outer_range(),
+                        parens: Vec::new(),
+
+                        style: CallStyle::BinOp,
+                        receiver: Box::new(expr),
+                        method: meth.to_owned(),
+                        method_range: token.range,
+                        args: vec![rhs],
+                    }
+                    .into();
+                }
+                _ => break,
+            }
+        }
+        expr
+    }
+
+    fn parse_expr_lv_bitwise_or(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
+        let mut expr = self.parse_expr_lv_bitwise_and(diag);
+        loop {
+            let token = self.fill_token(diag, LexerState::End);
+            match token.kind {
+                TokenKind::Vert | TokenKind::Caret => {
+                    let meth = match token.kind {
+                        TokenKind::Vert => "|",
+                        TokenKind::Caret => "^",
+                        _ => unimplemented!(),
+                    };
+                    self.bump();
+                    let rhs = self.parse_expr_lv_bitwise_and(diag);
+                    expr = CallExpr {
+                        range: *expr.outer_range() | *rhs.outer_range(),
+                        parens: Vec::new(),
+
+                        style: CallStyle::BinOp,
+                        receiver: Box::new(expr),
+                        method: meth.to_owned(),
+                        method_range: token.range,
+                        args: vec![rhs],
+                    }
+                    .into();
+                }
+                _ => break,
+            }
+        }
+        expr
+    }
+
+    fn parse_expr_lv_bitwise_and(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
+        let mut expr = self.parse_expr_lv_shift(diag);
+        loop {
+            let token = self.fill_token(diag, LexerState::End);
+            match token.kind {
+                TokenKind::Amp => {
+                    let meth = match token.kind {
+                        TokenKind::Amp => "&",
+                        _ => unimplemented!(),
+                    };
+                    self.bump();
+                    let rhs = self.parse_expr_lv_shift(diag);
+                    expr = CallExpr {
+                        range: *expr.outer_range() | *rhs.outer_range(),
+                        parens: Vec::new(),
+
+                        style: CallStyle::BinOp,
+                        receiver: Box::new(expr),
+                        method: meth.to_owned(),
+                        method_range: token.range,
+                        args: vec![rhs],
+                    }
+                    .into();
+                }
+                _ => break,
+            }
+        }
+        expr
+    }
+
+    fn parse_expr_lv_shift(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
+        let mut expr = self.parse_expr_lv_additive(diag);
+        loop {
+            let token = self.fill_token(diag, LexerState::End);
+            match token.kind {
+                TokenKind::LtLt | TokenKind::GtGt => {
+                    let meth = match token.kind {
+                        TokenKind::LtLt => "<<",
+                        TokenKind::GtGt => ">>",
+                        _ => unimplemented!(),
+                    };
+                    self.bump();
+                    let rhs = self.parse_expr_lv_additive(diag);
+                    expr = CallExpr {
+                        range: *expr.outer_range() | *rhs.outer_range(),
+                        parens: Vec::new(),
+
+                        style: CallStyle::BinOp,
+                        receiver: Box::new(expr),
+                        method: meth.to_owned(),
+                        method_range: token.range,
+                        args: vec![rhs],
+                    }
+                    .into();
+                }
+                _ => break,
+            }
+        }
+        expr
+    }
+
+    fn parse_expr_lv_additive(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
+        let mut expr = self.parse_expr_lv_multiplicative(diag);
+        loop {
+            let token = self.fill_token(diag, LexerState::End);
+            match token.kind {
+                TokenKind::Plus | TokenKind::Minus => {
+                    let meth = match token.kind {
+                        TokenKind::Plus => "+",
+                        TokenKind::Minus => "-",
+                        _ => unimplemented!(),
+                    };
+                    self.bump();
+                    let rhs = self.parse_expr_lv_multiplicative(diag);
+                    expr = CallExpr {
+                        range: *expr.outer_range() | *rhs.outer_range(),
+                        parens: Vec::new(),
+
+                        style: CallStyle::BinOp,
+                        receiver: Box::new(expr),
+                        method: meth.to_owned(),
+                        method_range: token.range,
+                        args: vec![rhs],
+                    }
+                    .into();
+                }
+                _ => break,
+            }
+        }
+        expr
+    }
+
+    fn parse_expr_lv_multiplicative(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
+        let mut expr = self.parse_expr_lv_exponential(diag);
+        loop {
+            let token = self.fill_token(diag, LexerState::End);
+            match token.kind {
+                TokenKind::Star | TokenKind::Slash | TokenKind::Percent => {
+                    let meth = match token.kind {
+                        TokenKind::Star => "*",
+                        TokenKind::Slash => "/",
+                        TokenKind::Percent => "%",
+                        _ => unimplemented!(),
+                    };
+                    self.bump();
+                    let rhs = self.parse_expr_lv_exponential(diag);
+                    expr = CallExpr {
+                        range: *expr.outer_range() | *rhs.outer_range(),
+                        parens: Vec::new(),
+
+                        style: CallStyle::BinOp,
+                        receiver: Box::new(expr),
+                        method: meth.to_owned(),
+                        method_range: token.range,
+                        args: vec![rhs],
+                    }
+                    .into();
+                }
+                _ => break,
+            }
+        }
+        expr
+    }
+
+    fn parse_expr_lv_exponential(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
+        let expr = self.parse_expr_lv_unary(diag);
+        let token = self.fill_token(diag, LexerState::End);
+        match token.kind {
+            TokenKind::StarStar => {
+                let meth = match token.kind {
+                    TokenKind::StarStar => "**",
+                    _ => unimplemented!(),
+                };
+                self.bump();
+                let rhs = self.parse_expr_lv_exponential(diag);
+                match self.reparse_minus(expr) {
+                    Ok((minus_range, lhs)) => CallExpr {
+                        range: minus_range | *rhs.outer_range(),
+                        parens: Vec::new(),
+
+                        style: CallStyle::UnOp,
+                        receiver: Box::new(
+                            CallExpr {
+                                range: *lhs.outer_range() | *rhs.outer_range(),
+                                parens: Vec::new(),
+                                style: CallStyle::BinOp,
+                                receiver: Box::new(lhs),
+                                method: meth.to_owned(),
+                                method_range: token.range,
+                                args: vec![rhs],
+                            }
+                            .into(),
+                        ),
+                        method: "-@".to_owned(),
+                        method_range: minus_range,
+                        args: vec![],
+                    }
+                    .into(),
+                    Err(lhs) => CallExpr {
+                        range: *lhs.outer_range() | *rhs.outer_range(),
+                        parens: Vec::new(),
+                        style: CallStyle::BinOp,
+                        receiver: Box::new(lhs),
+                        method: meth.to_owned(),
+                        method_range: token.range,
+                        args: vec![rhs],
+                    }
+                    .into(),
+                }
+            }
+            _ => expr,
+        }
+    }
+
+    fn reparse_minus(&self, expr: Expr) -> Result<(CodeRange, Expr), Expr> {
+        // TODO: also split numeric literals
+        match expr {
+            Expr::Call(expr)
+                if expr.method == "-@"
+                    && matches!(expr.style, CallStyle::UnOp)
+                    && expr.parens.is_empty() =>
+            {
+                Ok((expr.method_range, *expr.receiver))
+            }
+            _ => Err(expr),
+        }
+    }
+
+    fn parse_expr_lv_unary(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
+        let token = self.fill_token(diag, LexerState::Begin);
+        match token.kind {
+            TokenKind::Plus | TokenKind::Minus | TokenKind::Excl | TokenKind::Tilde => {
+                let meth = match token.kind {
+                    TokenKind::Plus => "+@",
+                    TokenKind::Minus => "-@",
+                    TokenKind::Excl => "!",
+                    TokenKind::Tilde => "~",
+                    _ => unreachable!(),
+                };
+                self.bump();
+                let expr = self.parse_expr_lv_unary(diag);
+                CallExpr {
+                    range: token.range | *expr.outer_range(),
+                    parens: Vec::new(),
+
+                    style: CallStyle::UnOp,
+                    receiver: Box::new(expr),
+                    method: meth.to_owned(),
+                    method_range: token.range,
+                    args: vec![],
+                }
+                .into()
+            }
+            _ => self.parse_expr_lv_type_annotated(diag),
+        }
     }
 
     fn parse_expr_lv_type_annotated(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
@@ -1049,6 +1403,485 @@ mod tests {
                 vec![],
             )
         )
+    }
+
+    #[test]
+    fn test_parse_multiplicative_operators() {
+        let src = EStrRef::from("x * y / z % w");
+        assert_eq!(
+            p_expr(src),
+            (
+                CallExpr {
+                    range: pos_in(src, b"x * y / z % w"),
+                    parens: vec![],
+                    style: CallStyle::BinOp,
+                    receiver: Box::new(
+                        CallExpr {
+                            range: pos_in(src, b"x * y / z"),
+                            parens: vec![],
+                            style: CallStyle::BinOp,
+                            receiver: Box::new(
+                                CallExpr {
+                                    range: pos_in(src, b"x * y"),
+                                    parens: vec![],
+                                    style: CallStyle::BinOp,
+                                    receiver: Box::new(
+                                        LocalVariableExpr {
+                                            range: pos_in(src, b"x"),
+                                            parens: vec![],
+                                            name: "x".to_owned(),
+                                            type_annotation: None,
+                                        }
+                                        .into()
+                                    ),
+                                    method: "*".to_owned(),
+                                    method_range: pos_in(src, b"*"),
+                                    args: vec![LocalVariableExpr {
+                                        range: pos_in(src, b"y"),
+                                        parens: vec![],
+                                        name: "y".to_owned(),
+                                        type_annotation: None,
+                                    }
+                                    .into()],
+                                }
+                                .into()
+                            ),
+                            method: "/".to_owned(),
+                            method_range: pos_in(src, b"/"),
+                            args: vec![LocalVariableExpr {
+                                range: pos_in(src, b"z"),
+                                parens: vec![],
+                                name: "z".to_owned(),
+                                type_annotation: None,
+                            }
+                            .into()],
+                        }
+                        .into()
+                    ),
+                    method: "%".to_owned(),
+                    method_range: pos_in(src, b"%"),
+                    args: vec![LocalVariableExpr {
+                        range: pos_in(src, b"w"),
+                        parens: vec![],
+                        name: "w".to_owned(),
+                        type_annotation: None,
+                    }
+                    .into()],
+                }
+                .into(),
+                vec![],
+            )
+        );
+
+        let src = EStrRef::from("x ** y * z ** w");
+        assert_eq!(
+            p_expr(src),
+            (
+                CallExpr {
+                    range: pos_in(src, b"x ** y * z ** w"),
+                    parens: vec![],
+                    style: CallStyle::BinOp,
+                    receiver: Box::new(
+                        CallExpr {
+                            range: pos_in(src, b"x ** y"),
+                            parens: vec![],
+                            style: CallStyle::BinOp,
+                            receiver: Box::new(
+                                LocalVariableExpr {
+                                    range: pos_in(src, b"x"),
+                                    parens: vec![],
+                                    name: "x".to_owned(),
+                                    type_annotation: None,
+                                }
+                                .into()
+                            ),
+                            method: "**".to_owned(),
+                            method_range: pos_in(src, b"**"),
+                            args: vec![LocalVariableExpr {
+                                range: pos_in(src, b"y"),
+                                parens: vec![],
+                                name: "y".to_owned(),
+                                type_annotation: None,
+                            }
+                            .into()],
+                        }
+                        .into()
+                    ),
+                    method: "*".to_owned(),
+                    method_range: pos_in_at(src, b"*", 2),
+                    args: vec![CallExpr {
+                        range: pos_in(src, b"z ** w"),
+                        parens: vec![],
+                        style: CallStyle::BinOp,
+                        receiver: Box::new(
+                            LocalVariableExpr {
+                                range: pos_in(src, b"z"),
+                                parens: vec![],
+                                name: "z".to_owned(),
+                                type_annotation: None,
+                            }
+                            .into()
+                        ),
+                        method: "**".to_owned(),
+                        method_range: pos_in_at(src, b"**", 1),
+                        args: vec![LocalVariableExpr {
+                            range: pos_in(src, b"w"),
+                            parens: vec![],
+                            name: "w".to_owned(),
+                            type_annotation: None,
+                        }
+                        .into()],
+                    }
+                    .into()],
+                }
+                .into(),
+                vec![],
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_exponential_operator() {
+        let src = EStrRef::from("x ** y ** z");
+        assert_eq!(
+            p_expr(src),
+            (
+                CallExpr {
+                    range: pos_in(src, b"x ** y ** z"),
+                    parens: vec![],
+                    style: CallStyle::BinOp,
+                    receiver: Box::new(
+                        LocalVariableExpr {
+                            range: pos_in(src, b"x"),
+                            parens: vec![],
+                            name: "x".to_owned(),
+                            type_annotation: None,
+                        }
+                        .into()
+                    ),
+                    method: "**".to_owned(),
+                    method_range: pos_in(src, b"**"),
+                    args: vec![CallExpr {
+                        range: pos_in(src, b"y ** z"),
+                        parens: vec![],
+                        style: CallStyle::BinOp,
+                        receiver: Box::new(
+                            LocalVariableExpr {
+                                range: pos_in(src, b"y"),
+                                parens: vec![],
+                                name: "y".to_owned(),
+                                type_annotation: None,
+                            }
+                            .into()
+                        ),
+                        method: "**".to_owned(),
+                        method_range: pos_in_at(src, b"**", 1),
+                        args: vec![LocalVariableExpr {
+                            range: pos_in(src, b"z"),
+                            parens: vec![],
+                            name: "z".to_owned(),
+                            type_annotation: None,
+                        }
+                        .into()],
+                    }
+                    .into()],
+                }
+                .into(),
+                vec![],
+            )
+        );
+        let src = EStrRef::from("+x ** +y");
+        assert_eq!(
+            p_expr(src),
+            (
+                CallExpr {
+                    range: pos_in(src, b"+x ** +y"),
+                    parens: vec![],
+                    style: CallStyle::BinOp,
+                    receiver: Box::new(
+                        CallExpr {
+                            range: pos_in(src, b"+x"),
+                            parens: vec![],
+                            style: CallStyle::UnOp,
+                            receiver: Box::new(
+                                LocalVariableExpr {
+                                    range: pos_in(src, b"x"),
+                                    parens: vec![],
+                                    name: "x".to_owned(),
+                                    type_annotation: None,
+                                }
+                                .into()
+                            ),
+                            method: "+@".to_owned(),
+                            method_range: pos_in(src, b"+"),
+                            args: vec![],
+                        }
+                        .into()
+                    ),
+                    method: "**".to_owned(),
+                    method_range: pos_in(src, b"**"),
+                    args: vec![CallExpr {
+                        range: pos_in(src, b"+y"),
+                        parens: vec![],
+                        style: CallStyle::UnOp,
+                        receiver: Box::new(
+                            LocalVariableExpr {
+                                range: pos_in(src, b"y"),
+                                parens: vec![],
+                                name: "y".to_owned(),
+                                type_annotation: None,
+                            }
+                            .into()
+                        ),
+                        method: "+@".to_owned(),
+                        method_range: pos_in_at(src, b"+", 1),
+                        args: vec![],
+                    }
+                    .into()],
+                }
+                .into(),
+                vec![],
+            )
+        );
+    }
+
+    #[test]
+    fn test_reparse_minus_exp() {
+        let src = EStrRef::from("-x ** -y ** z");
+        assert_eq!(
+            p_expr(src),
+            (
+                CallExpr {
+                    range: pos_in(src, b"-x ** -y ** z"),
+                    parens: vec![],
+                    style: CallStyle::UnOp,
+                    receiver: Box::new(
+                        CallExpr {
+                            range: pos_in(src, b"x ** -y ** z"),
+                            parens: vec![],
+                            style: CallStyle::BinOp,
+                            receiver: Box::new(
+                                LocalVariableExpr {
+                                    range: pos_in(src, b"x"),
+                                    parens: vec![],
+                                    name: "x".to_owned(),
+                                    type_annotation: None,
+                                }
+                                .into()
+                            ),
+                            method: "**".to_owned(),
+                            method_range: pos_in(src, b"**"),
+                            args: vec![CallExpr {
+                                range: pos_in(src, b"-y ** z"),
+                                parens: vec![],
+                                style: CallStyle::UnOp,
+                                receiver: Box::new(
+                                    CallExpr {
+                                        range: pos_in(src, b"y ** z"),
+                                        parens: vec![],
+                                        style: CallStyle::BinOp,
+                                        receiver: Box::new(
+                                            LocalVariableExpr {
+                                                range: pos_in(src, b"y"),
+                                                parens: vec![],
+                                                name: "y".to_owned(),
+                                                type_annotation: None,
+                                            }
+                                            .into()
+                                        ),
+                                        method: "**".to_owned(),
+                                        method_range: pos_in_at(src, b"**", 1),
+                                        args: vec![LocalVariableExpr {
+                                            range: pos_in(src, b"z"),
+                                            parens: vec![],
+                                            name: "z".to_owned(),
+                                            type_annotation: None,
+                                        }
+                                        .into()],
+                                    }
+                                    .into()
+                                ),
+                                method: "-@".to_owned(),
+                                method_range: pos_in_at(src, b"-", 1),
+                                args: vec![],
+                            }
+                            .into()],
+                        }
+                        .into()
+                    ),
+                    method: "-@".to_owned(),
+                    method_range: pos_in(src, b"-"),
+                    args: vec![],
+                }
+                .into(),
+                vec![],
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_unary_operators() {
+        let src = EStrRef::from("+x");
+        assert_eq!(
+            p_expr(src),
+            (
+                CallExpr {
+                    range: pos_in(src, b"+x"),
+                    parens: vec![],
+                    style: CallStyle::UnOp,
+                    receiver: Box::new(
+                        LocalVariableExpr {
+                            range: pos_in(src, b"x"),
+                            parens: vec![],
+                            name: "x".to_owned(),
+                            type_annotation: None,
+                        }
+                        .into()
+                    ),
+                    method: "+@".to_owned(),
+                    method_range: pos_in(src, b"+"),
+                    args: vec![],
+                }
+                .into(),
+                vec![],
+            )
+        );
+
+        let src = EStrRef::from("-x");
+        assert_eq!(
+            p_expr(src),
+            (
+                CallExpr {
+                    range: pos_in(src, b"-x"),
+                    parens: vec![],
+                    style: CallStyle::UnOp,
+                    receiver: Box::new(
+                        LocalVariableExpr {
+                            range: pos_in(src, b"x"),
+                            parens: vec![],
+                            name: "x".to_owned(),
+                            type_annotation: None,
+                        }
+                        .into()
+                    ),
+                    method: "-@".to_owned(),
+                    method_range: pos_in(src, b"-"),
+                    args: vec![],
+                }
+                .into(),
+                vec![],
+            )
+        );
+
+        let src = EStrRef::from("!x");
+        assert_eq!(
+            p_expr(src),
+            (
+                CallExpr {
+                    range: pos_in(src, b"!x"),
+                    parens: vec![],
+                    style: CallStyle::UnOp,
+                    receiver: Box::new(
+                        LocalVariableExpr {
+                            range: pos_in(src, b"x"),
+                            parens: vec![],
+                            name: "x".to_owned(),
+                            type_annotation: None,
+                        }
+                        .into()
+                    ),
+                    method: "!".to_owned(),
+                    method_range: pos_in(src, b"!"),
+                    args: vec![],
+                }
+                .into(),
+                vec![],
+            )
+        );
+
+        let src = EStrRef::from("~x");
+        assert_eq!(
+            p_expr(src),
+            (
+                CallExpr {
+                    range: pos_in(src, b"~x"),
+                    parens: vec![],
+                    style: CallStyle::UnOp,
+                    receiver: Box::new(
+                        LocalVariableExpr {
+                            range: pos_in(src, b"x"),
+                            parens: vec![],
+                            name: "x".to_owned(),
+                            type_annotation: None,
+                        }
+                        .into()
+                    ),
+                    method: "~".to_owned(),
+                    method_range: pos_in(src, b"~"),
+                    args: vec![],
+                }
+                .into(),
+                vec![],
+            )
+        );
+
+        let src = EStrRef::from("!-+~0");
+        assert_eq!(
+            p_expr(src),
+            (
+                CallExpr {
+                    range: pos_in(src, b"!-+~0"),
+                    parens: vec![],
+                    style: CallStyle::UnOp,
+                    receiver: Box::new(
+                        CallExpr {
+                            range: pos_in(src, b"-+~0"),
+                            parens: vec![],
+                            style: CallStyle::UnOp,
+                            receiver: Box::new(
+                                CallExpr {
+                                    range: pos_in(src, b"+~0"),
+                                    parens: vec![],
+                                    style: CallStyle::UnOp,
+                                    receiver: Box::new(
+                                        CallExpr {
+                                            range: pos_in(src, b"~0"),
+                                            parens: vec![],
+                                            style: CallStyle::UnOp,
+                                            receiver: Box::new(
+                                                IntegerExpr {
+                                                    range: pos_in(src, b"0"),
+                                                    parens: vec![],
+                                                    value: 0,
+                                                }
+                                                .into()
+                                            ),
+                                            method: "~".to_owned(),
+                                            method_range: pos_in(src, b"~"),
+                                            args: vec![],
+                                        }
+                                        .into()
+                                    ),
+                                    method: "+@".to_owned(),
+                                    method_range: pos_in(src, b"+"),
+                                    args: vec![],
+                                }
+                                .into()
+                            ),
+                            method: "-@".to_owned(),
+                            method_range: pos_in(src, b"-"),
+                            args: vec![],
+                        }
+                        .into()
+                    ),
+                    method: "!".to_owned(),
+                    method_range: pos_in(src, b"!"),
+                    args: vec![],
+                }
+                .into(),
+                vec![],
+            )
+        );
     }
 
     #[test]
