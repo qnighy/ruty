@@ -16,5 +16,8 @@ pub use expr::{
 pub use paren::Paren;
 pub use pos::{pos_in, pos_in_at, CodeRange, PositionIndex, DUMMY_RANGE};
 pub use stmt::{Program, Semicolon, SemicolonKind, Stmt, StmtList};
-pub use types::{ErrorType, IntegerType, NilType, StringType, Type, TypeAnnotation};
+pub use types::{
+    ErrorType, FalseType, IntegerType, NilType, RegexpType, StringType, TrueType, Type,
+    TypeAnnotation,
+};
 pub use write_target::{ErrorWriteTarget, LocalVariableWriteTarget, WriteTarget};

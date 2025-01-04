@@ -5,10 +5,11 @@ use std::borrow::Cow;
 use crate::{
     ast::{
         CallExpr, CallStyle, CodeRange, ErrorExpr, ErrorType, ErrorWriteTarget, Expr, FalseExpr,
-        IntegerExpr, IntegerType, InterpolationContent, LocalVariableExpr,
-        LocalVariableWriteTarget, NilExpr, Paren, Program, RegexpExpr, Semicolon, SemicolonKind,
-        SeqExpr, SeqParen, SeqParenKind, Stmt, StmtList, StringContent, StringExpr, StringType,
-        TextContent, TrueExpr, Type, TypeAnnotation, WriteExpr, WriteTarget, XStringExpr,
+        FalseType, IntegerExpr, IntegerType, InterpolationContent, LocalVariableExpr,
+        LocalVariableWriteTarget, NilExpr, NilType, Paren, Program, RegexpExpr, RegexpType,
+        Semicolon, SemicolonKind, SeqExpr, SeqParen, SeqParenKind, Stmt, StmtList, StringContent,
+        StringExpr, StringType, TextContent, TrueExpr, TrueType, Type, TypeAnnotation, WriteExpr,
+        WriteTarget, XStringExpr,
     },
     encoding::EStrRef,
     Diagnostic,
@@ -808,11 +809,18 @@ impl<'a> Parser<'a> {
         let token = self.fill_token(diag, LexerState::Begin);
         self.bump();
         match token.kind {
+            TokenKind::KeywordNil => NilType { range: token.range }.into(),
+            TokenKind::KeywordFalse => FalseType { range: token.range }.into(),
+            TokenKind::KeywordTrue => TrueType { range: token.range }.into(),
             TokenKind::Const => {
                 let s = self.select(token.range);
                 match &*s {
+                    "NilClass" => NilType { range: token.range }.into(),
+                    "FalseClass" => FalseType { range: token.range }.into(),
+                    "TrueClass" => TrueType { range: token.range }.into(),
                     "Integer" => IntegerType { range: token.range }.into(),
                     "String" => StringType { range: token.range }.into(),
+                    "Regexp" => RegexpType { range: token.range }.into(),
                     _ => {
                         diag.push(Diagnostic {
                             range: token.range,

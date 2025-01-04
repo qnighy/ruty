@@ -42,7 +42,7 @@ export async function activate(context: ExtensionContext) {
       'lsp-server',
       module,
       // { initial: 160, maximum: 160, shared: true },
-      { initial: 18, maximum: 256, shared: true },
+      { initial: 30, maximum: 256, shared: true },
       options
     );
 
