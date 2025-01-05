@@ -160,24 +160,36 @@ pub(super) enum TokenKind {
     Percent,
     /// `&`
     Amp,
+    /// `&`, block argument only
+    AmpPrefix,
     /// `&&`
     AmpAmp,
     /// `&.`
     AmpDot,
     /// `(`
     LParen,
+    /// `(` with restricted syntactic rule (e.g. cannot be an argument list delimiter)
+    LParenRestricted,
     /// `)`
     RParen,
     /// `*`
     Star,
+    /// `*`, argument splat only
+    StarPrefix,
     /// `**`
     StarStar,
+    /// `**`, keyword argument splat only
+    StarStarPrefix,
     /// `+`
     Plus,
+    /// `+`, unary operator only
+    PlusPrefix,
     /// `,`
     Comma,
     /// `-`
     Minus,
+    /// `-`, unary operator only
+    MinusPrefix,
     /// `->`
     Arrow,
     /// `.`
@@ -192,6 +204,8 @@ pub(super) enum TokenKind {
     Colon,
     /// `::`
     ColonColon,
+    /// `::`, prefix only
+    ColonColonPrefix,
     /// `;`, but in most cases Newline is used instead.
     Semicolon,
     /// EOL in certain contexts.
@@ -226,6 +240,8 @@ pub(super) enum TokenKind {
     At,
     /// `[`
     LBracket,
+    /// `[`, prefix only
+    LBracketPrefix,
     /// `]`
     RBracket,
     /// `^`
@@ -463,6 +479,36 @@ impl LexerState {
         }
     }
 
+    /// Should we prefer prefix-only tokens over ordinary ones for:
+    ///
+    /// - `+`, `-`
+    /// - `*`, `**`, `&`
+    /// - `/`, `%`
+    /// - `::`
+    /// - `[`
+    fn prefer_prefix_operator(&self, space_before: bool, space_or_obstacle_after: bool) -> bool {
+        match self {
+            LexerState::Begin
+            | LexerState::ClassName
+            | LexerState::BeginOpt
+            | LexerState::BeginLabelable => true,
+            LexerState::FirstArgument => space_before && !space_or_obstacle_after,
+            LexerState::WeakFirstArgument
+            | LexerState::End
+            | LexerState::MethForDef
+            | LexerState::MethOrSymbolForDef
+            | LexerState::MethForCall => false,
+            LexerState::StringLike(_) => unreachable!(),
+        }
+    }
+
+    fn restricted_paren(&self, space_before: bool) -> bool {
+        match self {
+            LexerState::FirstArgument | LexerState::WeakFirstArgument => space_before,
+            _ => false,
+        }
+    }
+
     /// Should we extend lexer to include extended method names, such as:
     ///
     /// - `foo=`
@@ -545,7 +591,7 @@ impl<'a> Lexer<'a> {
         if let LexerState::StringLike(delim) = state {
             return self.lex_string_like(diag, delim);
         }
-        self.lex_space(diag, state);
+        let space_before = self.lex_space(diag, state);
         let start = self.pos;
         let kind = match self.peek_byte() {
             b'\0' | b'\x04' | b'\x1A' => {
@@ -735,7 +781,13 @@ impl<'a> Lexer<'a> {
                         self.pos += 1;
                         TokenKind::OpAssign
                     }
-                    _ => TokenKind::Amp,
+                    _ => {
+                        if state.prefer_prefix_operator(space_before, self.peek_space()) {
+                            TokenKind::AmpPrefix
+                        } else {
+                            TokenKind::Amp
+                        }
+                    }
                 }
             }
             b'\'' => {
@@ -744,7 +796,11 @@ impl<'a> Lexer<'a> {
             }
             b'(' => {
                 self.pos += 1;
-                TokenKind::LParen
+                if state.restricted_paren(space_before) {
+                    TokenKind::LParenRestricted
+                } else {
+                    TokenKind::LParen
+                }
             }
             b')' => {
                 self.pos += 1;
@@ -764,14 +820,26 @@ impl<'a> Lexer<'a> {
                                 self.pos += 1;
                                 TokenKind::OpAssign
                             }
-                            _ => TokenKind::StarStar,
+                            _ => {
+                                if state.prefer_prefix_operator(space_before, self.peek_space()) {
+                                    TokenKind::StarStarPrefix
+                                } else {
+                                    TokenKind::StarStar
+                                }
+                            }
                         }
                     }
                     b'=' => {
                         self.pos += 1;
                         TokenKind::OpAssign
                     }
-                    _ => TokenKind::Star,
+                    _ => {
+                        if state.prefer_prefix_operator(space_before, self.peek_space()) {
+                            TokenKind::StarPrefix
+                        } else {
+                            TokenKind::Star
+                        }
+                    }
                 }
             }
             // `+`
@@ -788,7 +856,13 @@ impl<'a> Lexer<'a> {
                         self.pos += 1;
                         TokenKind::OpAssign
                     }
-                    _ => TokenKind::Plus,
+                    _ => {
+                        if state.prefer_prefix_operator(space_before, self.peek_space()) {
+                            TokenKind::PlusPrefix
+                        } else {
+                            TokenKind::Plus
+                        }
+                    }
                 }
             }
             b',' => {
@@ -823,7 +897,13 @@ impl<'a> Lexer<'a> {
                         self.pos += 1;
                         TokenKind::Arrow
                     }
-                    _ => TokenKind::Minus,
+                    _ => {
+                        if state.prefer_prefix_operator(space_before, self.peek_space()) {
+                            TokenKind::MinusPrefix
+                        } else {
+                            TokenKind::Minus
+                        }
+                    }
                 }
             }
             // `.`
@@ -863,7 +943,7 @@ impl<'a> Lexer<'a> {
             // `/=`
             b'/' => {
                 self.pos += 1;
-                if state.begin_strict() {
+                if state.prefer_prefix_operator(space_before, self.peek_byte() == b'=') {
                     TokenKind::StringBegin
                 } else {
                     match self.peek_byte() {
@@ -894,7 +974,12 @@ impl<'a> Lexer<'a> {
                     }
                     b':' => {
                         self.pos += 1;
-                        TokenKind::ColonColon
+                        // Pass `false` so that `p :: Foo` is equivalent to `p ::Foo`
+                        if state.prefer_prefix_operator(space_before, false) {
+                            TokenKind::ColonColonPrefix
+                        } else {
+                            TokenKind::ColonColon
+                        }
                     }
                     _ => TokenKind::Colon,
                 }
@@ -1082,6 +1167,8 @@ impl<'a> Lexer<'a> {
                         }
                         _ => TokenKind::MethodName,
                     }
+                } else if state.prefer_prefix_operator(space_before, false) {
+                    TokenKind::LBracketPrefix
                 } else {
                     TokenKind::LBracket
                 }
@@ -1315,7 +1402,7 @@ impl<'a> Lexer<'a> {
                         break;
                     }
                 }
-                b'\t' | b'\n' | b'\x0C' | b'\r' | b'\x13' | b' ' => {
+                b'\t' | b'\n' | b'\x0B' | b'\x0C' | b'\r' | b'\x13' | b' ' => {
                     self.pos += 1;
                 }
                 b'\\' => {
@@ -1347,7 +1434,7 @@ impl<'a> Lexer<'a> {
 
         loop {
             match self.peek_byte() {
-                b'\t' | b'\x0C' | b'\r' | b'\x13' | b' ' => {
+                b'\t' | b'\x0B' | b'\x0C' | b'\r' | b'\x13' | b' ' => {
                     self.pos += 1;
                 }
                 b'#' => {
@@ -1392,6 +1479,13 @@ impl<'a> Lexer<'a> {
                     self.pos += 1;
                 }
             }
+        }
+    }
+
+    fn peek_space(&self) -> bool {
+        match self.peek_byte() {
+            b'\t' | b'\n' | b'\x0B' | b'\x0C' | b'\r' | b' ' => true,
+            _ => false,
         }
     }
 
@@ -1571,15 +1665,21 @@ mod tests {
             TokenKind::ExclTilde => LexerState::Begin,
             TokenKind::Percent => LexerState::Begin,
             TokenKind::Amp => LexerState::Begin,
+            TokenKind::AmpPrefix => LexerState::Begin,
             TokenKind::AmpAmp => LexerState::Begin,
             TokenKind::AmpDot => LexerState::MethForCall,
             TokenKind::LParen => LexerState::BeginLabelable,
+            TokenKind::LParenRestricted => LexerState::BeginLabelable,
             TokenKind::RParen => LexerState::End,
             TokenKind::Star => LexerState::Begin,
+            TokenKind::StarPrefix => LexerState::Begin,
             TokenKind::StarStar => LexerState::Begin,
+            TokenKind::StarStarPrefix => LexerState::Begin,
             TokenKind::Plus => LexerState::Begin,
+            TokenKind::PlusPrefix => LexerState::Begin,
             TokenKind::Comma => LexerState::BeginLabelable,
             TokenKind::Minus => LexerState::Begin,
+            TokenKind::MinusPrefix => LexerState::Begin,
             TokenKind::Arrow => LexerState::End,
             TokenKind::Dot => LexerState::MethForCall,
             TokenKind::DotDot => LexerState::Begin,
@@ -1587,6 +1687,7 @@ mod tests {
             TokenKind::Slash => LexerState::Begin,
             TokenKind::Colon => LexerState::Begin,
             TokenKind::ColonColon => LexerState::MethForCall,
+            TokenKind::ColonColonPrefix => LexerState::Begin,
             TokenKind::Semicolon => LexerState::Begin,
             TokenKind::Newline => LexerState::Begin,
             TokenKind::Lt => LexerState::Begin,
@@ -1604,6 +1705,7 @@ mod tests {
             TokenKind::Question => LexerState::Begin,
             TokenKind::At => LexerState::Begin,
             TokenKind::LBracket => LexerState::BeginLabelable,
+            TokenKind::LBracketPrefix => LexerState::BeginLabelable,
             TokenKind::RBracket => LexerState::End,
             TokenKind::Caret => LexerState::Begin,
             TokenKind::LBrace => LexerState::Begin,
@@ -2328,7 +2430,43 @@ mod tests {
         let src = EStrRef::from("&");
         assert_eq!(
             lex_all(src),
-            vec![token(TokenKind::Amp, pos_in(src, b"&")),]
+            vec![token(TokenKind::AmpPrefix, pos_in(src, b"&")),]
+        );
+        let src = EStrRef::from("x & y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"x")),
+                token(TokenKind::Amp, pos_in(src, b"&")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
+        );
+        let src = EStrRef::from("meth! & y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::Amp, pos_in(src, b"&")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
+        );
+        let src = EStrRef::from("meth! &y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::AmpPrefix, pos_in(src, b"&")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
+        );
+        let src = EStrRef::from("meth!&y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::Amp, pos_in(src, b"&")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
         );
     }
 
@@ -2357,6 +2495,60 @@ mod tests {
             lex_all(src),
             vec![token(TokenKind::LParen, pos_in(src, b"(")),]
         );
+        let src = EStrRef::from("x ( y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"x")),
+                token(TokenKind::LParenRestricted, pos_in(src, b"(")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
+        );
+        let src = EStrRef::from("x (y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"x")),
+                token(TokenKind::LParenRestricted, pos_in(src, b"(")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
+        );
+        let src = EStrRef::from("x(y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"x")),
+                token(TokenKind::LParen, pos_in(src, b"(")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
+        );
+        let src = EStrRef::from("meth! ( y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::LParenRestricted, pos_in(src, b"(")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
+        );
+        let src = EStrRef::from("meth! (y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::LParenRestricted, pos_in(src, b"(")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
+        );
+        let src = EStrRef::from("meth!(y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::LParen, pos_in(src, b"(")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
+        );
     }
 
     #[test]
@@ -2373,7 +2565,34 @@ mod tests {
         let src = EStrRef::from("*");
         assert_eq!(
             lex_all(src),
-            vec![token(TokenKind::Star, pos_in(src, b"*")),]
+            vec![token(TokenKind::StarPrefix, pos_in(src, b"*")),]
+        );
+        let src = EStrRef::from("meth! * y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::Star, pos_in(src, b"*")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
+        );
+        let src = EStrRef::from("meth! *y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::StarPrefix, pos_in(src, b"*")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
+        );
+        let src = EStrRef::from("meth!*y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::Star, pos_in(src, b"*")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
         );
     }
 
@@ -2382,7 +2601,34 @@ mod tests {
         let src = EStrRef::from("**");
         assert_eq!(
             lex_all(src),
-            vec![token(TokenKind::StarStar, pos_in(src, b"**")),]
+            vec![token(TokenKind::StarStarPrefix, pos_in(src, b"**")),]
+        );
+        let src = EStrRef::from("meth! ** y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::StarStar, pos_in(src, b"**")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
+        );
+        let src = EStrRef::from("meth! **y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::StarStarPrefix, pos_in(src, b"**")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
+        );
+        let src = EStrRef::from("meth!**y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::StarStar, pos_in(src, b"**")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
         );
     }
 
@@ -2391,7 +2637,34 @@ mod tests {
         let src = EStrRef::from("+");
         assert_eq!(
             lex_all(src),
-            vec![token(TokenKind::Plus, pos_in(src, b"+")),]
+            vec![token(TokenKind::PlusPrefix, pos_in(src, b"+")),]
+        );
+        let src = EStrRef::from("meth! + y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::Plus, pos_in(src, b"+")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
+        );
+        let src = EStrRef::from("meth! +y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::PlusPrefix, pos_in(src, b"+")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
+        );
+        let src = EStrRef::from("meth!+y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::Plus, pos_in(src, b"+")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
         );
     }
 
@@ -2409,7 +2682,34 @@ mod tests {
         let src = EStrRef::from("-");
         assert_eq!(
             lex_all(src),
-            vec![token(TokenKind::Minus, pos_in(src, b"-")),]
+            vec![token(TokenKind::MinusPrefix, pos_in(src, b"-")),]
+        );
+        let src = EStrRef::from("meth! - y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::Minus, pos_in(src, b"-")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
+        );
+        let src = EStrRef::from("meth! -y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::MinusPrefix, pos_in(src, b"-")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
+        );
+        let src = EStrRef::from("meth!-y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::Minus, pos_in(src, b"-")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
         );
     }
 
@@ -2475,7 +2775,34 @@ mod tests {
         let src = EStrRef::from("::");
         assert_eq!(
             lex_all(src),
-            vec![token(TokenKind::ColonColon, pos_in(src, b"::")),]
+            vec![token(TokenKind::ColonColonPrefix, pos_in(src, b"::")),]
+        );
+        let src = EStrRef::from("meth! :: Foo");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::ColonColonPrefix, pos_in(src, b"::")),
+                token(TokenKind::Const, pos_in(src, b"Foo")),
+            ]
+        );
+        let src = EStrRef::from("meth! ::Foo");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::ColonColonPrefix, pos_in(src, b"::")),
+                token(TokenKind::Const, pos_in(src, b"Foo")),
+            ]
+        );
+        let src = EStrRef::from("meth!::Foo");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::ColonColon, pos_in(src, b"::")),
+                token(TokenKind::Const, pos_in(src, b"Foo")),
+            ]
         );
     }
 
@@ -2598,7 +2925,34 @@ mod tests {
         let src = EStrRef::from("[");
         assert_eq!(
             lex_all(src),
-            vec![token(TokenKind::LBracket, pos_in(src, b"[")),]
+            vec![token(TokenKind::LBracketPrefix, pos_in(src, b"[")),]
+        );
+        let src = EStrRef::from("meth! [ y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::LBracketPrefix, pos_in(src, b"[")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
+        );
+        let src = EStrRef::from("meth! [y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::LBracketPrefix, pos_in(src, b"[")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
+        );
+        let src = EStrRef::from("meth![y");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::MethodName, pos_in(src, b"meth!")),
+                token(TokenKind::LBracket, pos_in(src, b"[")),
+                token(TokenKind::Identifier, pos_in(src, b"y")),
+            ]
         );
     }
 

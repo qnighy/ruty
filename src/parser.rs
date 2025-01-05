@@ -525,10 +525,15 @@ impl<'a> Parser<'a> {
     fn parse_expr_lv_unary(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
         let token = self.fill_token(diag, LexerState::Begin);
         match token.kind {
-            TokenKind::Plus | TokenKind::Minus | TokenKind::Excl | TokenKind::Tilde => {
+            TokenKind::Plus
+            | TokenKind::PlusPrefix
+            | TokenKind::Minus
+            | TokenKind::MinusPrefix
+            | TokenKind::Excl
+            | TokenKind::Tilde => {
                 let meth = match token.kind {
-                    TokenKind::Plus => "+@",
-                    TokenKind::Minus => "-@",
+                    TokenKind::Plus | TokenKind::PlusPrefix => "+@",
+                    TokenKind::Minus | TokenKind::MinusPrefix => "-@",
                     TokenKind::Excl => "!",
                     TokenKind::Tilde => "~",
                     _ => unreachable!(),
