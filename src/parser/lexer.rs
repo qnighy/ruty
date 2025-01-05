@@ -259,34 +259,238 @@ pub(super) enum TokenKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub(super) enum LexerState {
     /// Expects an expression.
+    /// Equivalent to `EXPR_BEG` or `EXPR_ARG|EXPR_LABELED` in CRuby.
     ///
-    /// ## Occurrences
+    /// Occurrences:
     ///
     /// - The beginning of the file
-    /// - ...
+    /// - After `\n` or `;`
+    /// - After most prefix or infix operators
     ///
-    /// ## Effects
+    /// Effects:
+    ///
+    /// - `\n` is skipped as whitespace
+    /// - When there is ambiguity between prefix and infix operators,
+    ///   prefix is preferred.
     #[default]
     Begin,
-    /// Expects a punctuator connecting expressions or following an expression.
+    /// Expects a class name. Variant of [LexerState::Begin].
+    /// Equivalent to `EXPR_CLASS` in CRuby.
     ///
-    /// ## Occurrences
+    /// Occurrences:
     ///
-    /// - ...
+    /// - After `class`
     ///
-    /// ## Effects
+    /// Effects are equivalent to [LexerState::Begin] except:
+    ///
+    /// - Heredocs are suppressed and `<<` is parsed separately instead.
+    ClassName,
+    /// Expects an optional expression. Variant of [LexerState::Begin].
+    /// Equivalent to `EXPR_MID` in CRuby.
+    ///
+    /// Occurrences:
+    ///
+    /// - After `return`
+    /// - After `break`
+    /// - After `next`
+    /// - After `rescue` (except the infix `rescue` operator)
+    ///
+    /// Effects are equivalent to [LexerState::Begin] except:
+    ///
+    /// - `\n` is a real token like in [LexerState::End].
+    /// - `if`, `unless`, `while`, `until`, and `rescue` gets infix
+    ///   rather than prefix operators.
+    BeginOpt,
+    /// Expects an expression or a labelled expression, but not arguments.
+    /// Variant of [LexerState::Begin].
+    /// Equivalent to `EXPR_BEG|EXPR_LABEL` in CRuby.
+    ///
+    /// Occurrences:
+    ///
+    /// - After `(`, `[`, or `{` (except `{` for Hashes)
+    /// - After `,`
+    /// - After `|` (except method names)
+    /// - After `=>` or `in` introducing patterns
+    /// - After infix `if`, `unless`, `while`, `until` or `rescue`.
+    ///
+    /// Effects are equivalent to [LexerState::Begin] except:
+    ///
+    /// - It accepts labels, which is one of:
+    ///   - `foo:` or `Foo:`
+    ///   - `foo!:` or `foo?:`
+    ///   - `"foo":`
+    ///   - `'foo':`
+    BeginLabelable,
+    /// Expects the first argument of a non-parenthesized method call.
+    /// Variant of [LexerState::Begin].
+    /// Equivalent to `EXPR_ARG` or `EXPR_ARG|EXPR_LABEL` or `EXPR_CMDARG` in CRuby.
+    ///
+    /// Occurrences:
+    ///
+    /// - After `defined?`, `super`, or `yield`
+    /// - After `not`
+    /// - After `=>` or `in` introducing patterns
+    /// - After method call candidates, such as:
+    ///   - Identifier or `!`/`?`-suffixed identifier at a "Begin"-like position, except known local variables
+    ///   - Method name following `.`, `&.`, or `::`, including suffixed ones, keyword-like ones, const-like ones and, op-like ones.
+    ///
+    /// Effects are equivalent to [LexerState::BeginLabelable] except:
+    ///
+    /// - `\n` is a real token like in [LexerState::End].
+    /// - For `..` and `...` token types, it is treated like [LexerState::End].
+    /// - if the next token is `{`, it is treated as a block start.
+    /// - For prefix `(` token, it becomes a special token that restricts
+    ///   what can be inside.
+    /// - For ambiguous tokens to be treated as prefix operators, if imposes
+    ///   additional requirements which did not exist in [LexerState::BeginLabelable]:
+    ///   - Should be preceded by whitespace and not followed by whitespace:
+    ///     - `+`, `-`
+    ///     - `*`, `**`, `&`
+    ///   - Should be preceded by whitespace and not followed by `=`:
+    ///     - `/`, `%`
+    ///   - Should be preceded by whitespace:
+    ///     - `::`
+    ///     - `(`, `[`
+    ///     - `<<` as part of heredoc
+    FirstArgument,
+    /// Expects a suffix or an infix, but still there is a room for ambiguity.
+    /// Variant of [LexerState::End].
+    /// Equivalent to `EXPR_END|EXPR_LABEL` in CRuby.
+    ///
+    /// Occurrences:
+    ///
+    /// - After known local variable names
+    ///
+    /// Effects are equivalent to [LexerState::End] except:
+    ///
+    /// - It accepts labels like [LexerState::BeginLabelable] does.
+    /// - `(` token behaves like [LexerState::FirstArgument].
+    WeakFirstArgument,
+    /// Expects a suffix or an infix.
+    /// Equivalent to `EXPR_END` or or `EXPR_ENDARG` or `EXPR_ENDFN` or `EXPR_ENDFN|EXPR_LABEL` in CRuby.
+    ///
+    /// Occurrences:
+    ///
+    /// - After most one-token expressions (e.g. integers)
+    /// - After most expression closers (e.g. `]`, `end`)
+    ///
+    /// Effects:
+    ///
+    /// - `\n` is a real token unless it is a line continuation `\\\n` or
+    ///   it is followed by a `.` or a `&.` (except `..`).
+    /// - When there is ambiguity between prefix and infix operators,
+    ///   prefix is preferred.
     End,
-    /// Expects a method name.
+    /// Expects a method name for definition.
+    /// Equivalent to `EXPR_FNAME` in CRuby.
     ///
-    /// ## Occurrences
+    /// Occurrences:
     ///
     /// - After `def`
-    /// - After `.`
-    /// - After `::`
+    /// - After `def recv.` (incl. `::`)
     ///
-    /// ## Effects
-    Meth,
+    /// Effects:
+    ///
+    /// - Overridable operators, such as `+`, are treated as method names.
+    /// - Keywords are treated as method names, except `__END__` occupying the whole line.
+    MethForDef,
+    /// Expects a method name for definition, but Symbols are also allowed.
+    /// Equivalent to `EXPR_FNAME|EXPR_FITEM` in CRuby.
+    ///
+    /// Occurrences:
+    ///
+    /// - As an argument of `alias`
+    /// - As an argument of `undef`
+    ///
+    /// Effects are equivalent to [LexerState::MethForDef] except:
+    ///
+    /// - Allows `%s{...}` symbols syntax.
+    MethOrSymbolForDef,
+    /// Expects a method name for calling.
+    /// Equivalent to `EXPR_DOT` in CRuby.
+    ///
+    /// Occurrences:
+    ///
+    /// - After `.`, `&.`, or `::` (except `::` as a prefix)
+    ///
+    /// Effects are equivalent to [LexerState::MethForDef] except:
+    ///
+    /// - tBACK_REF/tNTH_REF token types are kept as-is (but it can be handled in the parser).
+    /// - Unlike [LexerState::MethForDef], it does not parse `foo=`-type method names.
+    /// - Heredocs are suppressed.
+    MethForCall,
+    /// Special state for string contents.
     StringLike(StringDelimiter),
+}
+
+impl LexerState {
+    /// Generic IS_BEG condition
+    // TODO: refactor it into several semantic methods
+    fn begin_strict(&self) -> bool {
+        match self {
+            LexerState::Begin
+            | LexerState::ClassName
+            | LexerState::BeginOpt
+            | LexerState::BeginLabelable
+            | LexerState::FirstArgument => true,
+            _ => false,
+        }
+    }
+
+    /// Should we fold lines if `\n` is found?
+    fn fold_newline(&self) -> bool {
+        match self {
+            LexerState::Begin => true,
+            LexerState::ClassName => true,
+            LexerState::BeginOpt => false,
+            LexerState::BeginLabelable => true,
+            LexerState::FirstArgument => false,
+            LexerState::WeakFirstArgument => false,
+            LexerState::End => false,
+            LexerState::MethForDef => false,
+            LexerState::MethOrSymbolForDef => false,
+            LexerState::MethForCall => true,
+            LexerState::StringLike(_) => unreachable!(),
+        }
+    }
+
+    /// Should we convert `if`, `unless`, `while`, `until`
+    /// and `rescue` to infix operators?
+    fn prefer_modifier_if(&self) -> bool {
+        match self {
+            LexerState::End | LexerState::WeakFirstArgument | LexerState::BeginOpt => true,
+            _ => false,
+        }
+    }
+
+    /// Should we extend lexer to include extended method names, such as:
+    ///
+    /// - `foo=`
+    /// - `!@`
+    /// - `~@`
+    /// - `+@`
+    /// - `-@`
+    /// - `` ` ``
+    /// - `[]`
+    /// - `[]=`
+    fn extended_method_name(&self) -> bool {
+        match self {
+            LexerState::MethForDef | LexerState::MethOrSymbolForDef | LexerState::MethForCall => {
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Should we extend lexer to include extended method names, such as:
+    ///
+    /// - `foo=`
+    fn allow_assigner_ident(&self) -> bool {
+        match self {
+            LexerState::MethForDef | LexerState::MethOrSymbolForDef => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -374,7 +578,7 @@ impl<'a> Lexer<'a> {
                         self.pos += 1;
                         true
                     }
-                    b'=' if state == LexerState::Meth
+                    b'=' if state.allow_assigner_ident()
                         && match self.peek_byte_at(1) {
                             // Ignore foo=> or foo=~
                             b'>' | b'~' => false,
@@ -400,16 +604,16 @@ impl<'a> Lexer<'a> {
                                 TokenKind::Identifier
                             }
                         }
-                        TokenKind::KeywordIf if state == LexerState::End => {
+                        TokenKind::KeywordIf if state.prefer_modifier_if() => {
                             TokenKind::KeywordIfInfix
                         }
-                        TokenKind::KeywordUnless if state == LexerState::End => {
+                        TokenKind::KeywordUnless if state.prefer_modifier_if() => {
                             TokenKind::KeywordUnlessInfix
                         }
-                        TokenKind::KeywordWhile if state == LexerState::End => {
+                        TokenKind::KeywordWhile if state.prefer_modifier_if() => {
                             TokenKind::KeywordWhileInfix
                         }
-                        TokenKind::KeywordUntil if state == LexerState::End => {
+                        TokenKind::KeywordUntil if state.prefer_modifier_if() => {
                             TokenKind::KeywordUntilInfix
                         }
                         _ => kwd,
@@ -450,7 +654,7 @@ impl<'a> Lexer<'a> {
                         self.pos += 1;
                         TokenKind::ExclEq
                     }
-                    b'@' if state == LexerState::Meth => {
+                    b'@' if state.extended_method_name() => {
                         self.pos += 1;
                         TokenKind::MethodName
                     }
@@ -576,7 +780,7 @@ impl<'a> Lexer<'a> {
             b'+' => {
                 self.pos += 1;
                 match self.peek_byte() {
-                    b'@' if state == LexerState::Meth => {
+                    b'@' if state.extended_method_name() => {
                         self.pos += 1;
                         TokenKind::MethodName
                     }
@@ -600,14 +804,14 @@ impl<'a> Lexer<'a> {
                 self.pos += 1;
                 match self.peek_byte() {
                     b'0'..=b'9'
-                        if state == LexerState::Begin && self.peek_byte_at(1).is_ascii_digit() =>
+                        if state.begin_strict() && self.peek_byte_at(1).is_ascii_digit() =>
                     {
                         while self.peek_byte().is_ascii_digit() {
                             self.pos += 1;
                         }
                         TokenKind::Integer
                     }
-                    b'@' if state == LexerState::Meth => {
+                    b'@' if state.extended_method_name() => {
                         self.pos += 1;
                         TokenKind::MethodName
                     }
@@ -659,7 +863,7 @@ impl<'a> Lexer<'a> {
             // `/=`
             b'/' => {
                 self.pos += 1;
-                if state == LexerState::Begin {
+                if state.begin_strict() {
                     TokenKind::StringBegin
                 } else {
                     match self.peek_byte() {
@@ -771,7 +975,7 @@ impl<'a> Lexer<'a> {
             }
             b'?' => {
                 self.pos += 1;
-                if state == LexerState::End {
+                if !state.begin_strict() {
                     TokenKind::Question
                 } else {
                     match self.peek_byte() {
@@ -869,7 +1073,7 @@ impl<'a> Lexer<'a> {
             }
             b'[' => {
                 self.pos += 1;
-                if state == LexerState::Meth && self.peek_byte() == b']' {
+                if state.extended_method_name() && self.peek_byte() == b']' {
                     self.pos += 1;
                     match self.peek_byte() {
                         b'=' => {
@@ -898,7 +1102,7 @@ impl<'a> Lexer<'a> {
             }
             b'`' => {
                 self.pos += 1;
-                if state == LexerState::Meth {
+                if state.extended_method_name() {
                     TokenKind::MethodName
                 } else {
                     TokenKind::StringBegin
@@ -918,7 +1122,7 @@ impl<'a> Lexer<'a> {
                                 self.pos += 1;
                                 TokenKind::OpAssign
                             }
-                            _ if state == LexerState::Begin => {
+                            _ if state.begin_strict() => {
                                 self.pos -= 1;
                                 TokenKind::Vert
                             }
@@ -939,7 +1143,7 @@ impl<'a> Lexer<'a> {
             b'~' => {
                 self.pos += 1;
                 match self.peek_byte() {
-                    b'@' if state == LexerState::Meth => {
+                    b'@' if state.extended_method_name() => {
                         self.pos += 1;
                         TokenKind::MethodName
                     }
@@ -1099,12 +1303,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn lex_space(&mut self, _diag: &mut Vec<Diagnostic>, state: LexerState) -> bool {
-        let fold = match state {
-            LexerState::Begin => true,
-            LexerState::End => false,
-            LexerState::Meth => true,
-            LexerState::StringLike(_) => unreachable!(),
-        };
+        let fold = state.fold_newline();
         let start = self.pos;
         loop {
             match self.peek_byte() {
@@ -1299,16 +1498,16 @@ mod tests {
             TokenKind::KeywordCapitalDoubleUnderscoreEncoding => LexerState::End,
             TokenKind::KeywordCapitalDoubleUnderscoreLine => LexerState::End,
             TokenKind::KeywordCapitalDoubleUnderscoreFile => LexerState::End,
-            TokenKind::KeywordCapitalBegin => LexerState::Begin,
-            TokenKind::KeywordCapitalEnd => LexerState::Begin,
-            TokenKind::KeywordAlias => LexerState::Meth,
+            TokenKind::KeywordCapitalBegin => LexerState::End,
+            TokenKind::KeywordCapitalEnd => LexerState::End,
+            TokenKind::KeywordAlias => LexerState::MethOrSymbolForDef,
             TokenKind::KeywordAnd => LexerState::Begin,
             TokenKind::KeywordBegin => LexerState::Begin,
             TokenKind::KeywordBreak => LexerState::Begin,
             TokenKind::KeywordCase => LexerState::Begin,
-            TokenKind::KeywordClass => LexerState::Begin,
-            TokenKind::KeywordDef => LexerState::Meth,
-            TokenKind::KeywordDefinedQ => LexerState::Begin,
+            TokenKind::KeywordClass => LexerState::ClassName,
+            TokenKind::KeywordDef => LexerState::MethForDef,
+            TokenKind::KeywordDefinedQ => LexerState::FirstArgument,
             TokenKind::KeywordDo => LexerState::Begin,
             TokenKind::KeywordElse => LexerState::Begin,
             TokenKind::KeywordElsif => LexerState::Begin,
@@ -1317,33 +1516,33 @@ mod tests {
             TokenKind::KeywordFalse => LexerState::End,
             TokenKind::KeywordFor => LexerState::Begin,
             TokenKind::KeywordIf => LexerState::Begin,
-            TokenKind::KeywordIfInfix => LexerState::Begin,
+            TokenKind::KeywordIfInfix => LexerState::BeginLabelable,
             TokenKind::KeywordIn => LexerState::Begin,
             TokenKind::KeywordModule => LexerState::Begin,
             TokenKind::KeywordNext => LexerState::Begin,
             TokenKind::KeywordNil => LexerState::End,
-            TokenKind::KeywordNot => LexerState::Begin,
+            TokenKind::KeywordNot => LexerState::FirstArgument,
             TokenKind::KeywordOr => LexerState::Begin,
             TokenKind::KeywordRedo => LexerState::End,
-            TokenKind::KeywordRescue => LexerState::Begin,
+            TokenKind::KeywordRescue => LexerState::BeginOpt,
             TokenKind::KeywordRetry => LexerState::End,
             TokenKind::KeywordReturn => LexerState::Begin,
             TokenKind::KeywordSelf => LexerState::End,
-            TokenKind::KeywordSuper => LexerState::End,
+            TokenKind::KeywordSuper => LexerState::FirstArgument,
             TokenKind::KeywordThen => LexerState::Begin,
             TokenKind::KeywordTrue => LexerState::End,
-            TokenKind::KeywordUndef => LexerState::Meth,
+            TokenKind::KeywordUndef => LexerState::MethOrSymbolForDef,
             TokenKind::KeywordUnless => LexerState::Begin,
-            TokenKind::KeywordUnlessInfix => LexerState::Begin,
+            TokenKind::KeywordUnlessInfix => LexerState::BeginLabelable,
             TokenKind::KeywordUntil => LexerState::Begin,
-            TokenKind::KeywordUntilInfix => LexerState::Begin,
+            TokenKind::KeywordUntilInfix => LexerState::BeginLabelable,
             TokenKind::KeywordWhen => LexerState::Begin,
             TokenKind::KeywordWhile => LexerState::Begin,
-            TokenKind::KeywordWhileInfix => LexerState::Begin,
-            TokenKind::KeywordYield => LexerState::Begin,
-            TokenKind::Identifier => LexerState::End,
+            TokenKind::KeywordWhileInfix => LexerState::BeginLabelable,
+            TokenKind::KeywordYield => LexerState::BeginOpt,
+            TokenKind::Identifier => LexerState::WeakFirstArgument,
             TokenKind::Const => LexerState::End,
-            TokenKind::MethodName => LexerState::End,
+            TokenKind::MethodName => LexerState::FirstArgument,
             TokenKind::Label => LexerState::Begin,
             TokenKind::Symbol => LexerState::End,
             TokenKind::IvarName => LexerState::End,
@@ -1373,21 +1572,21 @@ mod tests {
             TokenKind::Percent => LexerState::Begin,
             TokenKind::Amp => LexerState::Begin,
             TokenKind::AmpAmp => LexerState::Begin,
-            TokenKind::AmpDot => LexerState::Meth,
-            TokenKind::LParen => LexerState::Begin,
+            TokenKind::AmpDot => LexerState::MethForCall,
+            TokenKind::LParen => LexerState::BeginLabelable,
             TokenKind::RParen => LexerState::End,
             TokenKind::Star => LexerState::Begin,
             TokenKind::StarStar => LexerState::Begin,
             TokenKind::Plus => LexerState::Begin,
-            TokenKind::Comma => LexerState::Begin,
+            TokenKind::Comma => LexerState::BeginLabelable,
             TokenKind::Minus => LexerState::Begin,
-            TokenKind::Arrow => LexerState::Begin,
-            TokenKind::Dot => LexerState::Meth,
+            TokenKind::Arrow => LexerState::End,
+            TokenKind::Dot => LexerState::MethForCall,
             TokenKind::DotDot => LexerState::Begin,
             TokenKind::DotDotDot => LexerState::Begin,
             TokenKind::Slash => LexerState::Begin,
             TokenKind::Colon => LexerState::Begin,
-            TokenKind::ColonColon => LexerState::Begin,
+            TokenKind::ColonColon => LexerState::MethForCall,
             TokenKind::Semicolon => LexerState::Begin,
             TokenKind::Newline => LexerState::Begin,
             TokenKind::Lt => LexerState::Begin,
@@ -1404,11 +1603,11 @@ mod tests {
             TokenKind::GtGt => LexerState::Begin,
             TokenKind::Question => LexerState::Begin,
             TokenKind::At => LexerState::Begin,
-            TokenKind::LBracket => LexerState::Begin,
+            TokenKind::LBracket => LexerState::BeginLabelable,
             TokenKind::RBracket => LexerState::End,
             TokenKind::Caret => LexerState::Begin,
             TokenKind::LBrace => LexerState::Begin,
-            TokenKind::Vert => LexerState::Begin,
+            TokenKind::Vert => LexerState::BeginLabelable,
             TokenKind::VertVert => LexerState::Begin,
             TokenKind::RBrace => LexerState::End,
             TokenKind::Tilde => LexerState::Begin,

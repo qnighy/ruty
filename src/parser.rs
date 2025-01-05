@@ -312,6 +312,9 @@ impl<'a> Parser<'a> {
                         _ => unimplemented!(),
                     };
                     self.bump();
+                    if token.kind == TokenKind::Vert {
+                        self.fill_token(diag, LexerState::BeginLabelable);
+                    }
                     let rhs = self.parse_expr_lv_bitwise_and(diag);
                     expr = CallExpr {
                         range: *expr.outer_range() | *rhs.outer_range(),
@@ -725,6 +728,7 @@ impl<'a> Parser<'a> {
             TokenKind::LParen => {
                 let open_range = token.range;
                 self.bump();
+                self.fill_token(diag, LexerState::BeginLabelable);
                 let stmt_list = self.parse_stmt_list(diag);
                 let close_range = loop {
                     let token = self.fill_token(diag, LexerState::End);
