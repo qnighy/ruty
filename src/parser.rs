@@ -171,6 +171,7 @@ impl<'a> Parser<'a> {
                     parens: Vec::new(),
 
                     style: CallStyle::SpelloutUnOp,
+                    private: false,
                     receiver: Box::new(expr),
                     method: meth.to_owned(),
                     method_range: token.range,
@@ -254,6 +255,7 @@ impl<'a> Parser<'a> {
                         parens: Vec::new(),
 
                         style: CallStyle::BinOp,
+                        private: false,
                         receiver: Box::new(expr),
                         method: meth.to_owned(),
                         method_range: token.range,
@@ -287,6 +289,7 @@ impl<'a> Parser<'a> {
                         parens: Vec::new(),
 
                         style: CallStyle::BinOp,
+                        private: false,
                         receiver: Box::new(expr),
                         method: meth.to_owned(),
                         method_range: token.range,
@@ -321,6 +324,7 @@ impl<'a> Parser<'a> {
                         parens: Vec::new(),
 
                         style: CallStyle::BinOp,
+                        private: false,
                         receiver: Box::new(expr),
                         method: meth.to_owned(),
                         method_range: token.range,
@@ -351,6 +355,7 @@ impl<'a> Parser<'a> {
                         parens: Vec::new(),
 
                         style: CallStyle::BinOp,
+                        private: false,
                         receiver: Box::new(expr),
                         method: meth.to_owned(),
                         method_range: token.range,
@@ -382,6 +387,7 @@ impl<'a> Parser<'a> {
                         parens: Vec::new(),
 
                         style: CallStyle::BinOp,
+                        private: false,
                         receiver: Box::new(expr),
                         method: meth.to_owned(),
                         method_range: token.range,
@@ -413,6 +419,7 @@ impl<'a> Parser<'a> {
                         parens: Vec::new(),
 
                         style: CallStyle::BinOp,
+                        private: false,
                         receiver: Box::new(expr),
                         method: meth.to_owned(),
                         method_range: token.range,
@@ -445,6 +452,7 @@ impl<'a> Parser<'a> {
                         parens: Vec::new(),
 
                         style: CallStyle::BinOp,
+                        private: false,
                         receiver: Box::new(expr),
                         method: meth.to_owned(),
                         method_range: token.range,
@@ -475,11 +483,14 @@ impl<'a> Parser<'a> {
                         parens: Vec::new(),
 
                         style: CallStyle::UnOp,
+                        private: false,
                         receiver: Box::new(
                             CallExpr {
                                 range: *lhs.outer_range() | *rhs.outer_range(),
                                 parens: Vec::new(),
+
                                 style: CallStyle::BinOp,
+                                private: false,
                                 receiver: Box::new(lhs),
                                 method: meth.to_owned(),
                                 method_range: token.range,
@@ -495,7 +506,9 @@ impl<'a> Parser<'a> {
                     Err(lhs) => CallExpr {
                         range: *lhs.outer_range() | *rhs.outer_range(),
                         parens: Vec::new(),
+
                         style: CallStyle::BinOp,
+                        private: false,
                         receiver: Box::new(lhs),
                         method: meth.to_owned(),
                         method_range: token.range,
@@ -545,6 +558,7 @@ impl<'a> Parser<'a> {
                     parens: Vec::new(),
 
                     style: CallStyle::UnOp,
+                    private: false,
                     receiver: Box::new(expr),
                     method: meth.to_owned(),
                     method_range: token.range,
@@ -1432,16 +1446,19 @@ mod tests {
                     range: pos_in(src, b"x * y / z % w"),
                     parens: vec![],
                     style: CallStyle::BinOp,
+                    private: false,
                     receiver: Box::new(
                         CallExpr {
                             range: pos_in(src, b"x * y / z"),
                             parens: vec![],
                             style: CallStyle::BinOp,
+                            private: false,
                             receiver: Box::new(
                                 CallExpr {
                                     range: pos_in(src, b"x * y"),
                                     parens: vec![],
                                     style: CallStyle::BinOp,
+                                    private: false,
                                     receiver: Box::new(
                                         LocalVariableExpr {
                                             range: pos_in(src, b"x"),
@@ -1498,11 +1515,13 @@ mod tests {
                     range: pos_in(src, b"x ** y * z ** w"),
                     parens: vec![],
                     style: CallStyle::BinOp,
+                    private: false,
                     receiver: Box::new(
                         CallExpr {
                             range: pos_in(src, b"x ** y"),
                             parens: vec![],
                             style: CallStyle::BinOp,
+                            private: false,
                             receiver: Box::new(
                                 LocalVariableExpr {
                                     range: pos_in(src, b"x"),
@@ -1530,6 +1549,7 @@ mod tests {
                         range: pos_in(src, b"z ** w"),
                         parens: vec![],
                         style: CallStyle::BinOp,
+                        private: false,
                         receiver: Box::new(
                             LocalVariableExpr {
                                 range: pos_in(src, b"z"),
@@ -1567,6 +1587,7 @@ mod tests {
                     range: pos_in(src, b"x ** y ** z"),
                     parens: vec![],
                     style: CallStyle::BinOp,
+                    private: false,
                     receiver: Box::new(
                         LocalVariableExpr {
                             range: pos_in(src, b"x"),
@@ -1582,6 +1603,7 @@ mod tests {
                         range: pos_in(src, b"y ** z"),
                         parens: vec![],
                         style: CallStyle::BinOp,
+                        private: false,
                         receiver: Box::new(
                             LocalVariableExpr {
                                 range: pos_in(src, b"y"),
@@ -1615,11 +1637,13 @@ mod tests {
                     range: pos_in(src, b"+x ** +y"),
                     parens: vec![],
                     style: CallStyle::BinOp,
+                    private: false,
                     receiver: Box::new(
                         CallExpr {
                             range: pos_in(src, b"+x"),
                             parens: vec![],
                             style: CallStyle::UnOp,
+                            private: false,
                             receiver: Box::new(
                                 LocalVariableExpr {
                                     range: pos_in(src, b"x"),
@@ -1641,6 +1665,7 @@ mod tests {
                         range: pos_in(src, b"+y"),
                         parens: vec![],
                         style: CallStyle::UnOp,
+                        private: false,
                         receiver: Box::new(
                             LocalVariableExpr {
                                 range: pos_in(src, b"y"),
@@ -1672,11 +1697,13 @@ mod tests {
                     range: pos_in(src, b"-x ** -y ** z"),
                     parens: vec![],
                     style: CallStyle::UnOp,
+                    private: false,
                     receiver: Box::new(
                         CallExpr {
                             range: pos_in(src, b"x ** -y ** z"),
                             parens: vec![],
                             style: CallStyle::BinOp,
+                            private: false,
                             receiver: Box::new(
                                 LocalVariableExpr {
                                     range: pos_in(src, b"x"),
@@ -1692,11 +1719,13 @@ mod tests {
                                 range: pos_in(src, b"-y ** z"),
                                 parens: vec![],
                                 style: CallStyle::UnOp,
+                                private: false,
                                 receiver: Box::new(
                                     CallExpr {
                                         range: pos_in(src, b"y ** z"),
                                         parens: vec![],
                                         style: CallStyle::BinOp,
+                                        private: false,
                                         receiver: Box::new(
                                             LocalVariableExpr {
                                                 range: pos_in(src, b"y"),
@@ -1746,6 +1775,7 @@ mod tests {
                     range: pos_in(src, b"+x"),
                     parens: vec![],
                     style: CallStyle::UnOp,
+                    private: false,
                     receiver: Box::new(
                         LocalVariableExpr {
                             range: pos_in(src, b"x"),
@@ -1772,6 +1802,7 @@ mod tests {
                     range: pos_in(src, b"-x"),
                     parens: vec![],
                     style: CallStyle::UnOp,
+                    private: false,
                     receiver: Box::new(
                         LocalVariableExpr {
                             range: pos_in(src, b"x"),
@@ -1798,6 +1829,7 @@ mod tests {
                     range: pos_in(src, b"!x"),
                     parens: vec![],
                     style: CallStyle::UnOp,
+                    private: false,
                     receiver: Box::new(
                         LocalVariableExpr {
                             range: pos_in(src, b"x"),
@@ -1824,6 +1856,7 @@ mod tests {
                     range: pos_in(src, b"~x"),
                     parens: vec![],
                     style: CallStyle::UnOp,
+                    private: false,
                     receiver: Box::new(
                         LocalVariableExpr {
                             range: pos_in(src, b"x"),
@@ -1850,21 +1883,25 @@ mod tests {
                     range: pos_in(src, b"!-+~0"),
                     parens: vec![],
                     style: CallStyle::UnOp,
+                    private: false,
                     receiver: Box::new(
                         CallExpr {
                             range: pos_in(src, b"-+~0"),
                             parens: vec![],
                             style: CallStyle::UnOp,
+                            private: false,
                             receiver: Box::new(
                                 CallExpr {
                                     range: pos_in(src, b"+~0"),
                                     parens: vec![],
                                     style: CallStyle::UnOp,
+                                    private: false,
                                     receiver: Box::new(
                                         CallExpr {
                                             range: pos_in(src, b"~0"),
                                             parens: vec![],
                                             style: CallStyle::UnOp,
+                                            private: false,
                                             receiver: Box::new(
                                                 IntegerExpr {
                                                     range: pos_in(src, b"0"),

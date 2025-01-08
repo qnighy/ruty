@@ -175,6 +175,7 @@ pub struct CallExpr {
     pub parens: Vec<Paren>,
 
     pub style: CallStyle,
+    pub private: bool,
     pub receiver: Box<Expr>,
     pub method: String,
     pub method_range: CodeRange,
