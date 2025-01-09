@@ -1088,7 +1088,7 @@ mod tests {
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
 
-    use crate::ast::{pos_in, pos_in_at, IntegerExpr};
+    use crate::ast::{pos_in_at, IntegerExpr};
 
     use super::*;
 
@@ -1117,43 +1117,43 @@ mod tests {
             p_program(src),
             (
                 Program {
-                    range: pos_in(src, b"x; y\nz"),
+                    range: pos_in_at(src, b"x; y\nz", 0),
                     stmt_list: StmtList {
-                        range: pos_in(src, b"x; y\nz"),
+                        range: pos_in_at(src, b"x; y\nz", 0),
                         semi_prefix: vec![],
                         stmts: vec![
                             Stmt {
-                                range: pos_in(src, b"x;"),
+                                range: pos_in_at(src, b"x;", 0),
                                 expr: LocalVariableExpr {
-                                    range: pos_in(src, b"x"),
+                                    range: pos_in_at(src, b"x", 0),
                                     parens: vec![],
                                     name: "x".to_owned(),
                                     type_annotation: None,
                                 }
                                 .into(),
                                 semi: vec![Semicolon {
-                                    range: pos_in(src, b";"),
+                                    range: pos_in_at(src, b";", 0),
                                     kind: SemicolonKind::Semicolon
                                 }],
                             },
                             Stmt {
-                                range: pos_in(src, b"y\n"),
+                                range: pos_in_at(src, b"y\n", 0),
                                 expr: LocalVariableExpr {
-                                    range: pos_in(src, b"y"),
+                                    range: pos_in_at(src, b"y", 0),
                                     parens: vec![],
                                     name: "y".to_owned(),
                                     type_annotation: None,
                                 }
                                 .into(),
                                 semi: vec![Semicolon {
-                                    range: pos_in(src, b"\n"),
+                                    range: pos_in_at(src, b"\n", 0),
                                     kind: SemicolonKind::Newline
                                 }],
                             },
                             Stmt {
-                                range: pos_in(src, b"z"),
+                                range: pos_in_at(src, b"z", 0),
                                 expr: LocalVariableExpr {
-                                    range: pos_in(src, b"z"),
+                                    range: pos_in_at(src, b"z", 0),
                                     parens: vec![],
                                     name: "z".to_owned(),
                                     type_annotation: None,
@@ -1177,11 +1177,11 @@ mod tests {
             p_expr(src),
             (
                 LocalVariableExpr {
-                    range: pos_in(src, b"x"),
+                    range: pos_in_at(src, b"x", 0),
                     parens: vec![Paren {
-                        range: pos_in(src, b"(x)"),
-                        open_range: pos_in(src, b"("),
-                        close_range: pos_in(src, b")"),
+                        range: pos_in_at(src, b"(x)", 0),
+                        open_range: pos_in_at(src, b"(", 0),
+                        close_range: pos_in_at(src, b")", 0),
                     }],
                     name: "x".to_owned(),
                     type_annotation: None,
@@ -1195,11 +1195,11 @@ mod tests {
             p_expr(src),
             (
                 LocalVariableExpr {
-                    range: pos_in(src, b"x"),
+                    range: pos_in_at(src, b"x", 0),
                     parens: vec![Paren {
-                        range: pos_in(src, b"(\nx\n)"),
-                        open_range: pos_in(src, b"("),
-                        close_range: pos_in(src, b")"),
+                        range: pos_in_at(src, b"(\nx\n)", 0),
+                        open_range: pos_in_at(src, b"(", 0),
+                        close_range: pos_in_at(src, b")", 0),
                     }],
                     name: "x".to_owned(),
                     type_annotation: None,
@@ -1217,27 +1217,27 @@ mod tests {
             p_expr(src),
             (
                 SeqExpr {
-                    range: pos_in(src, b"(x;)"),
+                    range: pos_in_at(src, b"(x;)", 0),
                     parens: vec![],
                     paren: SeqParen {
                         kind: SeqParenKind::Paren,
-                        open_range: pos_in(src, b"("),
-                        close_range: pos_in(src, b")"),
+                        open_range: pos_in_at(src, b"(", 0),
+                        close_range: pos_in_at(src, b")", 0),
                     },
                     stmt_list: StmtList {
-                        range: pos_in(src, b"x;"),
+                        range: pos_in_at(src, b"x;", 0),
                         semi_prefix: vec![],
                         stmts: vec![Stmt {
-                            range: pos_in(src, b"x;"),
+                            range: pos_in_at(src, b"x;", 0),
                             expr: LocalVariableExpr {
-                                range: pos_in(src, b"x"),
+                                range: pos_in_at(src, b"x", 0),
                                 parens: vec![],
                                 name: "x".to_owned(),
                                 type_annotation: None,
                             }
                             .into(),
                             semi: vec![Semicolon {
-                                range: pos_in(src, b";"),
+                                range: pos_in_at(src, b";", 0),
                                 kind: SemicolonKind::Semicolon
                             }],
                         }]
@@ -1252,23 +1252,23 @@ mod tests {
             p_expr(src),
             (
                 SeqExpr {
-                    range: pos_in(src, b"(;x)"),
+                    range: pos_in_at(src, b"(;x)", 0),
                     parens: vec![],
                     paren: SeqParen {
                         kind: SeqParenKind::Paren,
-                        open_range: pos_in(src, b"("),
-                        close_range: pos_in(src, b")"),
+                        open_range: pos_in_at(src, b"(", 0),
+                        close_range: pos_in_at(src, b")", 0),
                     },
                     stmt_list: StmtList {
-                        range: pos_in(src, b";x"),
+                        range: pos_in_at(src, b";x", 0),
                         semi_prefix: vec![Semicolon {
-                            range: pos_in(src, b";"),
+                            range: pos_in_at(src, b";", 0),
                             kind: SemicolonKind::Semicolon
                         }],
                         stmts: vec![Stmt {
-                            range: pos_in(src, b"x"),
+                            range: pos_in_at(src, b"x", 0),
                             expr: LocalVariableExpr {
-                                range: pos_in(src, b"x"),
+                                range: pos_in_at(src, b"x", 0),
                                 parens: vec![],
                                 name: "x".to_owned(),
                                 type_annotation: None,
@@ -1287,35 +1287,35 @@ mod tests {
             p_expr(src),
             (
                 SeqExpr {
-                    range: pos_in(src, b"(x\ny)"),
+                    range: pos_in_at(src, b"(x\ny)", 0),
                     parens: vec![],
                     paren: SeqParen {
                         kind: SeqParenKind::Paren,
-                        open_range: pos_in(src, b"("),
-                        close_range: pos_in(src, b")"),
+                        open_range: pos_in_at(src, b"(", 0),
+                        close_range: pos_in_at(src, b")", 0),
                     },
                     stmt_list: StmtList {
-                        range: pos_in(src, b"x\ny"),
+                        range: pos_in_at(src, b"x\ny", 0),
                         semi_prefix: vec![],
                         stmts: vec![
                             Stmt {
-                                range: pos_in(src, b"x\n"),
+                                range: pos_in_at(src, b"x\n", 0),
                                 expr: LocalVariableExpr {
-                                    range: pos_in(src, b"x"),
+                                    range: pos_in_at(src, b"x", 0),
                                     parens: vec![],
                                     name: "x".to_owned(),
                                     type_annotation: None,
                                 }
                                 .into(),
                                 semi: vec![Semicolon {
-                                    range: pos_in(src, b"\n"),
+                                    range: pos_in_at(src, b"\n", 0),
                                     kind: SemicolonKind::Newline
                                 }],
                             },
                             Stmt {
-                                range: pos_in(src, b"y"),
+                                range: pos_in_at(src, b"y", 0),
                                 expr: LocalVariableExpr {
-                                    range: pos_in(src, b"y"),
+                                    range: pos_in_at(src, b"y", 0),
                                     parens: vec![],
                                     name: "y".to_owned(),
                                     type_annotation: None,
@@ -1339,7 +1339,7 @@ mod tests {
             p_expr(src),
             (
                 NilExpr {
-                    range: pos_in(src, b"nil"),
+                    range: pos_in_at(src, b"nil", 0),
                     parens: vec![],
                 }
                 .into(),
@@ -1355,7 +1355,7 @@ mod tests {
             p_expr(src),
             (
                 FalseExpr {
-                    range: pos_in(src, b"false"),
+                    range: pos_in_at(src, b"false", 0),
                     parens: vec![],
                 }
                 .into(),
@@ -1367,7 +1367,7 @@ mod tests {
             p_expr(src),
             (
                 TrueExpr {
-                    range: pos_in(src, b"true"),
+                    range: pos_in_at(src, b"true", 0),
                     parens: vec![],
                 }
                 .into(),
@@ -1383,7 +1383,7 @@ mod tests {
             p_expr(src),
             (
                 LocalVariableExpr {
-                    range: pos_in(src, b"x"),
+                    range: pos_in_at(src, b"x", 0),
                     parens: vec![],
                     name: "x".to_owned(),
                     type_annotation: None,
@@ -1397,13 +1397,13 @@ mod tests {
             p_expr(src),
             (
                 LocalVariableExpr {
-                    range: pos_in(src, b"x @ Integer"),
+                    range: pos_in_at(src, b"x @ Integer", 0),
                     parens: vec![],
                     name: "x".to_owned(),
                     type_annotation: Some(TypeAnnotation {
-                        range: pos_in(src, b"@ Integer"),
+                        range: pos_in_at(src, b"@ Integer", 0),
                         type_: IntegerType {
-                            range: pos_in(src, b"Integer")
+                            range: pos_in_at(src, b"Integer", 0)
                         }
                         .into()
                     }),
@@ -1421,7 +1421,7 @@ mod tests {
             p_expr(src),
             (
                 IntegerExpr {
-                    range: pos_in(src, b"42"),
+                    range: pos_in_at(src, b"42", 0),
                     parens: vec![],
                     value: 42,
                 }
@@ -1438,12 +1438,12 @@ mod tests {
             p_expr(src),
             (
                 StringExpr {
-                    range: pos_in(src, b"'foo'"),
+                    range: pos_in_at(src, b"'foo'", 0),
                     parens: vec![],
-                    open_range: pos_in(src, b"'"),
+                    open_range: pos_in_at(src, b"'", 0),
                     close_range: pos_in_at(src, b"'", 1),
                     contents: vec![StringContent::Text(TextContent {
-                        range: pos_in(src, b"foo"),
+                        range: pos_in_at(src, b"foo", 0),
                         value: "foo".to_owned(),
                     })],
                 }
@@ -1456,12 +1456,12 @@ mod tests {
             p_expr(src),
             (
                 StringExpr {
-                    range: pos_in(src, b"\"foo\""),
+                    range: pos_in_at(src, b"\"foo\"", 0),
                     parens: vec![],
-                    open_range: pos_in(src, b"\""),
+                    open_range: pos_in_at(src, b"\"", 0),
                     close_range: pos_in_at(src, b"\"", 1),
                     contents: vec![StringContent::Text(TextContent {
-                        range: pos_in(src, b"foo"),
+                        range: pos_in_at(src, b"foo", 0),
                         value: "foo".to_owned(),
                     })],
                 }
@@ -1474,26 +1474,26 @@ mod tests {
             p_expr(src),
             (
                 StringExpr {
-                    range: pos_in(src, b"\"foo #{bar} baz\""),
+                    range: pos_in_at(src, b"\"foo #{bar} baz\"", 0),
                     parens: vec![],
-                    open_range: pos_in(src, b"\""),
+                    open_range: pos_in_at(src, b"\"", 0),
                     close_range: pos_in_at(src, b"\"", 1),
                     contents: vec![
                         StringContent::Text(TextContent {
-                            range: pos_in(src, b"foo "),
+                            range: pos_in_at(src, b"foo ", 0),
                             value: "foo ".to_owned(),
                         }),
                         StringContent::Interpolation(InterpolationContent {
-                            range: pos_in(src, b"#{bar}"),
-                            open_range: pos_in(src, b"#{"),
-                            close_range: pos_in(src, b"}"),
+                            range: pos_in_at(src, b"#{bar}", 0),
+                            open_range: pos_in_at(src, b"#{", 0),
+                            close_range: pos_in_at(src, b"}", 0),
                             stmt_list: StmtList {
-                                range: pos_in(src, b"bar"),
+                                range: pos_in_at(src, b"bar", 0),
                                 semi_prefix: vec![],
                                 stmts: vec![Stmt {
-                                    range: pos_in(src, b"bar"),
+                                    range: pos_in_at(src, b"bar", 0),
                                     expr: LocalVariableExpr {
-                                        range: pos_in(src, b"bar"),
+                                        range: pos_in_at(src, b"bar", 0),
                                         parens: vec![],
                                         name: "bar".to_owned(),
                                         type_annotation: None,
@@ -1504,7 +1504,7 @@ mod tests {
                             },
                         }),
                         StringContent::Text(TextContent {
-                            range: pos_in(src, b" baz"),
+                            range: pos_in_at(src, b" baz", 0),
                             value: " baz".to_owned(),
                         }),
                     ],
@@ -1522,12 +1522,12 @@ mod tests {
             p_expr(src),
             (
                 RegexpExpr {
-                    range: pos_in(src, b"/foo/"),
+                    range: pos_in_at(src, b"/foo/", 0),
                     parens: vec![],
-                    open_range: pos_in(src, b"/"),
+                    open_range: pos_in_at(src, b"/", 0),
                     close_range: pos_in_at(src, b"/", 1),
                     contents: vec![StringContent::Text(TextContent {
-                        range: pos_in(src, b"foo"),
+                        range: pos_in_at(src, b"foo", 0),
                         value: "foo".to_owned(),
                     })],
                 }
@@ -1544,12 +1544,12 @@ mod tests {
             p_expr(src),
             (
                 XStringExpr {
-                    range: pos_in(src, b"`foo`"),
+                    range: pos_in_at(src, b"`foo`", 0),
                     parens: vec![],
-                    open_range: pos_in(src, b"`"),
+                    open_range: pos_in_at(src, b"`", 0),
                     close_range: pos_in_at(src, b"`", 1),
                     contents: vec![StringContent::Text(TextContent {
-                        range: pos_in(src, b"foo"),
+                        range: pos_in_at(src, b"foo", 0),
                         value: "foo".to_owned(),
                     })],
                 }
@@ -1566,7 +1566,7 @@ mod tests {
             p_expr(src),
             (
                 CallExpr {
-                    range: pos_in(src, b"foo()"),
+                    range: pos_in_at(src, b"foo()", 0),
                     parens: vec![],
                     style: CallStyle::ImplicitSelf,
                     private: true,
@@ -1578,7 +1578,7 @@ mod tests {
                         .into()
                     ),
                     method: "foo".to_owned(),
-                    method_range: pos_in(src, b"foo"),
+                    method_range: pos_in_at(src, b"foo", 0),
                     args: vec![],
                 }
                 .into(),
@@ -1594,13 +1594,13 @@ mod tests {
             p_expr(src),
             (
                 CallExpr {
-                    range: pos_in(src, b"x.foo()"),
+                    range: pos_in_at(src, b"x.foo()", 0),
                     parens: vec![],
                     style: CallStyle::Dot,
                     private: false,
                     receiver: Box::new(
                         LocalVariableExpr {
-                            range: pos_in(src, b"x"),
+                            range: pos_in_at(src, b"x", 0),
                             parens: vec![],
                             name: "x".to_owned(),
                             type_annotation: None,
@@ -1608,7 +1608,7 @@ mod tests {
                         .into()
                     ),
                     method: "foo".to_owned(),
-                    method_range: pos_in(src, b"foo"),
+                    method_range: pos_in_at(src, b"foo", 0),
                     args: vec![],
                 }
                 .into(),
@@ -1620,13 +1620,13 @@ mod tests {
             p_expr(src),
             (
                 CallExpr {
-                    range: pos_in(src, b"x.foo"),
+                    range: pos_in_at(src, b"x.foo", 0),
                     parens: vec![],
                     style: CallStyle::Dot,
                     private: false,
                     receiver: Box::new(
                         LocalVariableExpr {
-                            range: pos_in(src, b"x"),
+                            range: pos_in_at(src, b"x", 0),
                             parens: vec![],
                             name: "x".to_owned(),
                             type_annotation: None,
@@ -1634,7 +1634,7 @@ mod tests {
                         .into()
                     ),
                     method: "foo".to_owned(),
-                    method_range: pos_in(src, b"foo"),
+                    method_range: pos_in_at(src, b"foo", 0),
                     args: vec![],
                 }
                 .into(),
@@ -1650,11 +1650,11 @@ mod tests {
             p_expr(src),
             (
                 WriteExpr {
-                    range: pos_in(src, b"x = 42"),
+                    range: pos_in_at(src, b"x = 42", 0),
                     parens: vec![],
                     lhs: Box::new(
                         LocalVariableWriteTarget {
-                            range: pos_in(src, b"x"),
+                            range: pos_in_at(src, b"x", 0),
                             name: "x".to_owned(),
                             type_annotation: None,
                         }
@@ -1662,7 +1662,7 @@ mod tests {
                     ),
                     rhs: Box::new(
                         IntegerExpr {
-                            range: pos_in(src, b"42"),
+                            range: pos_in_at(src, b"42", 0),
                             parens: vec![],
                             value: 42
                         }
@@ -1678,16 +1678,16 @@ mod tests {
             p_expr(src),
             (
                 WriteExpr {
-                    range: pos_in(src, b"x @ Integer = 42"),
+                    range: pos_in_at(src, b"x @ Integer = 42", 0),
                     parens: vec![],
                     lhs: Box::new(
                         LocalVariableWriteTarget {
-                            range: pos_in(src, b"x @ Integer"),
+                            range: pos_in_at(src, b"x @ Integer", 0),
                             name: "x".to_owned(),
                             type_annotation: Some(TypeAnnotation {
-                                range: pos_in(src, b"@ Integer"),
+                                range: pos_in_at(src, b"@ Integer", 0),
                                 type_: IntegerType {
-                                    range: pos_in(src, b"Integer"),
+                                    range: pos_in_at(src, b"Integer", 0),
                                 }
                                 .into()
                             }),
@@ -1696,7 +1696,7 @@ mod tests {
                     ),
                     rhs: Box::new(
                         IntegerExpr {
-                            range: pos_in(src, b"42"),
+                            range: pos_in_at(src, b"42", 0),
                             parens: vec![],
                             value: 42,
                         }
@@ -1716,25 +1716,25 @@ mod tests {
             p_expr(src),
             (
                 CallExpr {
-                    range: pos_in(src, b"x * y / z % w"),
+                    range: pos_in_at(src, b"x * y / z % w", 0),
                     parens: vec![],
                     style: CallStyle::BinOp,
                     private: false,
                     receiver: Box::new(
                         CallExpr {
-                            range: pos_in(src, b"x * y / z"),
+                            range: pos_in_at(src, b"x * y / z", 0),
                             parens: vec![],
                             style: CallStyle::BinOp,
                             private: false,
                             receiver: Box::new(
                                 CallExpr {
-                                    range: pos_in(src, b"x * y"),
+                                    range: pos_in_at(src, b"x * y", 0),
                                     parens: vec![],
                                     style: CallStyle::BinOp,
                                     private: false,
                                     receiver: Box::new(
                                         LocalVariableExpr {
-                                            range: pos_in(src, b"x"),
+                                            range: pos_in_at(src, b"x", 0),
                                             parens: vec![],
                                             name: "x".to_owned(),
                                             type_annotation: None,
@@ -1742,9 +1742,9 @@ mod tests {
                                         .into()
                                     ),
                                     method: "*".to_owned(),
-                                    method_range: pos_in(src, b"*"),
+                                    method_range: pos_in_at(src, b"*", 0),
                                     args: vec![LocalVariableExpr {
-                                        range: pos_in(src, b"y"),
+                                        range: pos_in_at(src, b"y", 0),
                                         parens: vec![],
                                         name: "y".to_owned(),
                                         type_annotation: None,
@@ -1754,9 +1754,9 @@ mod tests {
                                 .into()
                             ),
                             method: "/".to_owned(),
-                            method_range: pos_in(src, b"/"),
+                            method_range: pos_in_at(src, b"/", 0),
                             args: vec![LocalVariableExpr {
-                                range: pos_in(src, b"z"),
+                                range: pos_in_at(src, b"z", 0),
                                 parens: vec![],
                                 name: "z".to_owned(),
                                 type_annotation: None,
@@ -1766,9 +1766,9 @@ mod tests {
                         .into()
                     ),
                     method: "%".to_owned(),
-                    method_range: pos_in(src, b"%"),
+                    method_range: pos_in_at(src, b"%", 0),
                     args: vec![LocalVariableExpr {
-                        range: pos_in(src, b"w"),
+                        range: pos_in_at(src, b"w", 0),
                         parens: vec![],
                         name: "w".to_owned(),
                         type_annotation: None,
@@ -1785,19 +1785,19 @@ mod tests {
             p_expr(src),
             (
                 CallExpr {
-                    range: pos_in(src, b"x ** y * z ** w"),
+                    range: pos_in_at(src, b"x ** y * z ** w", 0),
                     parens: vec![],
                     style: CallStyle::BinOp,
                     private: false,
                     receiver: Box::new(
                         CallExpr {
-                            range: pos_in(src, b"x ** y"),
+                            range: pos_in_at(src, b"x ** y", 0),
                             parens: vec![],
                             style: CallStyle::BinOp,
                             private: false,
                             receiver: Box::new(
                                 LocalVariableExpr {
-                                    range: pos_in(src, b"x"),
+                                    range: pos_in_at(src, b"x", 0),
                                     parens: vec![],
                                     name: "x".to_owned(),
                                     type_annotation: None,
@@ -1805,9 +1805,9 @@ mod tests {
                                 .into()
                             ),
                             method: "**".to_owned(),
-                            method_range: pos_in(src, b"**"),
+                            method_range: pos_in_at(src, b"**", 0),
                             args: vec![LocalVariableExpr {
-                                range: pos_in(src, b"y"),
+                                range: pos_in_at(src, b"y", 0),
                                 parens: vec![],
                                 name: "y".to_owned(),
                                 type_annotation: None,
@@ -1819,13 +1819,13 @@ mod tests {
                     method: "*".to_owned(),
                     method_range: pos_in_at(src, b"*", 2),
                     args: vec![CallExpr {
-                        range: pos_in(src, b"z ** w"),
+                        range: pos_in_at(src, b"z ** w", 0),
                         parens: vec![],
                         style: CallStyle::BinOp,
                         private: false,
                         receiver: Box::new(
                             LocalVariableExpr {
-                                range: pos_in(src, b"z"),
+                                range: pos_in_at(src, b"z", 0),
                                 parens: vec![],
                                 name: "z".to_owned(),
                                 type_annotation: None,
@@ -1835,7 +1835,7 @@ mod tests {
                         method: "**".to_owned(),
                         method_range: pos_in_at(src, b"**", 1),
                         args: vec![LocalVariableExpr {
-                            range: pos_in(src, b"w"),
+                            range: pos_in_at(src, b"w", 0),
                             parens: vec![],
                             name: "w".to_owned(),
                             type_annotation: None,
@@ -1857,13 +1857,13 @@ mod tests {
             p_expr(src),
             (
                 CallExpr {
-                    range: pos_in(src, b"x ** y ** z"),
+                    range: pos_in_at(src, b"x ** y ** z", 0),
                     parens: vec![],
                     style: CallStyle::BinOp,
                     private: false,
                     receiver: Box::new(
                         LocalVariableExpr {
-                            range: pos_in(src, b"x"),
+                            range: pos_in_at(src, b"x", 0),
                             parens: vec![],
                             name: "x".to_owned(),
                             type_annotation: None,
@@ -1871,15 +1871,15 @@ mod tests {
                         .into()
                     ),
                     method: "**".to_owned(),
-                    method_range: pos_in(src, b"**"),
+                    method_range: pos_in_at(src, b"**", 0),
                     args: vec![CallExpr {
-                        range: pos_in(src, b"y ** z"),
+                        range: pos_in_at(src, b"y ** z", 0),
                         parens: vec![],
                         style: CallStyle::BinOp,
                         private: false,
                         receiver: Box::new(
                             LocalVariableExpr {
-                                range: pos_in(src, b"y"),
+                                range: pos_in_at(src, b"y", 0),
                                 parens: vec![],
                                 name: "y".to_owned(),
                                 type_annotation: None,
@@ -1889,7 +1889,7 @@ mod tests {
                         method: "**".to_owned(),
                         method_range: pos_in_at(src, b"**", 1),
                         args: vec![LocalVariableExpr {
-                            range: pos_in(src, b"z"),
+                            range: pos_in_at(src, b"z", 0),
                             parens: vec![],
                             name: "z".to_owned(),
                             type_annotation: None,
@@ -1907,19 +1907,19 @@ mod tests {
             p_expr(src),
             (
                 CallExpr {
-                    range: pos_in(src, b"+x ** +y"),
+                    range: pos_in_at(src, b"+x ** +y", 0),
                     parens: vec![],
                     style: CallStyle::BinOp,
                     private: false,
                     receiver: Box::new(
                         CallExpr {
-                            range: pos_in(src, b"+x"),
+                            range: pos_in_at(src, b"+x", 0),
                             parens: vec![],
                             style: CallStyle::UnOp,
                             private: false,
                             receiver: Box::new(
                                 LocalVariableExpr {
-                                    range: pos_in(src, b"x"),
+                                    range: pos_in_at(src, b"x", 0),
                                     parens: vec![],
                                     name: "x".to_owned(),
                                     type_annotation: None,
@@ -1927,21 +1927,21 @@ mod tests {
                                 .into()
                             ),
                             method: "+@".to_owned(),
-                            method_range: pos_in(src, b"+"),
+                            method_range: pos_in_at(src, b"+", 0),
                             args: vec![],
                         }
                         .into()
                     ),
                     method: "**".to_owned(),
-                    method_range: pos_in(src, b"**"),
+                    method_range: pos_in_at(src, b"**", 0),
                     args: vec![CallExpr {
-                        range: pos_in(src, b"+y"),
+                        range: pos_in_at(src, b"+y", 0),
                         parens: vec![],
                         style: CallStyle::UnOp,
                         private: false,
                         receiver: Box::new(
                             LocalVariableExpr {
-                                range: pos_in(src, b"y"),
+                                range: pos_in_at(src, b"y", 0),
                                 parens: vec![],
                                 name: "y".to_owned(),
                                 type_annotation: None,
@@ -1967,19 +1967,19 @@ mod tests {
             p_expr(src),
             (
                 CallExpr {
-                    range: pos_in(src, b"-x ** -y ** z"),
+                    range: pos_in_at(src, b"-x ** -y ** z", 0),
                     parens: vec![],
                     style: CallStyle::UnOp,
                     private: false,
                     receiver: Box::new(
                         CallExpr {
-                            range: pos_in(src, b"x ** -y ** z"),
+                            range: pos_in_at(src, b"x ** -y ** z", 0),
                             parens: vec![],
                             style: CallStyle::BinOp,
                             private: false,
                             receiver: Box::new(
                                 LocalVariableExpr {
-                                    range: pos_in(src, b"x"),
+                                    range: pos_in_at(src, b"x", 0),
                                     parens: vec![],
                                     name: "x".to_owned(),
                                     type_annotation: None,
@@ -1987,21 +1987,21 @@ mod tests {
                                 .into()
                             ),
                             method: "**".to_owned(),
-                            method_range: pos_in(src, b"**"),
+                            method_range: pos_in_at(src, b"**", 0),
                             args: vec![CallExpr {
-                                range: pos_in(src, b"-y ** z"),
+                                range: pos_in_at(src, b"-y ** z", 0),
                                 parens: vec![],
                                 style: CallStyle::UnOp,
                                 private: false,
                                 receiver: Box::new(
                                     CallExpr {
-                                        range: pos_in(src, b"y ** z"),
+                                        range: pos_in_at(src, b"y ** z", 0),
                                         parens: vec![],
                                         style: CallStyle::BinOp,
                                         private: false,
                                         receiver: Box::new(
                                             LocalVariableExpr {
-                                                range: pos_in(src, b"y"),
+                                                range: pos_in_at(src, b"y", 0),
                                                 parens: vec![],
                                                 name: "y".to_owned(),
                                                 type_annotation: None,
@@ -2011,7 +2011,7 @@ mod tests {
                                         method: "**".to_owned(),
                                         method_range: pos_in_at(src, b"**", 1),
                                         args: vec![LocalVariableExpr {
-                                            range: pos_in(src, b"z"),
+                                            range: pos_in_at(src, b"z", 0),
                                             parens: vec![],
                                             name: "z".to_owned(),
                                             type_annotation: None,
@@ -2029,7 +2029,7 @@ mod tests {
                         .into()
                     ),
                     method: "-@".to_owned(),
-                    method_range: pos_in(src, b"-"),
+                    method_range: pos_in_at(src, b"-", 0),
                     args: vec![],
                 }
                 .into(),
@@ -2045,13 +2045,13 @@ mod tests {
             p_expr(src),
             (
                 CallExpr {
-                    range: pos_in(src, b"+x"),
+                    range: pos_in_at(src, b"+x", 0),
                     parens: vec![],
                     style: CallStyle::UnOp,
                     private: false,
                     receiver: Box::new(
                         LocalVariableExpr {
-                            range: pos_in(src, b"x"),
+                            range: pos_in_at(src, b"x", 0),
                             parens: vec![],
                             name: "x".to_owned(),
                             type_annotation: None,
@@ -2059,7 +2059,7 @@ mod tests {
                         .into()
                     ),
                     method: "+@".to_owned(),
-                    method_range: pos_in(src, b"+"),
+                    method_range: pos_in_at(src, b"+", 0),
                     args: vec![],
                 }
                 .into(),
@@ -2072,13 +2072,13 @@ mod tests {
             p_expr(src),
             (
                 CallExpr {
-                    range: pos_in(src, b"-x"),
+                    range: pos_in_at(src, b"-x", 0),
                     parens: vec![],
                     style: CallStyle::UnOp,
                     private: false,
                     receiver: Box::new(
                         LocalVariableExpr {
-                            range: pos_in(src, b"x"),
+                            range: pos_in_at(src, b"x", 0),
                             parens: vec![],
                             name: "x".to_owned(),
                             type_annotation: None,
@@ -2086,7 +2086,7 @@ mod tests {
                         .into()
                     ),
                     method: "-@".to_owned(),
-                    method_range: pos_in(src, b"-"),
+                    method_range: pos_in_at(src, b"-", 0),
                     args: vec![],
                 }
                 .into(),
@@ -2099,13 +2099,13 @@ mod tests {
             p_expr(src),
             (
                 CallExpr {
-                    range: pos_in(src, b"!x"),
+                    range: pos_in_at(src, b"!x", 0),
                     parens: vec![],
                     style: CallStyle::UnOp,
                     private: false,
                     receiver: Box::new(
                         LocalVariableExpr {
-                            range: pos_in(src, b"x"),
+                            range: pos_in_at(src, b"x", 0),
                             parens: vec![],
                             name: "x".to_owned(),
                             type_annotation: None,
@@ -2113,7 +2113,7 @@ mod tests {
                         .into()
                     ),
                     method: "!".to_owned(),
-                    method_range: pos_in(src, b"!"),
+                    method_range: pos_in_at(src, b"!", 0),
                     args: vec![],
                 }
                 .into(),
@@ -2126,13 +2126,13 @@ mod tests {
             p_expr(src),
             (
                 CallExpr {
-                    range: pos_in(src, b"~x"),
+                    range: pos_in_at(src, b"~x", 0),
                     parens: vec![],
                     style: CallStyle::UnOp,
                     private: false,
                     receiver: Box::new(
                         LocalVariableExpr {
-                            range: pos_in(src, b"x"),
+                            range: pos_in_at(src, b"x", 0),
                             parens: vec![],
                             name: "x".to_owned(),
                             type_annotation: None,
@@ -2140,7 +2140,7 @@ mod tests {
                         .into()
                     ),
                     method: "~".to_owned(),
-                    method_range: pos_in(src, b"~"),
+                    method_range: pos_in_at(src, b"~", 0),
                     args: vec![],
                 }
                 .into(),
@@ -2153,56 +2153,56 @@ mod tests {
             p_expr(src),
             (
                 CallExpr {
-                    range: pos_in(src, b"!-+~0"),
+                    range: pos_in_at(src, b"!-+~0", 0),
                     parens: vec![],
                     style: CallStyle::UnOp,
                     private: false,
                     receiver: Box::new(
                         CallExpr {
-                            range: pos_in(src, b"-+~0"),
+                            range: pos_in_at(src, b"-+~0", 0),
                             parens: vec![],
                             style: CallStyle::UnOp,
                             private: false,
                             receiver: Box::new(
                                 CallExpr {
-                                    range: pos_in(src, b"+~0"),
+                                    range: pos_in_at(src, b"+~0", 0),
                                     parens: vec![],
                                     style: CallStyle::UnOp,
                                     private: false,
                                     receiver: Box::new(
                                         CallExpr {
-                                            range: pos_in(src, b"~0"),
+                                            range: pos_in_at(src, b"~0", 0),
                                             parens: vec![],
                                             style: CallStyle::UnOp,
                                             private: false,
                                             receiver: Box::new(
                                                 IntegerExpr {
-                                                    range: pos_in(src, b"0"),
+                                                    range: pos_in_at(src, b"0", 0),
                                                     parens: vec![],
                                                     value: 0,
                                                 }
                                                 .into()
                                             ),
                                             method: "~".to_owned(),
-                                            method_range: pos_in(src, b"~"),
+                                            method_range: pos_in_at(src, b"~", 0),
                                             args: vec![],
                                         }
                                         .into()
                                     ),
                                     method: "+@".to_owned(),
-                                    method_range: pos_in(src, b"+"),
+                                    method_range: pos_in_at(src, b"+", 0),
                                     args: vec![],
                                 }
                                 .into()
                             ),
                             method: "-@".to_owned(),
-                            method_range: pos_in(src, b"-"),
+                            method_range: pos_in_at(src, b"-", 0),
                             args: vec![],
                         }
                         .into()
                     ),
                     method: "!".to_owned(),
-                    method_range: pos_in(src, b"!"),
+                    method_range: pos_in_at(src, b"!", 0),
                     args: vec![],
                 }
                 .into(),
@@ -2218,7 +2218,7 @@ mod tests {
             p_type(src),
             (
                 IntegerType {
-                    range: pos_in(src, b"Integer"),
+                    range: pos_in_at(src, b"Integer", 0),
                 }
                 .into(),
                 vec![],

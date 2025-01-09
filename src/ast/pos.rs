@@ -65,15 +65,6 @@ impl BitOrAssign for CodeRange {
 }
 
 // For testing
-pub fn pos_in<T, U>(all_text: T, sub_text: U) -> CodeRange
-where
-    T: AsRef<[u8]>,
-    U: AsRef<[u8]>,
-{
-    pos_in_at(all_text, sub_text, 0)
-}
-
-// For testing
 pub fn pos_in_at<T, U>(all_text: T, sub_text: U, mut idx: usize) -> CodeRange
 where
     T: AsRef<[u8]>,

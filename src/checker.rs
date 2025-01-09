@@ -607,7 +607,7 @@ static INSTANCE_METHODS: LazyLock<HashMap<(Module, String), MethodSignature>> =
 #[cfg(test)]
 mod tests {
     use crate::{
-        ast::{pos_in, StringType},
+        ast::{pos_in_at, StringType},
         encoding::EStrRef,
         parse_expr,
     };
@@ -640,7 +640,7 @@ mod tests {
             typecheck_expr_text(src),
             (
                 IntegerType {
-                    range: pos_in(src.as_bytes(), b"Integer")
+                    range: pos_in_at(src.as_bytes(), b"Integer", 0)
                 }
                 .into(),
                 vec![],
@@ -651,11 +651,11 @@ mod tests {
             typecheck_expr_text(src),
             (
                 StringType {
-                    range: pos_in(src.as_bytes(), b"String"),
+                    range: pos_in_at(src.as_bytes(), b"String", 0),
                 }
                 .into(),
                 vec![Diagnostic {
-                    range: pos_in(src.as_bytes(), b"x @ String"),
+                    range: pos_in_at(src.as_bytes(), b"x @ String", 0),
                     message: "type mismatch".to_string(),
                 }],
             ),
