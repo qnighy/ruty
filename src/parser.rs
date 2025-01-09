@@ -7,9 +7,9 @@ use crate::{
         CallExpr, CallStyle, CodeRange, ErrorExpr, ErrorType, ErrorWriteTarget, Expr, FalseExpr,
         FalseType, IntegerExpr, IntegerType, InterpolationContent, LocalVariableExpr,
         LocalVariableWriteTarget, NilExpr, NilType, Paren, Program, RegexpExpr, RegexpType,
-        Semicolon, SemicolonKind, SeqExpr, SeqParen, SeqParenKind, Stmt, StmtList, StringContent,
-        StringExpr, StringType, TextContent, TrueExpr, TrueType, Type, TypeAnnotation, WriteExpr,
-        WriteTarget, XStringExpr,
+        SelfExpr, Semicolon, SemicolonKind, SeqExpr, SeqParen, SeqParenKind, Stmt, StmtList,
+        StringContent, StringExpr, StringType, TextContent, TrueExpr, TrueType, Type,
+        TypeAnnotation, WriteExpr, WriteTarget, XStringExpr, DUMMY_RANGE,
     },
     encoding::EStrRef,
     Diagnostic,
@@ -566,15 +566,138 @@ impl<'a> Parser<'a> {
                 }
                 .into()
             }
-            _ => self.parse_expr_lv_type_annotated(diag),
+            _ => self.parse_expr_lv_call_like(diag),
         }
     }
 
-    fn parse_expr_lv_type_annotated(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
+    fn parse_expr_lv_call_like(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
         let mut expr = self.parse_expr_lv_primary(diag);
         loop {
             let token = self.fill_token(diag, LexerState::End);
             match token.kind {
+                TokenKind::LParen => {
+                    let (args, args_range) = self.parse_paren_args(diag);
+                    match expr {
+                        Expr::LocalVariable(callee) if callee.parens.is_empty() => {
+                            expr = CallExpr {
+                                range: callee.range | args_range,
+                                parens: Vec::new(),
+
+                                style: CallStyle::ImplicitSelf,
+                                private: true,
+                                receiver: Box::new(
+                                    SelfExpr {
+                                        range: DUMMY_RANGE,
+                                        parens: Vec::new(),
+                                    }
+                                    .into(),
+                                ),
+                                method: callee.name,
+                                method_range: callee.range,
+                                args,
+                            }
+                            .into();
+                        }
+                        Expr::Call(callee)
+                            if callee.parens.is_empty()
+                                && matches!(
+                                    callee.style,
+                                    CallStyle::ImplicitSelf | CallStyle::Dot
+                                )
+                                && callee.args.is_empty() =>
+                        {
+                            expr = CallExpr {
+                                range: callee.range | args_range,
+                                parens: Vec::new(),
+
+                                style: callee.style,
+                                private: callee.private,
+                                receiver: callee.receiver,
+                                method: callee.method,
+                                method_range: callee.method_range,
+                                args,
+                            }
+                            .into();
+                        }
+                        _ => {
+                            diag.push(Diagnostic {
+                                range: token.range,
+                                message: format!("Need a dot to call an expression"),
+                            });
+                            expr = CallExpr {
+                                range: *expr.outer_range() | args_range,
+                                parens: Vec::new(),
+
+                                style: CallStyle::CallOp,
+                                private: false,
+                                receiver: Box::new(expr),
+                                method: "call".to_owned(),
+                                method_range: token.range,
+                                args,
+                            }
+                            .into();
+                        }
+                    }
+                }
+                TokenKind::Dot | TokenKind::AmpDot | TokenKind::ColonColon => {
+                    self.bump();
+                    let token = self.fill_token(diag, LexerState::MethForCall);
+                    match token.kind {
+                        TokenKind::LParen => {
+                            // expr.(args)
+                            let (args, args_range) = self.parse_paren_args(diag);
+                            expr = CallExpr {
+                                range: *expr.outer_range() | args_range,
+                                parens: Vec::new(),
+
+                                style: CallStyle::CallOp,
+                                private: false,
+                                receiver: Box::new(expr),
+                                method: "call".to_owned(),
+                                method_range: token.range,
+                                args,
+                            }
+                            .into();
+                        }
+                        TokenKind::Identifier | TokenKind::Const | TokenKind::MethodName => {
+                            self.bump();
+                            // expr.meth
+                            let s = self.select(token.range);
+                            let private =
+                                matches!(expr, Expr::Self_(_)) && expr.parens().is_empty();
+                            expr = CallExpr {
+                                range: *expr.outer_range() | token.range,
+                                parens: Vec::new(),
+
+                                style: CallStyle::Dot,
+                                private,
+                                receiver: Box::new(expr),
+                                method: s.into_owned(),
+                                method_range: token.range,
+                                args: vec![],
+                            }
+                            .into();
+                        }
+                        _ => {
+                            diag.push(Diagnostic {
+                                range: token.range,
+                                message: format!("unexpected token"),
+                            });
+                            expr = CallExpr {
+                                range: *expr.outer_range() | token.range,
+                                parens: Vec::new(),
+
+                                style: CallStyle::Dot,
+                                private: false,
+                                receiver: Box::new(expr),
+                                method: "".to_owned(),
+                                method_range: token.range,
+                                args: vec![],
+                            }
+                            .into();
+                        }
+                    }
+                }
                 TokenKind::At => {
                     self.bump();
                     let ty = self.parse_type(diag);
@@ -639,6 +762,28 @@ impl<'a> Parser<'a> {
                     parens: Vec::new(),
                     name: s.into_owned(),
                     type_annotation: None,
+                }
+                .into()
+            }
+            TokenKind::MethodName => {
+                self.bump();
+                let s = self.select(token.range);
+                CallExpr {
+                    range: token.range,
+                    parens: Vec::new(),
+
+                    style: CallStyle::ImplicitSelf,
+                    private: true,
+                    receiver: Box::new(
+                        SelfExpr {
+                            range: DUMMY_RANGE,
+                            parens: Vec::new(),
+                        }
+                        .into(),
+                    ),
+                    method: s.into_owned(),
+                    method_range: token.range,
+                    args: vec![],
                 }
                 .into()
             }
@@ -811,6 +956,50 @@ impl<'a> Parser<'a> {
                 .into()
             }
         }
+    }
+
+    fn parse_paren_args(&mut self, diag: &mut Vec<Diagnostic>) -> (Vec<Expr>, CodeRange) {
+        // Bump the first `(`
+        let token = self.next_token.unwrap();
+        self.bump();
+        let mut args = Vec::<Expr>::new();
+        let mut args_range = token.range;
+        loop {
+            let token = self.fill_token(diag, LexerState::BeginLabelable);
+            match token.kind {
+                TokenKind::RParen => {
+                    self.bump();
+                    args_range |= token.range;
+                    break;
+                }
+                TokenKind::EOF => {
+                    diag.push(Diagnostic {
+                        range: token.range,
+                        message: format!("unexpected end of file"),
+                    });
+                    args_range |= token.range;
+                    break;
+                }
+                _ => {
+                    let arg = self.parse_expr_lv_assignment(diag);
+                    args.push(arg);
+                    let token = self.fill_token(diag, LexerState::End);
+                    match token.kind {
+                        TokenKind::Comma => {
+                            self.bump();
+                        }
+                        TokenKind::EOF | TokenKind::RParen => {}
+                        _ => {
+                            diag.push(Diagnostic {
+                                range: token.range,
+                                message: format!("unexpected token"),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        (args, args_range)
     }
 
     fn parse_whole_type(&mut self, diag: &mut Vec<Diagnostic>) -> Type {
@@ -1363,6 +1552,90 @@ mod tests {
                         range: pos_in(src, b"foo"),
                         value: "foo".to_owned(),
                     })],
+                }
+                .into(),
+                vec![],
+            )
+        );
+    }
+
+    #[test]
+    fn test_func_call() {
+        let src = EStrRef::from("foo()");
+        assert_eq!(
+            p_expr(src),
+            (
+                CallExpr {
+                    range: pos_in(src, b"foo()"),
+                    parens: vec![],
+                    style: CallStyle::ImplicitSelf,
+                    private: true,
+                    receiver: Box::new(
+                        SelfExpr {
+                            range: DUMMY_RANGE,
+                            parens: vec![],
+                        }
+                        .into()
+                    ),
+                    method: "foo".to_owned(),
+                    method_range: pos_in(src, b"foo"),
+                    args: vec![],
+                }
+                .into(),
+                vec![],
+            )
+        );
+    }
+
+    #[test]
+    fn test_method_call() {
+        let src = EStrRef::from("x.foo()");
+        assert_eq!(
+            p_expr(src),
+            (
+                CallExpr {
+                    range: pos_in(src, b"x.foo()"),
+                    parens: vec![],
+                    style: CallStyle::Dot,
+                    private: false,
+                    receiver: Box::new(
+                        LocalVariableExpr {
+                            range: pos_in(src, b"x"),
+                            parens: vec![],
+                            name: "x".to_owned(),
+                            type_annotation: None,
+                        }
+                        .into()
+                    ),
+                    method: "foo".to_owned(),
+                    method_range: pos_in(src, b"foo"),
+                    args: vec![],
+                }
+                .into(),
+                vec![],
+            )
+        );
+        let src = EStrRef::from("x.foo");
+        assert_eq!(
+            p_expr(src),
+            (
+                CallExpr {
+                    range: pos_in(src, b"x.foo"),
+                    parens: vec![],
+                    style: CallStyle::Dot,
+                    private: false,
+                    receiver: Box::new(
+                        LocalVariableExpr {
+                            range: pos_in(src, b"x"),
+                            parens: vec![],
+                            name: "x".to_owned(),
+                            type_annotation: None,
+                        }
+                        .into()
+                    ),
+                    method: "foo".to_owned(),
+                    method_range: pos_in(src, b"foo"),
+                    args: vec![],
                 }
                 .into(),
                 vec![],

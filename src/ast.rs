@@ -10,8 +10,9 @@ mod write_target;
 
 pub use expr::{
     CallExpr, CallStyle, ErrorExpr, Expr, FalseExpr, IntegerExpr, InterpolationContent,
-    LocalVariableExpr, NilExpr, RegexpExpr, SeqExpr, SeqParen, SeqParenKind, StringContent,
-    StringExpr, TextContent, TrueExpr, WriteExpr, XStringExpr,
+    LocalVariableExpr, NilExpr, RegexpExpr, SelfExpr, SeqExpr, SeqParen, SeqParenKind,
+    SourceEncodingExpr, SourceFileExpr, SourceLineExpr, StringContent, StringExpr, TextContent,
+    TrueExpr, WriteExpr, XStringExpr,
 };
 pub use paren::Paren;
 pub use pos::{pos_in, pos_in_at, CodeRange, PositionIndex, DUMMY_RANGE};

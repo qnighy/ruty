@@ -46,6 +46,10 @@ fn collect_ranges_expr(ranges: &mut Vec<CodeRange>, expr: &Expr) {
                 ranges.push(ta.range);
             }
         }
+        Expr::Self_(_) => {}
+        Expr::SourceEncoding(_) => {}
+        Expr::SourceFile(_) => {}
+        Expr::SourceLine(_) => {}
         Expr::Call(expr) => {
             collect_ranges_expr(ranges, &expr.receiver);
             for arg in &expr.args {

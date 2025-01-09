@@ -11,6 +11,10 @@ pub enum Expr {
     Regexp(RegexpExpr),
     XString(XStringExpr),
     LocalVariable(LocalVariableExpr),
+    Self_(SelfExpr),
+    SourceEncoding(SourceEncodingExpr),
+    SourceFile(SourceFileExpr),
+    SourceLine(SourceLineExpr),
     Call(CallExpr),
     Write(WriteExpr),
     Error(ErrorExpr),
@@ -26,6 +30,10 @@ impl_from!(
     (Expr, RegexpExpr, Expr::Regexp),
     (Expr, XStringExpr, Expr::XString),
     (Expr, LocalVariableExpr, Expr::LocalVariable),
+    (Expr, SelfExpr, Expr::Self_),
+    (Expr, SourceEncodingExpr, Expr::SourceEncoding),
+    (Expr, SourceFileExpr, Expr::SourceFile),
+    (Expr, SourceLineExpr, Expr::SourceLine),
     (Expr, CallExpr, Expr::Call),
     (Expr, WriteExpr, Expr::Write),
     (Expr, ErrorExpr, Expr::Error),
@@ -41,6 +49,10 @@ impl_delegators!(
         Regexp(RegexpExpr),
         XString(XStringExpr),
         LocalVariable(LocalVariableExpr),
+        Self_(SelfExpr),
+        SourceEncoding(SourceEncodingExpr),
+        SourceFile(SourceFileExpr),
+        SourceLine(SourceLineExpr),
         Call(CallExpr),
         Write(WriteExpr),
         Error(ErrorExpr),
@@ -167,6 +179,30 @@ pub struct LocalVariableExpr {
 
     pub name: String,
     pub type_annotation: Option<TypeAnnotation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SelfExpr {
+    pub range: CodeRange,
+    pub parens: Vec<Paren>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SourceEncodingExpr {
+    pub range: CodeRange,
+    pub parens: Vec<Paren>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SourceFileExpr {
+    pub range: CodeRange,
+    pub parens: Vec<Paren>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SourceLineExpr {
+    pub range: CodeRange,
+    pub parens: Vec<Paren>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
