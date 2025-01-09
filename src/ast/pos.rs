@@ -72,9 +72,10 @@ where
 {
     let all_text: &[u8] = all_text.as_ref();
     let sub_text: &[u8] = sub_text.as_ref();
-    // find substring
-    for (i, s) in all_text.windows(sub_text.len()).enumerate() {
-        if s == sub_text {
+    // TODO: consider KMP
+    let mut i = 0;
+    while i + sub_text.len() <= all_text.len() {
+        if all_text[i..i + sub_text.len()] == *sub_text {
             if idx == 0 {
                 return CodeRange {
                     start: i,
@@ -84,8 +85,9 @@ where
                 idx -= 1;
             }
         }
+        i += 1;
     }
-    panic!("substring not found: {:?}", sub_text);
+    DUMMY_RANGE
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
