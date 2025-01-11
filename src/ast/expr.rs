@@ -1,4 +1,7 @@
-use crate::ast::{CodeRange, Paren, StmtList, TypeAnnotation, WriteTarget};
+use crate::{
+    ast::{CodeRange, Paren, StmtList, TypeAnnotation, WriteTarget},
+    EString,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expr {
@@ -159,8 +162,7 @@ pub enum StringContent {
 pub struct TextContent {
     pub range: CodeRange,
 
-    // TODO: incorporate EString
-    pub value: String,
+    pub value: EString,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -177,7 +179,7 @@ pub struct LocalVariableExpr {
     pub range: CodeRange,
     pub parens: Vec<Paren>,
 
-    pub name: String,
+    pub name: EString,
     pub type_annotation: Option<TypeAnnotation>,
 }
 
@@ -213,7 +215,7 @@ pub struct CallExpr {
     pub style: CallStyle,
     pub private: bool,
     pub receiver: Box<Expr>,
-    pub method: String,
+    pub method: EString,
     pub method_range: CodeRange,
     // TODO: support complex args
     pub args: Vec<Expr>,

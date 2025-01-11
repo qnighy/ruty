@@ -1,7 +1,5 @@
 mod lexer;
 
-use std::borrow::Cow;
-
 use crate::{
     ast::{
         CallExpr, CallStyle, CodeRange, ErrorExpr, ErrorType, ErrorWriteTarget, Expr, FalseExpr,
@@ -12,7 +10,7 @@ use crate::{
         TypeAnnotation, WriteExpr, WriteTarget, XStringExpr, DUMMY_RANGE,
     },
     encoding::EStrRef,
-    Diagnostic,
+    Diagnostic, EString,
 };
 use lexer::{Lexer, LexerState, StringDelimiter, Token, TokenKind};
 
@@ -48,9 +46,9 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // fn input(&self) -> EStrRef<'a> {
-    //     self.lexer.input()
-    // }
+    fn input(&self) -> EStrRef<'a> {
+        self.lexer.input()
+    }
 
     fn bytes(&self) -> &'a [u8] {
         self.lexer.bytes()
@@ -173,7 +171,7 @@ impl<'a> Parser<'a> {
                     style: CallStyle::SpelloutUnOp,
                     private: false,
                     receiver: Box::new(expr),
-                    method: meth.to_owned(),
+                    method: symbol(meth),
                     method_range: token.range,
                     args: vec![],
                 }
@@ -257,7 +255,7 @@ impl<'a> Parser<'a> {
                         style: CallStyle::BinOp,
                         private: false,
                         receiver: Box::new(expr),
-                        method: meth.to_owned(),
+                        method: symbol(meth),
                         method_range: token.range,
                         args: vec![rhs],
                     }
@@ -291,7 +289,7 @@ impl<'a> Parser<'a> {
                         style: CallStyle::BinOp,
                         private: false,
                         receiver: Box::new(expr),
-                        method: meth.to_owned(),
+                        method: symbol(meth),
                         method_range: token.range,
                         args: vec![rhs],
                     }
@@ -326,7 +324,7 @@ impl<'a> Parser<'a> {
                         style: CallStyle::BinOp,
                         private: false,
                         receiver: Box::new(expr),
-                        method: meth.to_owned(),
+                        method: symbol(meth),
                         method_range: token.range,
                         args: vec![rhs],
                     }
@@ -357,7 +355,7 @@ impl<'a> Parser<'a> {
                         style: CallStyle::BinOp,
                         private: false,
                         receiver: Box::new(expr),
-                        method: meth.to_owned(),
+                        method: symbol(meth),
                         method_range: token.range,
                         args: vec![rhs],
                     }
@@ -389,7 +387,7 @@ impl<'a> Parser<'a> {
                         style: CallStyle::BinOp,
                         private: false,
                         receiver: Box::new(expr),
-                        method: meth.to_owned(),
+                        method: symbol(meth),
                         method_range: token.range,
                         args: vec![rhs],
                     }
@@ -421,7 +419,7 @@ impl<'a> Parser<'a> {
                         style: CallStyle::BinOp,
                         private: false,
                         receiver: Box::new(expr),
-                        method: meth.to_owned(),
+                        method: symbol(meth),
                         method_range: token.range,
                         args: vec![rhs],
                     }
@@ -454,7 +452,7 @@ impl<'a> Parser<'a> {
                         style: CallStyle::BinOp,
                         private: false,
                         receiver: Box::new(expr),
-                        method: meth.to_owned(),
+                        method: symbol(meth),
                         method_range: token.range,
                         args: vec![rhs],
                     }
@@ -492,13 +490,13 @@ impl<'a> Parser<'a> {
                                 style: CallStyle::BinOp,
                                 private: false,
                                 receiver: Box::new(lhs),
-                                method: meth.to_owned(),
+                                method: symbol(meth),
                                 method_range: token.range,
                                 args: vec![rhs],
                             }
                             .into(),
                         ),
-                        method: "-@".to_owned(),
+                        method: symbol("-@"),
                         method_range: minus_range,
                         args: vec![],
                     }
@@ -510,7 +508,7 @@ impl<'a> Parser<'a> {
                         style: CallStyle::BinOp,
                         private: false,
                         receiver: Box::new(lhs),
-                        method: meth.to_owned(),
+                        method: symbol(meth),
                         method_range: token.range,
                         args: vec![rhs],
                     }
@@ -525,7 +523,7 @@ impl<'a> Parser<'a> {
         // TODO: also split numeric literals
         match expr {
             Expr::Call(expr)
-                if expr.method == "-@"
+                if expr.method.as_estr() == symbol_ref("-@")
                     && matches!(expr.style, CallStyle::UnOp)
                     && expr.parens.is_empty() =>
             {
@@ -560,7 +558,7 @@ impl<'a> Parser<'a> {
                     style: CallStyle::UnOp,
                     private: false,
                     receiver: Box::new(expr),
-                    method: meth.to_owned(),
+                    method: symbol(meth),
                     method_range: token.range,
                     args: vec![],
                 }
@@ -631,7 +629,7 @@ impl<'a> Parser<'a> {
                                 style: CallStyle::CallOp,
                                 private: false,
                                 receiver: Box::new(expr),
-                                method: "call".to_owned(),
+                                method: symbol("call"),
                                 method_range: token.range,
                                 args,
                             }
@@ -653,7 +651,7 @@ impl<'a> Parser<'a> {
                                 style: CallStyle::CallOp,
                                 private: false,
                                 receiver: Box::new(expr),
-                                method: "call".to_owned(),
+                                method: symbol("call"),
                                 method_range: token.range,
                                 args,
                             }
@@ -672,7 +670,7 @@ impl<'a> Parser<'a> {
                                 style: CallStyle::Dot,
                                 private,
                                 receiver: Box::new(expr),
-                                method: s.into_owned(),
+                                method: s.to_estring().asciified(),
                                 method_range: token.range,
                                 args: vec![],
                             }
@@ -690,7 +688,7 @@ impl<'a> Parser<'a> {
                                 style: CallStyle::Dot,
                                 private: false,
                                 receiver: Box::new(expr),
-                                method: "".to_owned(),
+                                method: symbol(""),
                                 method_range: token.range,
                                 args: vec![],
                             }
@@ -760,7 +758,7 @@ impl<'a> Parser<'a> {
                 LocalVariableExpr {
                     range: token.range,
                     parens: Vec::new(),
-                    name: s.into_owned(),
+                    name: s.to_estring().asciified(),
                     type_annotation: None,
                 }
                 .into()
@@ -781,7 +779,7 @@ impl<'a> Parser<'a> {
                         }
                         .into(),
                     ),
-                    method: s.into_owned(),
+                    method: s.to_estring().asciified(),
                     method_range: token.range,
                     args: vec![],
                 }
@@ -792,7 +790,9 @@ impl<'a> Parser<'a> {
                 IntegerExpr {
                     range: token.range,
                     parens: Vec::new(),
-                    value: self.select(token.range).parse().unwrap(),
+                    value: String::from_utf8_lossy(self.select(token.range).as_bytes())
+                        .parse()
+                        .unwrap(),
                 }
                 .into()
             }
@@ -829,7 +829,7 @@ impl<'a> Parser<'a> {
                             contents.push(StringContent::Text(TextContent {
                                 range: token.range,
                                 // TODO: unescape
-                                value: s.into_owned(),
+                                value: s.to_estring().asciified(),
                             }));
                         }
                         TokenKind::StringInterpolationBegin => {
@@ -1026,13 +1026,13 @@ impl<'a> Parser<'a> {
             TokenKind::KeywordTrue => TrueType { range: token.range }.into(),
             TokenKind::Const => {
                 let s = self.select(token.range);
-                match &*s {
-                    "NilClass" => NilType { range: token.range }.into(),
-                    "FalseClass" => FalseType { range: token.range }.into(),
-                    "TrueClass" => TrueType { range: token.range }.into(),
-                    "Integer" => IntegerType { range: token.range }.into(),
-                    "String" => StringType { range: token.range }.into(),
-                    "Regexp" => RegexpType { range: token.range }.into(),
+                match s.as_bytes() {
+                    b"NilClass" => NilType { range: token.range }.into(),
+                    b"FalseClass" => FalseType { range: token.range }.into(),
+                    b"TrueClass" => TrueType { range: token.range }.into(),
+                    b"Integer" => IntegerType { range: token.range }.into(),
+                    b"String" => StringType { range: token.range }.into(),
+                    b"Regexp" => RegexpType { range: token.range }.into(),
                     _ => {
                         diag.push(Diagnostic {
                             range: token.range,
@@ -1078,9 +1078,23 @@ impl<'a> Parser<'a> {
     //     }
     // }
 
-    fn select(&self, range: CodeRange) -> Cow<'a, str> {
-        String::from_utf8_lossy(&self.bytes()[range.range()])
+    fn select(&self, range: CodeRange) -> EStrRef<'a> {
+        EStrRef::from_bytes(&self.bytes()[range.range()], self.input().encoding())
     }
+}
+
+fn symbol<T>(s: T) -> EString
+where
+    T: Into<String>,
+{
+    EString::from(s.into()).asciified()
+}
+
+fn symbol_ref<T>(s: &T) -> EStrRef<'_>
+where
+    T: AsRef<str> + ?Sized,
+{
+    EStrRef::from(s.as_ref()).asciified()
 }
 
 #[cfg(test)]
@@ -1127,7 +1141,7 @@ mod tests {
                                 expr: LocalVariableExpr {
                                     range: pos_in(src, b"x", 0),
                                     parens: vec![],
-                                    name: "x".to_owned(),
+                                    name: symbol("x"),
                                     type_annotation: None,
                                 }
                                 .into(),
@@ -1141,7 +1155,7 @@ mod tests {
                                 expr: LocalVariableExpr {
                                     range: pos_in(src, b"y", 0),
                                     parens: vec![],
-                                    name: "y".to_owned(),
+                                    name: symbol("y"),
                                     type_annotation: None,
                                 }
                                 .into(),
@@ -1155,7 +1169,7 @@ mod tests {
                                 expr: LocalVariableExpr {
                                     range: pos_in(src, b"z", 0),
                                     parens: vec![],
-                                    name: "z".to_owned(),
+                                    name: symbol("z"),
                                     type_annotation: None,
                                 }
                                 .into(),
@@ -1183,7 +1197,7 @@ mod tests {
                         open_range: pos_in(src, b"(", 0),
                         close_range: pos_in(src, b")", 0),
                     }],
-                    name: "x".to_owned(),
+                    name: symbol("x"),
                     type_annotation: None,
                 }
                 .into(),
@@ -1201,7 +1215,7 @@ mod tests {
                         open_range: pos_in(src, b"(", 0),
                         close_range: pos_in(src, b")", 0),
                     }],
-                    name: "x".to_owned(),
+                    name: symbol("x"),
                     type_annotation: None,
                 }
                 .into(),
@@ -1232,7 +1246,7 @@ mod tests {
                             expr: LocalVariableExpr {
                                 range: pos_in(src, b"x", 0),
                                 parens: vec![],
-                                name: "x".to_owned(),
+                                name: symbol("x"),
                                 type_annotation: None,
                             }
                             .into(),
@@ -1270,7 +1284,7 @@ mod tests {
                             expr: LocalVariableExpr {
                                 range: pos_in(src, b"x", 0),
                                 parens: vec![],
-                                name: "x".to_owned(),
+                                name: symbol("x"),
                                 type_annotation: None,
                             }
                             .into(),
@@ -1303,7 +1317,7 @@ mod tests {
                                 expr: LocalVariableExpr {
                                     range: pos_in(src, b"x", 0),
                                     parens: vec![],
-                                    name: "x".to_owned(),
+                                    name: symbol("x"),
                                     type_annotation: None,
                                 }
                                 .into(),
@@ -1317,7 +1331,7 @@ mod tests {
                                 expr: LocalVariableExpr {
                                     range: pos_in(src, b"y", 0),
                                     parens: vec![],
-                                    name: "y".to_owned(),
+                                    name: symbol("y"),
                                     type_annotation: None,
                                 }
                                 .into(),
@@ -1385,7 +1399,7 @@ mod tests {
                 LocalVariableExpr {
                     range: pos_in(src, b"x", 0),
                     parens: vec![],
-                    name: "x".to_owned(),
+                    name: symbol("x"),
                     type_annotation: None,
                 }
                 .into(),
@@ -1399,7 +1413,7 @@ mod tests {
                 LocalVariableExpr {
                     range: pos_in(src, b"x @ Integer", 0),
                     parens: vec![],
-                    name: "x".to_owned(),
+                    name: symbol("x"),
                     type_annotation: Some(TypeAnnotation {
                         range: pos_in(src, b"@ Integer", 0),
                         type_: IntegerType {
@@ -1444,7 +1458,7 @@ mod tests {
                     close_range: pos_in(src, b"'", 1),
                     contents: vec![StringContent::Text(TextContent {
                         range: pos_in(src, b"foo", 0),
-                        value: "foo".to_owned(),
+                        value: symbol("foo"),
                     })],
                 }
                 .into(),
@@ -1462,7 +1476,7 @@ mod tests {
                     close_range: pos_in(src, b"\"", 1),
                     contents: vec![StringContent::Text(TextContent {
                         range: pos_in(src, b"foo", 0),
-                        value: "foo".to_owned(),
+                        value: symbol("foo"),
                     })],
                 }
                 .into(),
@@ -1481,7 +1495,7 @@ mod tests {
                     contents: vec![
                         StringContent::Text(TextContent {
                             range: pos_in(src, b"foo ", 0),
-                            value: "foo ".to_owned(),
+                            value: symbol("foo "),
                         }),
                         StringContent::Interpolation(InterpolationContent {
                             range: pos_in(src, b"#{bar}", 0),
@@ -1495,7 +1509,7 @@ mod tests {
                                     expr: LocalVariableExpr {
                                         range: pos_in(src, b"bar", 0),
                                         parens: vec![],
-                                        name: "bar".to_owned(),
+                                        name: symbol("bar"),
                                         type_annotation: None,
                                     }
                                     .into(),
@@ -1505,7 +1519,7 @@ mod tests {
                         }),
                         StringContent::Text(TextContent {
                             range: pos_in(src, b" baz", 0),
-                            value: " baz".to_owned(),
+                            value: symbol(" baz"),
                         }),
                     ],
                 }
@@ -1528,7 +1542,7 @@ mod tests {
                     close_range: pos_in(src, b"/", 1),
                     contents: vec![StringContent::Text(TextContent {
                         range: pos_in(src, b"foo", 0),
-                        value: "foo".to_owned(),
+                        value: symbol("foo"),
                     })],
                 }
                 .into(),
@@ -1550,7 +1564,7 @@ mod tests {
                     close_range: pos_in(src, b"`", 1),
                     contents: vec![StringContent::Text(TextContent {
                         range: pos_in(src, b"foo", 0),
-                        value: "foo".to_owned(),
+                        value: symbol("foo"),
                     })],
                 }
                 .into(),
@@ -1577,7 +1591,7 @@ mod tests {
                         }
                         .into()
                     ),
-                    method: "foo".to_owned(),
+                    method: symbol("foo"),
                     method_range: pos_in(src, b"foo", 0),
                     args: vec![],
                 }
@@ -1602,12 +1616,12 @@ mod tests {
                         LocalVariableExpr {
                             range: pos_in(src, b"x", 0),
                             parens: vec![],
-                            name: "x".to_owned(),
+                            name: symbol("x"),
                             type_annotation: None,
                         }
                         .into()
                     ),
-                    method: "foo".to_owned(),
+                    method: symbol("foo"),
                     method_range: pos_in(src, b"foo", 0),
                     args: vec![],
                 }
@@ -1628,12 +1642,12 @@ mod tests {
                         LocalVariableExpr {
                             range: pos_in(src, b"x", 0),
                             parens: vec![],
-                            name: "x".to_owned(),
+                            name: symbol("x"),
                             type_annotation: None,
                         }
                         .into()
                     ),
-                    method: "foo".to_owned(),
+                    method: symbol("foo"),
                     method_range: pos_in(src, b"foo", 0),
                     args: vec![],
                 }
@@ -1655,7 +1669,7 @@ mod tests {
                     lhs: Box::new(
                         LocalVariableWriteTarget {
                             range: pos_in(src, b"x", 0),
-                            name: "x".to_owned(),
+                            name: symbol("x"),
                             type_annotation: None,
                         }
                         .into()
@@ -1683,7 +1697,7 @@ mod tests {
                     lhs: Box::new(
                         LocalVariableWriteTarget {
                             range: pos_in(src, b"x @ Integer", 0),
-                            name: "x".to_owned(),
+                            name: symbol("x"),
                             type_annotation: Some(TypeAnnotation {
                                 range: pos_in(src, b"@ Integer", 0),
                                 type_: IntegerType {
@@ -1736,41 +1750,41 @@ mod tests {
                                         LocalVariableExpr {
                                             range: pos_in(src, b"x", 0),
                                             parens: vec![],
-                                            name: "x".to_owned(),
+                                            name: symbol("x"),
                                             type_annotation: None,
                                         }
                                         .into()
                                     ),
-                                    method: "*".to_owned(),
+                                    method: symbol("*"),
                                     method_range: pos_in(src, b"*", 0),
                                     args: vec![LocalVariableExpr {
                                         range: pos_in(src, b"y", 0),
                                         parens: vec![],
-                                        name: "y".to_owned(),
+                                        name: symbol("y"),
                                         type_annotation: None,
                                     }
                                     .into()],
                                 }
                                 .into()
                             ),
-                            method: "/".to_owned(),
+                            method: symbol("/"),
                             method_range: pos_in(src, b"/", 0),
                             args: vec![LocalVariableExpr {
                                 range: pos_in(src, b"z", 0),
                                 parens: vec![],
-                                name: "z".to_owned(),
+                                name: symbol("z"),
                                 type_annotation: None,
                             }
                             .into()],
                         }
                         .into()
                     ),
-                    method: "%".to_owned(),
+                    method: symbol("%"),
                     method_range: pos_in(src, b"%", 0),
                     args: vec![LocalVariableExpr {
                         range: pos_in(src, b"w", 0),
                         parens: vec![],
-                        name: "w".to_owned(),
+                        name: symbol("w"),
                         type_annotation: None,
                     }
                     .into()],
@@ -1799,24 +1813,24 @@ mod tests {
                                 LocalVariableExpr {
                                     range: pos_in(src, b"x", 0),
                                     parens: vec![],
-                                    name: "x".to_owned(),
+                                    name: symbol("x"),
                                     type_annotation: None,
                                 }
                                 .into()
                             ),
-                            method: "**".to_owned(),
+                            method: symbol("**"),
                             method_range: pos_in(src, b"**", 0),
                             args: vec![LocalVariableExpr {
                                 range: pos_in(src, b"y", 0),
                                 parens: vec![],
-                                name: "y".to_owned(),
+                                name: symbol("y"),
                                 type_annotation: None,
                             }
                             .into()],
                         }
                         .into()
                     ),
-                    method: "*".to_owned(),
+                    method: symbol("*"),
                     method_range: pos_in(src, b"*", 2),
                     args: vec![CallExpr {
                         range: pos_in(src, b"z ** w", 0),
@@ -1827,17 +1841,17 @@ mod tests {
                             LocalVariableExpr {
                                 range: pos_in(src, b"z", 0),
                                 parens: vec![],
-                                name: "z".to_owned(),
+                                name: symbol("z"),
                                 type_annotation: None,
                             }
                             .into()
                         ),
-                        method: "**".to_owned(),
+                        method: symbol("**"),
                         method_range: pos_in(src, b"**", 1),
                         args: vec![LocalVariableExpr {
                             range: pos_in(src, b"w", 0),
                             parens: vec![],
-                            name: "w".to_owned(),
+                            name: symbol("w"),
                             type_annotation: None,
                         }
                         .into()],
@@ -1865,12 +1879,12 @@ mod tests {
                         LocalVariableExpr {
                             range: pos_in(src, b"x", 0),
                             parens: vec![],
-                            name: "x".to_owned(),
+                            name: symbol("x"),
                             type_annotation: None,
                         }
                         .into()
                     ),
-                    method: "**".to_owned(),
+                    method: symbol("**"),
                     method_range: pos_in(src, b"**", 0),
                     args: vec![CallExpr {
                         range: pos_in(src, b"y ** z", 0),
@@ -1881,17 +1895,17 @@ mod tests {
                             LocalVariableExpr {
                                 range: pos_in(src, b"y", 0),
                                 parens: vec![],
-                                name: "y".to_owned(),
+                                name: symbol("y"),
                                 type_annotation: None,
                             }
                             .into()
                         ),
-                        method: "**".to_owned(),
+                        method: symbol("**"),
                         method_range: pos_in(src, b"**", 1),
                         args: vec![LocalVariableExpr {
                             range: pos_in(src, b"z", 0),
                             parens: vec![],
-                            name: "z".to_owned(),
+                            name: symbol("z"),
                             type_annotation: None,
                         }
                         .into()],
@@ -1921,18 +1935,18 @@ mod tests {
                                 LocalVariableExpr {
                                     range: pos_in(src, b"x", 0),
                                     parens: vec![],
-                                    name: "x".to_owned(),
+                                    name: symbol("x"),
                                     type_annotation: None,
                                 }
                                 .into()
                             ),
-                            method: "+@".to_owned(),
+                            method: symbol("+@"),
                             method_range: pos_in(src, b"+", 0),
                             args: vec![],
                         }
                         .into()
                     ),
-                    method: "**".to_owned(),
+                    method: symbol("**"),
                     method_range: pos_in(src, b"**", 0),
                     args: vec![CallExpr {
                         range: pos_in(src, b"+y", 0),
@@ -1943,12 +1957,12 @@ mod tests {
                             LocalVariableExpr {
                                 range: pos_in(src, b"y", 0),
                                 parens: vec![],
-                                name: "y".to_owned(),
+                                name: symbol("y"),
                                 type_annotation: None,
                             }
                             .into()
                         ),
-                        method: "+@".to_owned(),
+                        method: symbol("+@"),
                         method_range: pos_in(src, b"+", 1),
                         args: vec![],
                     }
@@ -1981,12 +1995,12 @@ mod tests {
                                 LocalVariableExpr {
                                     range: pos_in(src, b"x", 0),
                                     parens: vec![],
-                                    name: "x".to_owned(),
+                                    name: symbol("x"),
                                     type_annotation: None,
                                 }
                                 .into()
                             ),
-                            method: "**".to_owned(),
+                            method: symbol("**"),
                             method_range: pos_in(src, b"**", 0),
                             args: vec![CallExpr {
                                 range: pos_in(src, b"-y ** z", 0),
@@ -2003,24 +2017,24 @@ mod tests {
                                             LocalVariableExpr {
                                                 range: pos_in(src, b"y", 0),
                                                 parens: vec![],
-                                                name: "y".to_owned(),
+                                                name: symbol("y"),
                                                 type_annotation: None,
                                             }
                                             .into()
                                         ),
-                                        method: "**".to_owned(),
+                                        method: symbol("**"),
                                         method_range: pos_in(src, b"**", 1),
                                         args: vec![LocalVariableExpr {
                                             range: pos_in(src, b"z", 0),
                                             parens: vec![],
-                                            name: "z".to_owned(),
+                                            name: symbol("z"),
                                             type_annotation: None,
                                         }
                                         .into()],
                                     }
                                     .into()
                                 ),
-                                method: "-@".to_owned(),
+                                method: symbol("-@"),
                                 method_range: pos_in(src, b"-", 1),
                                 args: vec![],
                             }
@@ -2028,7 +2042,7 @@ mod tests {
                         }
                         .into()
                     ),
-                    method: "-@".to_owned(),
+                    method: symbol("-@"),
                     method_range: pos_in(src, b"-", 0),
                     args: vec![],
                 }
@@ -2053,12 +2067,12 @@ mod tests {
                         LocalVariableExpr {
                             range: pos_in(src, b"x", 0),
                             parens: vec![],
-                            name: "x".to_owned(),
+                            name: symbol("x"),
                             type_annotation: None,
                         }
                         .into()
                     ),
-                    method: "+@".to_owned(),
+                    method: symbol("+@"),
                     method_range: pos_in(src, b"+", 0),
                     args: vec![],
                 }
@@ -2080,12 +2094,12 @@ mod tests {
                         LocalVariableExpr {
                             range: pos_in(src, b"x", 0),
                             parens: vec![],
-                            name: "x".to_owned(),
+                            name: symbol("x"),
                             type_annotation: None,
                         }
                         .into()
                     ),
-                    method: "-@".to_owned(),
+                    method: symbol("-@"),
                     method_range: pos_in(src, b"-", 0),
                     args: vec![],
                 }
@@ -2107,12 +2121,12 @@ mod tests {
                         LocalVariableExpr {
                             range: pos_in(src, b"x", 0),
                             parens: vec![],
-                            name: "x".to_owned(),
+                            name: symbol("x"),
                             type_annotation: None,
                         }
                         .into()
                     ),
-                    method: "!".to_owned(),
+                    method: symbol("!"),
                     method_range: pos_in(src, b"!", 0),
                     args: vec![],
                 }
@@ -2134,12 +2148,12 @@ mod tests {
                         LocalVariableExpr {
                             range: pos_in(src, b"x", 0),
                             parens: vec![],
-                            name: "x".to_owned(),
+                            name: symbol("x"),
                             type_annotation: None,
                         }
                         .into()
                     ),
-                    method: "~".to_owned(),
+                    method: symbol("~"),
                     method_range: pos_in(src, b"~", 0),
                     args: vec![],
                 }
@@ -2183,25 +2197,25 @@ mod tests {
                                                 }
                                                 .into()
                                             ),
-                                            method: "~".to_owned(),
+                                            method: symbol("~"),
                                             method_range: pos_in(src, b"~", 0),
                                             args: vec![],
                                         }
                                         .into()
                                     ),
-                                    method: "+@".to_owned(),
+                                    method: symbol("+@"),
                                     method_range: pos_in(src, b"+", 0),
                                     args: vec![],
                                 }
                                 .into()
                             ),
-                            method: "-@".to_owned(),
+                            method: symbol("-@"),
                             method_range: pos_in(src, b"-", 0),
                             args: vec![],
                         }
                         .into()
                     ),
-                    method: "!".to_owned(),
+                    method: symbol("!"),
                     method_range: pos_in(src, b"!", 0),
                     args: vec![],
                 }

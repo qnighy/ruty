@@ -147,6 +147,15 @@ impl<'a> EStrRef<'a> {
             self.encoding.encoding_impl().is_const_starter(ch)
         })
     }
+
+    pub fn asciified(&self) -> EStrRef<'a> {
+        let encoding = if self.is_ascii() {
+            Encoding::US_ASCII
+        } else {
+            self.encoding
+        };
+        EStrRef::from_bytes_and_state(self.bytes, encoding, self.state)
+    }
 }
 
 impl<'a> From<&'a str> for EStrRef<'a> {
@@ -355,6 +364,15 @@ impl<'a> EStrMut<'a> {
 
     pub fn starts_with_ruby_uppercase(&self) -> bool {
         self.reborrow().starts_with_ruby_uppercase()
+    }
+
+    pub fn asciified(self) -> EStrMut<'a> {
+        let encoding = if self.is_ascii() {
+            Encoding::US_ASCII
+        } else {
+            self.encoding
+        };
+        EStrMut::from_bytes_and_state(self.bytes, encoding, self.state)
     }
 
     pub fn reborrow(&self) -> EStrRef<'_> {

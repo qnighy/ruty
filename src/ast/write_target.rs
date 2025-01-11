@@ -1,4 +1,7 @@
-use crate::ast::{CodeRange, TypeAnnotation};
+use crate::{
+    ast::{CodeRange, TypeAnnotation},
+    EString,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum WriteTarget {
@@ -27,7 +30,7 @@ impl_delegators!(
 pub struct LocalVariableWriteTarget {
     pub range: CodeRange,
 
-    pub name: String,
+    pub name: EString,
     pub type_annotation: Option<TypeAnnotation>,
 }
 

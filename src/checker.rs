@@ -5,7 +5,7 @@ use crate::{
         ErrorType, Expr, FalseType, IntegerType, NilType, Program, RegexpType, StmtList,
         StringContent, StringType, TrueType, Type, TypeAnnotation, WriteTarget, DUMMY_RANGE,
     },
-    Diagnostic,
+    Diagnostic, EString,
 };
 
 pub fn typecheck_program(diag: &mut Vec<Diagnostic>, program: &Program) {
@@ -217,7 +217,7 @@ impl Module {
     }
 }
 
-static INSTANCE_METHODS: LazyLock<HashMap<(Module, String), MethodSignature>> =
+static INSTANCE_METHODS: LazyLock<HashMap<(Module, EString), MethodSignature>> =
     LazyLock::new(|| {
         vec![
             (
@@ -601,6 +601,7 @@ static INSTANCE_METHODS: LazyLock<HashMap<(Module, String), MethodSignature>> =
             ),
         ]
         .into_iter()
+        .map(|((module, meth), sig)| ((module, EString::from(meth).asciified()), sig))
         .collect()
     });
 

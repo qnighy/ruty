@@ -1,4 +1,4 @@
-use std::collections::TryReserveError;
+use std::{collections::TryReserveError, fmt};
 
 use crate::encoding::{Chars, EStrMut, EStrRef, Encoding};
 
@@ -103,6 +103,24 @@ impl EString {
 
     pub fn starts_with_ruby_uppercase(&self) -> bool {
         self.as_estr().starts_with_ruby_uppercase()
+    }
+
+    pub fn asciify(&mut self) {
+        if self.as_estr().is_ascii() {
+            self.encoding = Encoding::US_ASCII;
+        }
+    }
+
+    pub fn asciified(self) -> Self {
+        let mut s = self;
+        s.asciify();
+        s
+    }
+}
+
+impl fmt::Debug for EString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        <EStrRef<'_> as fmt::Debug>::fmt(&self.as_estr(), f)
     }
 }
 

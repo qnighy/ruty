@@ -575,9 +575,9 @@ impl<'a> Lexer<'a> {
         Self { input, pos: 0 }
     }
 
-    // pub(super) fn input(&self) -> EStrRef<'a> {
-    //     self.input
-    // }
+    pub(super) fn input(&self) -> EStrRef<'a> {
+        self.input
+    }
 
     pub(super) fn bytes(&self) -> &'a [u8] {
         self.input.as_bytes()
