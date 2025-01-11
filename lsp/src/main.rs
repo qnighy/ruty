@@ -131,7 +131,7 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<(), an
                         let src = params.text_document.text.as_str();
                         let pos_index = PositionIndex::new(src.as_bytes());
                         let mut diag = Vec::new();
-                        let program = parse(&mut diag, EStrRef::from(src));
+                        let program = parse(&mut diag, EStrRef::from(src), &[]);
                         typecheck_program(&mut diag, &program);
                         let diag_lsp = diag
                             .iter()
@@ -191,7 +191,7 @@ fn main_loop(connection: Connection, params: serde_json::Value) -> Result<(), an
                         };
                         let pos_index = PositionIndex::new(src.as_bytes());
                         let mut diag = Vec::new();
-                        let expr = parse(&mut diag, EStrRef::from(src));
+                        let expr = parse(&mut diag, EStrRef::from(src), &[]);
                         typecheck_program(&mut diag, &expr);
                         let diag_lsp = diag
                             .iter()

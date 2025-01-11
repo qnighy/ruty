@@ -1,5 +1,7 @@
 mod lexer;
 
+use std::collections::HashMap;
+
 use crate::{
     ast::{
         CallExpr, CallStyle, CodeRange, ConstExpr, ConstReceiver, ErrorExpr, ErrorType,
@@ -14,15 +16,15 @@ use crate::{
 };
 use lexer::{Lexer, LexerState, StringDelimiter, Token, TokenKind};
 
-pub fn parse(diag: &mut Vec<Diagnostic>, input: EStrRef<'_>) -> Program {
+pub fn parse(diag: &mut Vec<Diagnostic>, input: EStrRef<'_>, locals: &[EString]) -> Program {
     let mut parser = Parser::new(input);
-    let program = parser.parse_whole_program(diag);
+    let program = parser.parse_whole_program(diag, locals);
     program
 }
 
-pub fn parse_expr(diag: &mut Vec<Diagnostic>, input: EStrRef<'_>) -> Expr {
+pub fn parse_expr(diag: &mut Vec<Diagnostic>, input: EStrRef<'_>, locals: &[EString]) -> Expr {
     let mut parser = Parser::new(input);
-    let expr = parser.parse_whole_expr(diag);
+    let expr = parser.parse_whole_expr(diag, locals);
     expr
 }
 
@@ -54,8 +56,13 @@ impl<'a> Parser<'a> {
         self.lexer.bytes()
     }
 
-    fn parse_whole_program(&mut self, diag: &mut Vec<Diagnostic>) -> Program {
-        let stmt_list = self.parse_stmt_list(diag);
+    fn parse_whole_program(&mut self, diag: &mut Vec<Diagnostic>, locals: &[EString]) -> Program {
+        let mut lv = LVCtx::new();
+        for local in locals {
+            lv.push(local.clone());
+        }
+        let lv_checkpoint = lv.checkpoint();
+        let stmt_list = self.parse_stmt_list(diag, &mut lv);
         let token = self.fill_token(diag, LexerState::End);
         match token.kind {
             TokenKind::EOF => {}
@@ -66,16 +73,18 @@ impl<'a> Parser<'a> {
                 });
             }
         }
+        let locals = lv.commit(lv_checkpoint);
         Program {
             range: CodeRange {
                 start: 0,
                 end: self.bytes().len(),
             },
+            locals,
             stmt_list,
         }
     }
 
-    fn parse_stmt_list(&mut self, diag: &mut Vec<Diagnostic>) -> StmtList {
+    fn parse_stmt_list(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> StmtList {
         let start_pos = self.lexer.pos();
         let mut semi_prefix = Vec::<Semicolon>::new();
         let mut stmts = Vec::<Stmt>::new();
@@ -108,7 +117,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 _ => {
-                    let expr = self.parse_expr_lv_cmd(diag);
+                    let expr = self.parse_expr_lv_cmd(diag, lv);
                     stmts.push(Stmt {
                         range: *expr.outer_range(),
                         expr,
@@ -138,8 +147,12 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_whole_expr(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
-        let expr = self.parse_expr_lv_cmd(diag);
+    fn parse_whole_expr(&mut self, diag: &mut Vec<Diagnostic>, locals: &[EString]) -> Expr {
+        let mut lv = LVCtx::new();
+        for local in locals {
+            lv.push(local.clone());
+        }
+        let expr = self.parse_expr_lv_cmd(diag, &mut lv);
         let token = self.fill_token(diag, LexerState::End);
         match token.kind {
             TokenKind::EOF => {}
@@ -153,11 +166,11 @@ impl<'a> Parser<'a> {
         expr
     }
 
-    fn parse_expr_lv_cmd(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
-        let lhs = self.parse_expr_lv_spelled_not(diag, PrecCtx::default());
+    fn parse_expr_lv_cmd(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> Expr {
+        let lhs = self.parse_expr_lv_spelled_not(diag, lv, PrecCtx::default());
         let token = self.fill_token(diag, LexerState::End);
         if is_cmdarg_begin(&token) {
-            let (args, args_range) = self.parse_cmd_args(diag);
+            let (args, args_range) = self.parse_cmd_args(diag, lv);
             let lhs = lhs.callify();
             if let ExprLike::ArglessCall {
                 range,
@@ -207,7 +220,12 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_expr_lv_spelled_not(&mut self, diag: &mut Vec<Diagnostic>, prec: PrecCtx) -> ExprLike {
+    fn parse_expr_lv_spelled_not(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        lv: &mut LVCtx,
+        prec: PrecCtx,
+    ) -> ExprLike {
         // TODO: expressions like `false | not(true)` should also be handled
         let token = self.fill_token(diag, LexerState::Begin);
         match token.kind {
@@ -218,7 +236,7 @@ impl<'a> Parser<'a> {
                 };
                 self.bump();
                 let inner = self
-                    .parse_expr_lv_assignment(diag, prec.with_invalid_command())
+                    .parse_expr_lv_assignment(diag, lv, prec.with_invalid_command())
                     .into_expr();
                 ExprLike::Expr(
                     CallExpr {
@@ -236,19 +254,27 @@ impl<'a> Parser<'a> {
                     .into(),
                 )
             }
-            _ => self.parse_expr_lv_assignment(diag, prec),
+            _ => self.parse_expr_lv_assignment(diag, lv, prec),
         }
     }
 
-    fn parse_expr_lv_assignment(&mut self, diag: &mut Vec<Diagnostic>, prec: PrecCtx) -> ExprLike {
-        let lhs = self.parse_expr_lv_eq(diag, prec);
+    fn parse_expr_lv_assignment(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        lv: &mut LVCtx,
+        prec: PrecCtx,
+    ) -> ExprLike {
+        let lhs = self.parse_expr_lv_eq(diag, lv, prec);
         let token = self.fill_token(diag, LexerState::End);
         match token.kind {
             TokenKind::Eq => {
                 self.bump();
-                let rhs = self.parse_expr_lv_assignment(diag, prec.with_invalid_command());
                 let lhs: WriteTarget = match lhs {
-                    ExprLike::Identifier { range, name } => LocalVariableWriteTarget {
+                    ExprLike::Identifier {
+                        range,
+                        has_local: _,
+                        name,
+                    } => LocalVariableWriteTarget {
                         range,
                         name,
                         type_annotation: None,
@@ -272,6 +298,15 @@ impl<'a> Parser<'a> {
                         .into()
                     }
                 };
+                match &lhs {
+                    WriteTarget::LocalVariable(lhs) => {
+                        if !lv.has(&lhs.name) {
+                            lv.push(lhs.name.clone());
+                        }
+                    }
+                    _ => {}
+                }
+                let rhs = self.parse_expr_lv_assignment(diag, lv, prec.with_invalid_command());
                 let rhs = rhs.into_expr();
                 let expr: Expr = WriteExpr {
                     range: *lhs.range() | *rhs.outer_range(),
@@ -287,8 +322,13 @@ impl<'a> Parser<'a> {
         lhs
     }
 
-    fn parse_expr_lv_eq(&mut self, diag: &mut Vec<Diagnostic>, prec: PrecCtx) -> ExprLike {
-        let mut lhs = self.parse_expr_lv_ineq(diag, prec);
+    fn parse_expr_lv_eq(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        lv: &mut LVCtx,
+        prec: PrecCtx,
+    ) -> ExprLike {
+        let mut lhs = self.parse_expr_lv_ineq(diag, lv, prec);
         let mut count = 0;
         loop {
             let token = self.fill_token(diag, LexerState::End);
@@ -315,7 +355,7 @@ impl<'a> Parser<'a> {
                     };
                     self.bump();
                     let rhs = self
-                        .parse_expr_lv_ineq(diag, prec.with_invalid_command())
+                        .parse_expr_lv_ineq(diag, lv, prec.with_invalid_command())
                         .into_expr();
                     let lhs_expr = lhs.into_expr();
                     lhs = ExprLike::Expr(
@@ -340,8 +380,13 @@ impl<'a> Parser<'a> {
         lhs
     }
 
-    fn parse_expr_lv_ineq(&mut self, diag: &mut Vec<Diagnostic>, prec: PrecCtx) -> ExprLike {
-        let mut lhs = self.parse_expr_lv_bitwise_or(diag, prec);
+    fn parse_expr_lv_ineq(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        lv: &mut LVCtx,
+        prec: PrecCtx,
+    ) -> ExprLike {
+        let mut lhs = self.parse_expr_lv_bitwise_or(diag, lv, prec);
         loop {
             let token = self.fill_token(diag, LexerState::End);
             match token.kind {
@@ -355,7 +400,7 @@ impl<'a> Parser<'a> {
                     };
                     self.bump();
                     let rhs = self
-                        .parse_expr_lv_bitwise_or(diag, prec.with_invalid_command())
+                        .parse_expr_lv_bitwise_or(diag, lv, prec.with_invalid_command())
                         .into_expr();
                     let lhs_expr = lhs.into_expr();
                     lhs = ExprLike::Expr(
@@ -380,8 +425,13 @@ impl<'a> Parser<'a> {
         lhs
     }
 
-    fn parse_expr_lv_bitwise_or(&mut self, diag: &mut Vec<Diagnostic>, prec: PrecCtx) -> ExprLike {
-        let mut lhs = self.parse_expr_lv_bitwise_and(diag, prec);
+    fn parse_expr_lv_bitwise_or(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        lv: &mut LVCtx,
+        prec: PrecCtx,
+    ) -> ExprLike {
+        let mut lhs = self.parse_expr_lv_bitwise_and(diag, lv, prec);
         loop {
             let token = self.fill_token(diag, LexerState::End);
             match token.kind {
@@ -396,7 +446,7 @@ impl<'a> Parser<'a> {
                         self.fill_token(diag, LexerState::BeginLabelable);
                     }
                     let rhs = self
-                        .parse_expr_lv_bitwise_and(diag, prec.with_invalid_command())
+                        .parse_expr_lv_bitwise_and(diag, lv, prec.with_invalid_command())
                         .into_expr();
                     let lhs_expr = lhs.into_expr();
                     lhs = ExprLike::Expr(
@@ -421,8 +471,13 @@ impl<'a> Parser<'a> {
         lhs
     }
 
-    fn parse_expr_lv_bitwise_and(&mut self, diag: &mut Vec<Diagnostic>, prec: PrecCtx) -> ExprLike {
-        let mut lhs = self.parse_expr_lv_shift(diag, prec);
+    fn parse_expr_lv_bitwise_and(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        lv: &mut LVCtx,
+        prec: PrecCtx,
+    ) -> ExprLike {
+        let mut lhs = self.parse_expr_lv_shift(diag, lv, prec);
         loop {
             let token = self.fill_token(diag, LexerState::End);
             match token.kind {
@@ -433,7 +488,7 @@ impl<'a> Parser<'a> {
                     };
                     self.bump();
                     let rhs = self
-                        .parse_expr_lv_shift(diag, prec.with_invalid_command())
+                        .parse_expr_lv_shift(diag, lv, prec.with_invalid_command())
                         .into_expr();
                     let lhs_expr = lhs.into_expr();
                     lhs = ExprLike::Expr(
@@ -458,8 +513,13 @@ impl<'a> Parser<'a> {
         lhs
     }
 
-    fn parse_expr_lv_shift(&mut self, diag: &mut Vec<Diagnostic>, prec: PrecCtx) -> ExprLike {
-        let mut lhs = self.parse_expr_lv_additive(diag, prec);
+    fn parse_expr_lv_shift(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        lv: &mut LVCtx,
+        prec: PrecCtx,
+    ) -> ExprLike {
+        let mut lhs = self.parse_expr_lv_additive(diag, lv, prec);
         loop {
             let token = self.fill_token(diag, LexerState::End);
             match token.kind {
@@ -471,7 +531,7 @@ impl<'a> Parser<'a> {
                     };
                     self.bump();
                     let rhs = self
-                        .parse_expr_lv_additive(diag, prec.with_invalid_command())
+                        .parse_expr_lv_additive(diag, lv, prec.with_invalid_command())
                         .into_expr();
                     let lhs_expr = lhs.into_expr();
                     lhs = ExprLike::Expr(
@@ -496,8 +556,13 @@ impl<'a> Parser<'a> {
         lhs
     }
 
-    fn parse_expr_lv_additive(&mut self, diag: &mut Vec<Diagnostic>, prec: PrecCtx) -> ExprLike {
-        let mut lhs = self.parse_expr_lv_multiplicative(diag, prec);
+    fn parse_expr_lv_additive(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        lv: &mut LVCtx,
+        prec: PrecCtx,
+    ) -> ExprLike {
+        let mut lhs = self.parse_expr_lv_multiplicative(diag, lv, prec);
         loop {
             let token = self.fill_token(diag, LexerState::End);
             match token.kind {
@@ -509,7 +574,7 @@ impl<'a> Parser<'a> {
                     };
                     self.bump();
                     let rhs = self
-                        .parse_expr_lv_multiplicative(diag, prec.with_invalid_command())
+                        .parse_expr_lv_multiplicative(diag, lv, prec.with_invalid_command())
                         .into_expr();
                     let lhs_expr = lhs.into_expr();
                     lhs = ExprLike::Expr(
@@ -537,9 +602,10 @@ impl<'a> Parser<'a> {
     fn parse_expr_lv_multiplicative(
         &mut self,
         diag: &mut Vec<Diagnostic>,
+        lv: &mut LVCtx,
         prec: PrecCtx,
     ) -> ExprLike {
-        let mut lhs = self.parse_expr_lv_exponential(diag, prec);
+        let mut lhs = self.parse_expr_lv_exponential(diag, lv, prec);
         loop {
             let token = self.fill_token(diag, LexerState::End);
             match token.kind {
@@ -552,7 +618,7 @@ impl<'a> Parser<'a> {
                     };
                     self.bump();
                     let rhs = self
-                        .parse_expr_lv_exponential(diag, prec.with_invalid_command())
+                        .parse_expr_lv_exponential(diag, lv, prec.with_invalid_command())
                         .into_expr();
                     let lhs_expr = lhs.into_expr();
                     lhs = ExprLike::Expr(
@@ -577,8 +643,13 @@ impl<'a> Parser<'a> {
         lhs
     }
 
-    fn parse_expr_lv_exponential(&mut self, diag: &mut Vec<Diagnostic>, prec: PrecCtx) -> ExprLike {
-        let lhs = self.parse_expr_lv_unary(diag, prec);
+    fn parse_expr_lv_exponential(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        lv: &mut LVCtx,
+        prec: PrecCtx,
+    ) -> ExprLike {
+        let lhs = self.parse_expr_lv_unary(diag, lv, prec);
         let token = self.fill_token(diag, LexerState::End);
         match token.kind {
             TokenKind::StarStar => {
@@ -588,7 +659,7 @@ impl<'a> Parser<'a> {
                 };
                 self.bump();
                 let rhs = self
-                    .parse_expr_lv_exponential(diag, prec.with_invalid_command())
+                    .parse_expr_lv_exponential(diag, lv, prec.with_invalid_command())
                     .into_expr();
                 match self.reparse_minus(lhs.into_expr()) {
                     Ok((minus_range, lhs)) => ExprLike::Expr(
@@ -655,7 +726,12 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_expr_lv_unary(&mut self, diag: &mut Vec<Diagnostic>, prec: PrecCtx) -> ExprLike {
+    fn parse_expr_lv_unary(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        lv: &mut LVCtx,
+        prec: PrecCtx,
+    ) -> ExprLike {
         let token = self.fill_token(diag, LexerState::Begin);
         match token.kind {
             TokenKind::Plus
@@ -673,7 +749,7 @@ impl<'a> Parser<'a> {
                 };
                 self.bump();
                 let inner = self
-                    .parse_expr_lv_unary(diag, prec.with_invalid_command())
+                    .parse_expr_lv_unary(diag, lv, prec.with_invalid_command())
                     .into_expr();
                 ExprLike::Expr(
                     CallExpr {
@@ -691,16 +767,17 @@ impl<'a> Parser<'a> {
                     .into(),
                 )
             }
-            _ => self.parse_expr_lv_call_like_absorb_cmds(diag, prec),
+            _ => self.parse_expr_lv_call_like_absorb_cmds(diag, lv, prec),
         }
     }
 
     fn parse_expr_lv_call_like_absorb_cmds(
         &mut self,
         diag: &mut Vec<Diagnostic>,
+        lv: &mut LVCtx,
         prec: PrecCtx,
     ) -> ExprLike {
-        let lhs = self.parse_expr_lv_call_like(diag);
+        let lhs = self.parse_expr_lv_call_like(diag, lv);
         if prec.invalid_command {
             let token = self.fill_token(diag, LexerState::End);
             if is_cmdarg_begin(&token) {
@@ -708,7 +785,7 @@ impl<'a> Parser<'a> {
                     range: token.range,
                     message: format!("non-parenthesized calls are not allowed in this context"),
                 });
-                let (args, args_range) = self.parse_cmd_args(diag);
+                let (args, args_range) = self.parse_cmd_args(diag, lv);
                 let lhs_expr = lhs.into_expr();
                 return ExprLike::Expr(
                     CallExpr {
@@ -730,13 +807,13 @@ impl<'a> Parser<'a> {
         lhs
     }
 
-    fn parse_expr_lv_call_like(&mut self, diag: &mut Vec<Diagnostic>) -> ExprLike {
-        let mut lhs = self.parse_expr_lv_primary(diag);
+    fn parse_expr_lv_call_like(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> ExprLike {
+        let mut lhs = self.parse_expr_lv_primary(diag, lv);
         loop {
             let token = self.fill_token(diag, LexerState::End);
             match token.kind {
                 TokenKind::LParen => {
-                    let (args, args_range) = self.parse_paren_args(diag);
+                    let (args, args_range) = self.parse_paren_args(diag, lv);
                     lhs = lhs.callify();
                     match lhs {
                         ExprLike::ArglessCall {
@@ -796,7 +873,7 @@ impl<'a> Parser<'a> {
                     match token.kind {
                         TokenKind::LParen => {
                             // expr.(args)
-                            let (args, args_range) = self.parse_paren_args(diag);
+                            let (args, args_range) = self.parse_paren_args(diag, lv);
                             let lhs_expr = lhs.into_expr();
                             lhs = ExprLike::BlocklessCall {
                                 range: *lhs_expr.outer_range() | args_range,
@@ -857,6 +934,9 @@ impl<'a> Parser<'a> {
                 TokenKind::At => {
                     self.bump();
                     let ty = self.parse_type(diag);
+                    if let ExprLike::Identifier { has_local, .. } = &mut lhs {
+                        *has_local = true;
+                    }
                     let lhs_expr = lhs.into_expr();
                     lhs = ExprLike::Expr(match lhs_expr {
                         Expr::LocalVariable(mut e) => {
@@ -884,7 +964,7 @@ impl<'a> Parser<'a> {
         lhs
     }
 
-    fn parse_expr_lv_primary(&mut self, diag: &mut Vec<Diagnostic>) -> ExprLike {
+    fn parse_expr_lv_primary(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> ExprLike {
         let token = self.fill_token(diag, LexerState::Begin);
         match token.kind {
             TokenKind::KeywordNil => {
@@ -920,9 +1000,12 @@ impl<'a> Parser<'a> {
             TokenKind::Identifier => {
                 self.bump();
                 let s = self.select(token.range);
+                let name = s.to_estring().asciified();
+                let has_local = lv.has(&name);
                 ExprLike::Identifier {
                     range: token.range,
-                    name: s.to_estring().asciified(),
+                    has_local,
+                    name,
                 }
             }
             TokenKind::Const => {
@@ -1006,7 +1089,7 @@ impl<'a> Parser<'a> {
                         TokenKind::StringInterpolationBegin => {
                             self.bump();
                             let open_range = token.range;
-                            let stmt_list = self.parse_stmt_list(diag);
+                            let stmt_list = self.parse_stmt_list(diag, lv);
                             let token = self.fill_token(diag, LexerState::End);
                             if let TokenKind::RBrace = token.kind {
                                 self.bump();
@@ -1064,7 +1147,7 @@ impl<'a> Parser<'a> {
                 let open_range = token.range;
                 self.bump();
                 self.fill_token(diag, LexerState::BeginLabelable);
-                let stmt_list = self.parse_stmt_list(diag);
+                let stmt_list = self.parse_stmt_list(diag, lv);
                 let close_range = loop {
                     let token = self.fill_token(diag, LexerState::End);
                     match token.kind {
@@ -1131,8 +1214,12 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_cmd_args(&mut self, diag: &mut Vec<Diagnostic>) -> (Vec<Expr>, CodeRange) {
-        let first_arg = self.parse_expr_lv_cmd(diag);
+    fn parse_cmd_args(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        lv: &mut LVCtx,
+    ) -> (Vec<Expr>, CodeRange) {
+        let first_arg = self.parse_expr_lv_cmd(diag, lv);
         let mut args_range = *first_arg.outer_range();
         let mut args = vec![first_arg];
         loop {
@@ -1151,7 +1238,7 @@ impl<'a> Parser<'a> {
                 TokenKind::Comma => {
                     self.bump();
                     self.fill_token(diag, LexerState::BeginLabelable);
-                    let arg = self.parse_expr_lv_cmd(diag);
+                    let arg = self.parse_expr_lv_cmd(diag, lv);
                     args_range |= *arg.outer_range();
                     args.push(arg);
                 }
@@ -1167,7 +1254,11 @@ impl<'a> Parser<'a> {
         (args, args_range)
     }
 
-    fn parse_paren_args(&mut self, diag: &mut Vec<Diagnostic>) -> (Vec<Expr>, CodeRange) {
+    fn parse_paren_args(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        lv: &mut LVCtx,
+    ) -> (Vec<Expr>, CodeRange) {
         // Bump the first `(`
         let token = self.next_token.unwrap();
         self.bump();
@@ -1190,7 +1281,7 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 _ => {
-                    let arg = self.parse_expr_lv_cmd(diag);
+                    let arg = self.parse_expr_lv_cmd(diag, lv);
                     args.push(arg);
                     let token = self.fill_token(diag, LexerState::End);
                     match token.kind {
@@ -1319,6 +1410,13 @@ enum ExprLike {
     /// - `foo { |args| ... }` block call
     Identifier {
         range: CodeRange,
+        /// Is there already a local variable with the same name in the scope?
+        /// Used to determine whether to extend as a local variable or a method call
+        /// when interpreting it as an right-hand side expression.
+        ///
+        /// If the expression is going to be used as a left-hand side expression,
+        /// it is always interpreted as a local variable regardless of this flag.
+        has_local: bool,
         name: EString,
     },
     /// `Foo` or `obj::Foo`, to be extended as:
@@ -1373,11 +1471,37 @@ impl ExprLike {
     fn into_expr(self) -> Expr {
         match self {
             ExprLike::Expr(expr) => expr,
-            ExprLike::Identifier { range, name } => LocalVariableExpr {
+            ExprLike::Identifier {
+                range,
+                has_local: true,
+                name,
+            } => LocalVariableExpr {
                 range,
                 parens: Vec::new(),
                 name,
                 type_annotation: None,
+            }
+            .into(),
+            ExprLike::Identifier {
+                range,
+                has_local: false,
+                name,
+            } => CallExpr {
+                range,
+                parens: Vec::new(),
+                style: CallStyle::ImplicitSelf,
+                private: true,
+                optional: false,
+                receiver: Box::new(
+                    SelfExpr {
+                        range: DUMMY_RANGE,
+                        parens: Vec::new(),
+                    }
+                    .into(),
+                ),
+                method: name,
+                method_range: range,
+                args: vec![],
             }
             .into(),
             ExprLike::Const {
@@ -1438,7 +1562,11 @@ impl ExprLike {
 
     fn callify(self) -> ExprLike {
         match self {
-            ExprLike::Identifier { range, name } => ExprLike::ArglessCall {
+            ExprLike::Identifier {
+                range,
+                has_local: _,
+                name,
+            } => ExprLike::ArglessCall {
                 range,
                 style: CallStyle::ImplicitSelf,
                 private: true,
@@ -1489,6 +1617,66 @@ impl ExprLike {
             },
             _ => self,
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LVCtx {
+    lvars: Vec<(EString, Option<usize>)>,
+    reverse: HashMap<EString, usize>,
+    fence: usize,
+}
+
+impl LVCtx {
+    fn new() -> Self {
+        Self {
+            lvars: Vec::new(),
+            reverse: HashMap::new(),
+            fence: 0,
+        }
+    }
+
+    fn push(&mut self, name: EString) {
+        let prev = self.reverse.get(&name).copied();
+        self.reverse.insert(name.clone(), self.lvars.len());
+        self.lvars.push((name, prev));
+    }
+
+    fn checkpoint(&self) -> usize {
+        self.lvars.len()
+    }
+
+    fn commit(&mut self, checkpoint: usize) -> Vec<EString> {
+        let mut names = Vec::with_capacity(self.lvars.len().saturating_sub(checkpoint));
+        while self.lvars.len() > checkpoint {
+            let (name, prev) = self.lvars.pop().unwrap();
+            if let Some(prev) = prev {
+                *self.reverse.get_mut(&name).unwrap() = prev;
+            } else {
+                self.reverse.remove(&name);
+            }
+            names.push(name);
+        }
+        names.reverse();
+        names
+    }
+
+    fn has(&self, name: &EString) -> bool {
+        if let Some(&idx) = self.reverse.get(name) {
+            idx >= self.fence
+        } else {
+            false
+        }
+    }
+
+    fn fence(&mut self) -> usize {
+        let prev_fence = self.fence;
+        self.fence = prev_fence;
+        prev_fence
+    }
+
+    fn rollback_fence(&mut self, prev_fence: usize) {
+        self.fence = prev_fence;
     }
 }
 
@@ -1639,15 +1827,17 @@ mod tests {
 
     use super::*;
 
-    fn p_program(input: EStrRef<'_>) -> (Program, Vec<Diagnostic>) {
+    fn p_program(input: EStrRef<'_>, locals: &[&str]) -> (Program, Vec<Diagnostic>) {
+        let locals = locals.iter().map(|&s| symbol(s)).collect::<Vec<_>>();
         let mut diag = Vec::new();
-        let program = parse(&mut diag, input);
+        let program = parse(&mut diag, input, &locals);
         (program, diag)
     }
 
-    fn p_expr(input: EStrRef<'_>) -> (Expr, Vec<Diagnostic>) {
+    fn p_expr(input: EStrRef<'_>, locals: &[&str]) -> (Expr, Vec<Diagnostic>) {
+        let locals = locals.iter().map(|&s| symbol(s)).collect::<Vec<_>>();
         let mut diag = Vec::new();
-        let expr = parse_expr(&mut diag, input);
+        let expr = parse_expr(&mut diag, input, &locals);
         (expr, diag)
     }
 
@@ -1661,10 +1851,11 @@ mod tests {
     fn test_parse_toplevel_stmts() {
         let src = EStrRef::from("x; y\nz");
         assert_eq!(
-            p_program(src),
+            p_program(src, &["x", "y", "z"]),
             (
                 Program {
                     range: pos_in(src, b"x; y\nz", 0),
+                    locals: vec![],
                     stmt_list: StmtList {
                         range: pos_in(src, b"x; y\nz", 0),
                         semi_prefix: vec![],
@@ -1721,7 +1912,7 @@ mod tests {
     fn test_parse_parenthesized_expr() {
         let src = EStrRef::from("(x)");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &["x"]),
             (
                 LocalVariableExpr {
                     range: pos_in(src, b"x", 0),
@@ -1739,7 +1930,7 @@ mod tests {
         );
         let src = EStrRef::from("(\nx\n)");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &["x"]),
             (
                 LocalVariableExpr {
                     range: pos_in(src, b"x", 0),
@@ -1761,7 +1952,7 @@ mod tests {
     fn test_parse_parenthesized_seq_expr() {
         let src = EStrRef::from("(x;)");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &["x"]),
             (
                 SeqExpr {
                     range: pos_in(src, b"(x;)", 0),
@@ -1796,7 +1987,7 @@ mod tests {
         );
         let src = EStrRef::from("(;x)");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &["x"]),
             (
                 SeqExpr {
                     range: pos_in(src, b"(;x)", 0),
@@ -1831,7 +2022,7 @@ mod tests {
         );
         let src = EStrRef::from("(x\ny)");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &["x", "y"]),
             (
                 SeqExpr {
                     range: pos_in(src, b"(x\ny)", 0),
@@ -1883,7 +2074,7 @@ mod tests {
     fn test_parse_nil_expr() {
         let src = EStrRef::from("nil");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &[]),
             (
                 NilExpr {
                     range: pos_in(src, b"nil", 0),
@@ -1899,7 +2090,7 @@ mod tests {
     fn test_parse_false_true_expr() {
         let src = EStrRef::from("false");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &[]),
             (
                 FalseExpr {
                     range: pos_in(src, b"false", 0),
@@ -1911,7 +2102,7 @@ mod tests {
         );
         let src = EStrRef::from("true");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &[]),
             (
                 TrueExpr {
                     range: pos_in(src, b"true", 0),
@@ -1927,7 +2118,7 @@ mod tests {
     fn test_parse_variable_expr() {
         let src = EStrRef::from("x");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &["x"]),
             (
                 LocalVariableExpr {
                     range: pos_in(src, b"x", 0),
@@ -1941,7 +2132,7 @@ mod tests {
         );
         let src = EStrRef::from("x @ Integer");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &[]),
             (
                 LocalVariableExpr {
                     range: pos_in(src, b"x @ Integer", 0),
@@ -1965,7 +2156,7 @@ mod tests {
     fn test_parse_integer_expr() {
         let src = EStrRef::from("42");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &[]),
             (
                 IntegerExpr {
                     range: pos_in(src, b"42", 0),
@@ -1982,7 +2173,7 @@ mod tests {
     fn test_parse_string_expr() {
         let src = EStrRef::from("'foo'");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &[]),
             (
                 StringExpr {
                     range: pos_in(src, b"'foo'", 0),
@@ -2000,7 +2191,7 @@ mod tests {
         );
         let src = EStrRef::from("\"foo\"");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &[]),
             (
                 StringExpr {
                     range: pos_in(src, b"\"foo\"", 0),
@@ -2018,7 +2209,7 @@ mod tests {
         );
         let src = EStrRef::from("\"foo #{bar} baz\"");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &["bar"]),
             (
                 StringExpr {
                     range: pos_in(src, b"\"foo #{bar} baz\"", 0),
@@ -2066,7 +2257,7 @@ mod tests {
     fn test_parse_regexp_expr() {
         let src = EStrRef::from("/foo/");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &[]),
             (
                 RegexpExpr {
                     range: pos_in(src, b"/foo/", 0),
@@ -2088,7 +2279,7 @@ mod tests {
     fn test_parse_xstring_expr() {
         let src = EStrRef::from("`foo`");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &[]),
             (
                 XStringExpr {
                     range: pos_in(src, b"`foo`", 0),
@@ -2110,7 +2301,7 @@ mod tests {
     fn test_func_call() {
         let src = EStrRef::from("foo()");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &[]),
             (
                 CallExpr {
                     range: pos_in(src, b"foo()", 0),
@@ -2139,7 +2330,7 @@ mod tests {
     fn test_cmd_func_call() {
         let src = EStrRef::from("foo 1, 2");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &[]),
             (
                 CallExpr {
                     range: pos_in(src, b"foo 1, 2", 0),
@@ -2181,7 +2372,7 @@ mod tests {
     fn test_method_call() {
         let src = EStrRef::from("x.foo()");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &["x"]),
             (
                 CallExpr {
                     range: pos_in(src, b"x.foo()", 0),
@@ -2208,7 +2399,7 @@ mod tests {
         );
         let src = EStrRef::from("x.foo");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &["x"]),
             (
                 CallExpr {
                     range: pos_in(src, b"x.foo", 0),
@@ -2239,7 +2430,7 @@ mod tests {
     fn test_cmd_method_call() {
         let src = EStrRef::from("x.foo 1, 2");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &["x"]),
             (
                 CallExpr {
                     range: pos_in(src, b"x.foo 1, 2", 0),
@@ -2279,7 +2470,7 @@ mod tests {
         );
         let src = EStrRef::from("x.foo");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &["x"]),
             (
                 CallExpr {
                     range: pos_in(src, b"x.foo", 0),
@@ -2310,7 +2501,7 @@ mod tests {
     fn test_parse_assignment_expr() {
         let src = EStrRef::from("x = 42");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &[]),
             (
                 WriteExpr {
                     range: pos_in(src, b"x = 42", 0),
@@ -2338,7 +2529,7 @@ mod tests {
         );
         let src = EStrRef::from("x @ Integer = 42");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &[]),
             (
                 WriteExpr {
                     range: pos_in(src, b"x @ Integer = 42", 0),
@@ -2376,7 +2567,7 @@ mod tests {
     fn test_parse_multiplicative_operators() {
         let src = EStrRef::from("x * y / z % w");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &["x", "y", "z", "w"]),
             (
                 CallExpr {
                     range: pos_in(src, b"x * y / z % w", 0),
@@ -2448,7 +2639,7 @@ mod tests {
 
         let src = EStrRef::from("x ** y * z ** w");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &["x", "y", "z", "w"]),
             (
                 CallExpr {
                     range: pos_in(src, b"x ** y * z ** w", 0),
@@ -2523,7 +2714,7 @@ mod tests {
     fn test_parse_exponential_operator() {
         let src = EStrRef::from("x ** y ** z");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &["x", "y", "z"]),
             (
                 CallExpr {
                     range: pos_in(src, b"x ** y ** z", 0),
@@ -2575,7 +2766,7 @@ mod tests {
         );
         let src = EStrRef::from("+x ** +y");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &["x", "y"]),
             (
                 CallExpr {
                     range: pos_in(src, b"+x ** +y", 0),
@@ -2638,7 +2829,7 @@ mod tests {
     fn test_reparse_minus_exp() {
         let src = EStrRef::from("-x ** -y ** z");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &["x", "y", "z"]),
             (
                 CallExpr {
                     range: pos_in(src, b"-x ** -y ** z", 0),
@@ -2720,7 +2911,7 @@ mod tests {
     fn test_parse_unary_operators() {
         let src = EStrRef::from("+x");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &["x"]),
             (
                 CallExpr {
                     range: pos_in(src, b"+x", 0),
@@ -2748,7 +2939,7 @@ mod tests {
 
         let src = EStrRef::from("-x");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &["x"]),
             (
                 CallExpr {
                     range: pos_in(src, b"-x", 0),
@@ -2776,7 +2967,7 @@ mod tests {
 
         let src = EStrRef::from("!x");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &["x"]),
             (
                 CallExpr {
                     range: pos_in(src, b"!x", 0),
@@ -2804,7 +2995,7 @@ mod tests {
 
         let src = EStrRef::from("~x");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &["x"]),
             (
                 CallExpr {
                     range: pos_in(src, b"~x", 0),
@@ -2832,7 +3023,7 @@ mod tests {
 
         let src = EStrRef::from("!-+~0");
         assert_eq!(
-            p_expr(src),
+            p_expr(src, &[]),
             (
                 CallExpr {
                     range: pos_in(src, b"!-+~0", 0),

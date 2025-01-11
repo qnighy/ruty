@@ -113,7 +113,7 @@ mod tests {
 
     fn et(src: &str) -> String {
         let mut diag = Vec::new();
-        let program = crate::parse(&mut diag, EStrRef::from(src));
+        let program = crate::parse(&mut diag, EStrRef::from(src), &[]);
         assert_eq!(diag, vec![]);
         let erased = erase_type(src.as_bytes(), &program);
         String::from_utf8(erased).unwrap()

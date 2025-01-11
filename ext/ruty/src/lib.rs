@@ -18,7 +18,7 @@ fn rb_erase_type(ruby: &Ruby, src: RString) -> RbResult<RString> {
     let enc = find_encoding(ruby, src.enc_get())?;
     let mut diag = Vec::new();
     // TODO: handle diagnostics
-    let program = ruty::parse(&mut diag, EStrRef::from_bytes(slice, enc));
+    let program = ruty::parse(&mut diag, EStrRef::from_bytes(slice, enc), &[]);
     let erased = ruty::erase_type(slice, &program);
     Ok(ruby.str_from_slice(&erased))
 }

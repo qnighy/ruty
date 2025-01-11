@@ -1,4 +1,7 @@
-use crate::ast::{CodeRange, Expr};
+use crate::{
+    ast::{CodeRange, Expr},
+    EString,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Stmt {
@@ -34,5 +37,6 @@ pub enum SemicolonKind {
 pub struct Program {
     pub range: CodeRange,
 
+    pub locals: Vec<EString>,
     pub stmt_list: StmtList,
 }
