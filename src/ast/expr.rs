@@ -14,6 +14,7 @@ pub enum Expr {
     Regexp(RegexpExpr),
     XString(XStringExpr),
     LocalVariable(LocalVariableExpr),
+    Const(ConstExpr),
     Self_(SelfExpr),
     SourceEncoding(SourceEncodingExpr),
     SourceFile(SourceFileExpr),
@@ -33,6 +34,7 @@ impl_from!(
     (Expr, RegexpExpr, Expr::Regexp),
     (Expr, XStringExpr, Expr::XString),
     (Expr, LocalVariableExpr, Expr::LocalVariable),
+    (Expr, ConstExpr, Expr::Const),
     (Expr, SelfExpr, Expr::Self_),
     (Expr, SourceEncodingExpr, Expr::SourceEncoding),
     (Expr, SourceFileExpr, Expr::SourceFile),
@@ -52,6 +54,7 @@ impl_delegators!(
         Regexp(RegexpExpr),
         XString(XStringExpr),
         LocalVariable(LocalVariableExpr),
+        Const(ConstExpr),
         Self_(SelfExpr),
         SourceEncoding(SourceEncodingExpr),
         SourceFile(SourceFileExpr),
@@ -184,6 +187,22 @@ pub struct LocalVariableExpr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ConstExpr {
+    pub range: CodeRange,
+    pub parens: Vec<Paren>,
+
+    pub receiver: ConstReceiver,
+    pub name: EString,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ConstReceiver {
+    None,
+    Object,
+    Expr(Box<Expr>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SelfExpr {
     pub range: CodeRange,
     pub parens: Vec<Paren>,
@@ -214,6 +233,7 @@ pub struct CallExpr {
 
     pub style: CallStyle,
     pub private: bool,
+    pub optional: bool,
     pub receiver: Box<Expr>,
     pub method: EString,
     pub method_range: CodeRange,

@@ -2,12 +2,12 @@ mod lexer;
 
 use crate::{
     ast::{
-        CallExpr, CallStyle, CodeRange, ErrorExpr, ErrorType, ErrorWriteTarget, Expr, FalseExpr,
-        FalseType, IntegerExpr, IntegerType, InterpolationContent, LocalVariableExpr,
-        LocalVariableWriteTarget, NilExpr, NilType, Paren, Program, RegexpExpr, RegexpType,
-        SelfExpr, Semicolon, SemicolonKind, SeqExpr, SeqParen, SeqParenKind, Stmt, StmtList,
-        StringContent, StringExpr, StringType, TextContent, TrueExpr, TrueType, Type,
-        TypeAnnotation, WriteExpr, WriteTarget, XStringExpr, DUMMY_RANGE,
+        CallExpr, CallStyle, CodeRange, ConstExpr, ConstReceiver, ErrorExpr, ErrorType,
+        ErrorWriteTarget, Expr, FalseExpr, FalseType, IntegerExpr, IntegerType,
+        InterpolationContent, LocalVariableExpr, LocalVariableWriteTarget, NilExpr, NilType, Paren,
+        Program, RegexpExpr, RegexpType, SelfExpr, Semicolon, SemicolonKind, SeqExpr, SeqParen,
+        SeqParenKind, Stmt, StmtList, StringContent, StringExpr, StringType, TextContent, TrueExpr,
+        TrueType, Type, TypeAnnotation, WriteExpr, WriteTarget, XStringExpr, DUMMY_RANGE,
     },
     encoding::EStrRef,
     Diagnostic, EString,
@@ -170,6 +170,7 @@ impl<'a> Parser<'a> {
 
                     style: CallStyle::SpelloutUnOp,
                     private: false,
+                    optional: false,
                     receiver: Box::new(expr),
                     method: symbol(meth),
                     method_range: token.range,
@@ -254,6 +255,7 @@ impl<'a> Parser<'a> {
 
                         style: CallStyle::BinOp,
                         private: false,
+                        optional: false,
                         receiver: Box::new(expr),
                         method: symbol(meth),
                         method_range: token.range,
@@ -288,6 +290,7 @@ impl<'a> Parser<'a> {
 
                         style: CallStyle::BinOp,
                         private: false,
+                        optional: false,
                         receiver: Box::new(expr),
                         method: symbol(meth),
                         method_range: token.range,
@@ -323,6 +326,7 @@ impl<'a> Parser<'a> {
 
                         style: CallStyle::BinOp,
                         private: false,
+                        optional: false,
                         receiver: Box::new(expr),
                         method: symbol(meth),
                         method_range: token.range,
@@ -354,6 +358,7 @@ impl<'a> Parser<'a> {
 
                         style: CallStyle::BinOp,
                         private: false,
+                        optional: false,
                         receiver: Box::new(expr),
                         method: symbol(meth),
                         method_range: token.range,
@@ -386,6 +391,7 @@ impl<'a> Parser<'a> {
 
                         style: CallStyle::BinOp,
                         private: false,
+                        optional: false,
                         receiver: Box::new(expr),
                         method: symbol(meth),
                         method_range: token.range,
@@ -418,6 +424,7 @@ impl<'a> Parser<'a> {
 
                         style: CallStyle::BinOp,
                         private: false,
+                        optional: false,
                         receiver: Box::new(expr),
                         method: symbol(meth),
                         method_range: token.range,
@@ -451,6 +458,7 @@ impl<'a> Parser<'a> {
 
                         style: CallStyle::BinOp,
                         private: false,
+                        optional: false,
                         receiver: Box::new(expr),
                         method: symbol(meth),
                         method_range: token.range,
@@ -482,6 +490,7 @@ impl<'a> Parser<'a> {
 
                         style: CallStyle::UnOp,
                         private: false,
+                        optional: false,
                         receiver: Box::new(
                             CallExpr {
                                 range: *lhs.outer_range() | *rhs.outer_range(),
@@ -489,6 +498,7 @@ impl<'a> Parser<'a> {
 
                                 style: CallStyle::BinOp,
                                 private: false,
+                                optional: false,
                                 receiver: Box::new(lhs),
                                 method: symbol(meth),
                                 method_range: token.range,
@@ -507,6 +517,7 @@ impl<'a> Parser<'a> {
 
                         style: CallStyle::BinOp,
                         private: false,
+                        optional: false,
                         receiver: Box::new(lhs),
                         method: symbol(meth),
                         method_range: token.range,
@@ -557,6 +568,7 @@ impl<'a> Parser<'a> {
 
                     style: CallStyle::UnOp,
                     private: false,
+                    optional: false,
                     receiver: Box::new(expr),
                     method: symbol(meth),
                     method_range: token.range,
@@ -576,13 +588,12 @@ impl<'a> Parser<'a> {
                 TokenKind::LParen => {
                     let (args, args_range) = self.parse_paren_args(diag);
                     match expr {
-                        Expr::LocalVariable(callee) if callee.parens.is_empty() => {
-                            expr = CallExpr {
-                                range: callee.range | args_range,
-                                parens: Vec::new(),
-
+                        ExprLike::Identifier { range, name } => {
+                            expr = ExprLike::BlocklessCall {
+                                range: range | args_range,
                                 style: CallStyle::ImplicitSelf,
                                 private: true,
+                                optional: false,
                                 receiver: Box::new(
                                     SelfExpr {
                                         range: DUMMY_RANGE,
@@ -590,116 +601,131 @@ impl<'a> Parser<'a> {
                                     }
                                     .into(),
                                 ),
-                                method: callee.name,
-                                method_range: callee.range,
+                                method: name,
+                                method_range: range,
                                 args,
-                            }
-                            .into();
+                            };
                         }
-                        Expr::Call(callee)
-                            if callee.parens.is_empty()
-                                && matches!(
-                                    callee.style,
-                                    CallStyle::ImplicitSelf | CallStyle::Dot
-                                )
-                                && callee.args.is_empty() =>
-                        {
-                            expr = CallExpr {
-                                range: callee.range | args_range,
-                                parens: Vec::new(),
-
-                                style: callee.style,
-                                private: callee.private,
-                                receiver: callee.receiver,
-                                method: callee.method,
-                                method_range: callee.method_range,
+                        ExprLike::ArglessCall {
+                            range,
+                            style,
+                            private,
+                            optional,
+                            receiver,
+                            method,
+                            method_range,
+                        } => {
+                            expr = ExprLike::BlocklessCall {
+                                range: range | args_range,
+                                style,
+                                private,
+                                optional,
+                                receiver,
+                                method,
+                                method_range,
                                 args,
-                            }
-                            .into();
+                            };
                         }
                         _ => {
                             diag.push(Diagnostic {
                                 range: token.range,
                                 message: format!("Need a dot to call an expression"),
                             });
-                            expr = CallExpr {
-                                range: *expr.outer_range() | args_range,
-                                parens: Vec::new(),
+                            let expr_tmp = expr.into_expr();
+                            expr = ExprLike::Expr(
+                                CallExpr {
+                                    range: *expr_tmp.outer_range() | args_range,
+                                    parens: Vec::new(),
 
-                                style: CallStyle::CallOp,
-                                private: false,
-                                receiver: Box::new(expr),
-                                method: symbol("call"),
-                                method_range: token.range,
-                                args,
-                            }
-                            .into();
+                                    style: CallStyle::CallOp,
+                                    private: false,
+                                    optional: false,
+                                    receiver: Box::new(expr_tmp),
+                                    method: symbol("call"),
+                                    method_range: token.range,
+                                    args,
+                                }
+                                .into(),
+                            );
                         }
                     }
                 }
                 TokenKind::Dot | TokenKind::AmpDot | TokenKind::ColonColon => {
+                    let private = if let ExprLike::Expr(Expr::Self_(expr)) = &expr {
+                        expr.parens.is_empty()
+                    } else {
+                        false
+                    };
+                    let optional = matches!(token.kind, TokenKind::AmpDot);
+                    let const_like = matches!(token.kind, TokenKind::ColonColon);
                     self.bump();
                     let token = self.fill_token(diag, LexerState::MethForCall);
                     match token.kind {
                         TokenKind::LParen => {
                             // expr.(args)
                             let (args, args_range) = self.parse_paren_args(diag);
-                            expr = CallExpr {
-                                range: *expr.outer_range() | args_range,
-                                parens: Vec::new(),
-
-                                style: CallStyle::CallOp,
-                                private: false,
-                                receiver: Box::new(expr),
+                            let expr_tmp = expr.into_expr();
+                            expr = ExprLike::BlocklessCall {
+                                range: *expr_tmp.outer_range() | args_range,
+                                style: CallStyle::Dot,
+                                private,
+                                optional,
+                                receiver: Box::new(expr_tmp),
                                 method: symbol("call"),
                                 method_range: token.range,
                                 args,
-                            }
-                            .into();
+                            };
+                        }
+                        TokenKind::Const if const_like => {
+                            self.bump();
+                            // expr::Const
+                            let s = self.select(token.range);
+                            let expr_tmp = expr.into_expr();
+                            expr = ExprLike::Const {
+                                range: *expr_tmp.outer_range() | token.range,
+                                private,
+                                receiver: ConstReceiver::Expr(Box::new(expr_tmp)),
+                                name: s.to_estring().asciified(),
+                            };
                         }
                         TokenKind::Identifier | TokenKind::Const | TokenKind::MethodName => {
                             self.bump();
                             // expr.meth
                             let s = self.select(token.range);
-                            let private =
-                                matches!(expr, Expr::Self_(_)) && expr.parens().is_empty();
-                            expr = CallExpr {
-                                range: *expr.outer_range() | token.range,
-                                parens: Vec::new(),
-
+                            let expr_tmp = expr.into_expr();
+                            expr = ExprLike::ArglessCall {
+                                range: *expr_tmp.outer_range() | token.range,
                                 style: CallStyle::Dot,
                                 private,
-                                receiver: Box::new(expr),
+                                optional,
+                                receiver: Box::new(expr_tmp),
                                 method: s.to_estring().asciified(),
                                 method_range: token.range,
-                                args: vec![],
-                            }
-                            .into();
+                            };
                         }
                         _ => {
                             diag.push(Diagnostic {
                                 range: token.range,
                                 message: format!("unexpected token"),
                             });
-                            expr = CallExpr {
-                                range: *expr.outer_range() | token.range,
-                                parens: Vec::new(),
-
+                            let expr_tmp = expr.into_expr();
+                            expr = ExprLike::ArglessCall {
+                                range: *expr_tmp.outer_range() | token.range,
                                 style: CallStyle::Dot,
-                                private: false,
-                                receiver: Box::new(expr),
+                                private,
+                                optional,
+                                receiver: Box::new(expr_tmp),
                                 method: symbol(""),
                                 method_range: token.range,
-                                args: vec![],
-                            }
-                            .into();
+                            };
                         }
                     }
                 }
                 TokenKind::At => {
                     self.bump();
                     let ty = self.parse_type(diag);
-                    expr = match expr {
+                    let expr_tmp = expr.into_expr();
+                    expr = ExprLike::Expr(match expr_tmp {
                         Expr::LocalVariable(mut e) => {
                             let ty_range = *ty.range();
                             e.type_annotation = Some(TypeAnnotation {
@@ -714,64 +740,76 @@ impl<'a> Parser<'a> {
                                 range: token.range | *ty.range(),
                                 message: format!("non-annotatable expression"),
                             });
-                            expr
+                            expr_tmp
                         }
-                    };
+                    });
                 }
                 _ => break,
             }
         }
 
-        expr
+        expr.into_expr()
     }
 
-    fn parse_expr_lv_primary(&mut self, diag: &mut Vec<Diagnostic>) -> Expr {
+    fn parse_expr_lv_primary(&mut self, diag: &mut Vec<Diagnostic>) -> ExprLike {
         let token = self.fill_token(diag, LexerState::Begin);
         match token.kind {
             TokenKind::KeywordNil => {
                 self.bump();
-                NilExpr {
-                    range: token.range,
-                    parens: Vec::new(),
-                }
-                .into()
+                ExprLike::Expr(
+                    NilExpr {
+                        range: token.range,
+                        parens: Vec::new(),
+                    }
+                    .into(),
+                )
             }
             TokenKind::KeywordFalse => {
                 self.bump();
-                FalseExpr {
-                    range: token.range,
-                    parens: Vec::new(),
-                }
-                .into()
+                ExprLike::Expr(
+                    FalseExpr {
+                        range: token.range,
+                        parens: Vec::new(),
+                    }
+                    .into(),
+                )
             }
             TokenKind::KeywordTrue => {
                 self.bump();
-                TrueExpr {
-                    range: token.range,
-                    parens: Vec::new(),
-                }
-                .into()
+                ExprLike::Expr(
+                    TrueExpr {
+                        range: token.range,
+                        parens: Vec::new(),
+                    }
+                    .into(),
+                )
             }
             TokenKind::Identifier => {
                 self.bump();
                 let s = self.select(token.range);
-                LocalVariableExpr {
+                ExprLike::Identifier {
                     range: token.range,
-                    parens: Vec::new(),
                     name: s.to_estring().asciified(),
-                    type_annotation: None,
                 }
-                .into()
+            }
+            TokenKind::Const => {
+                self.bump();
+                let s = self.select(token.range);
+                ExprLike::Const {
+                    receiver: ConstReceiver::None,
+                    private: true,
+                    range: token.range,
+                    name: s.to_estring().asciified(),
+                }
             }
             TokenKind::MethodName => {
                 self.bump();
                 let s = self.select(token.range);
-                CallExpr {
+                ExprLike::ArglessCall {
                     range: token.range,
-                    parens: Vec::new(),
-
                     style: CallStyle::ImplicitSelf,
                     private: true,
+                    optional: false,
                     receiver: Box::new(
                         SelfExpr {
                             range: DUMMY_RANGE,
@@ -781,20 +819,20 @@ impl<'a> Parser<'a> {
                     ),
                     method: s.to_estring().asciified(),
                     method_range: token.range,
-                    args: vec![],
                 }
-                .into()
             }
             TokenKind::Integer => {
                 self.bump();
-                IntegerExpr {
-                    range: token.range,
-                    parens: Vec::new(),
-                    value: String::from_utf8_lossy(self.select(token.range).as_bytes())
-                        .parse()
-                        .unwrap(),
-                }
-                .into()
+                ExprLike::Expr(
+                    IntegerExpr {
+                        range: token.range,
+                        parens: Vec::new(),
+                        value: String::from_utf8_lossy(self.select(token.range).as_bytes())
+                            .parse()
+                            .unwrap(),
+                    }
+                    .into(),
+                )
             }
             TokenKind::StringBegin => {
                 self.bump();
@@ -862,7 +900,7 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
-                match delim {
+                ExprLike::Expr(match delim {
                     StringDelimiter::Quote | StringDelimiter::DoubleQuote => StringExpr {
                         range: token.range | close_range,
                         parens: Vec::new(),
@@ -887,7 +925,7 @@ impl<'a> Parser<'a> {
                         contents,
                     }
                     .into(),
-                }
+                })
             }
             TokenKind::LParen => {
                 let open_range = token.range;
@@ -929,9 +967,9 @@ impl<'a> Parser<'a> {
                         open_range,
                         close_range,
                     });
-                    expr
+                    ExprLike::Expr(expr)
                 } else {
-                    Expr::Seq(SeqExpr {
+                    ExprLike::Expr(Expr::Seq(SeqExpr {
                         range: open_range | close_range,
                         parens: Vec::new(),
                         paren: SeqParen {
@@ -940,7 +978,7 @@ impl<'a> Parser<'a> {
                             close_range,
                         },
                         stmt_list,
-                    })
+                    }))
                 }
             }
             _ => {
@@ -949,11 +987,13 @@ impl<'a> Parser<'a> {
                     range: token.range,
                     message: format!("unexpected token"),
                 });
-                ErrorExpr {
-                    range: token.range,
-                    parens: Vec::new(),
-                }
-                .into()
+                ExprLike::Expr(
+                    ErrorExpr {
+                        range: token.range,
+                        parens: Vec::new(),
+                    }
+                    .into(),
+                )
             }
         }
     }
@@ -1080,6 +1120,135 @@ impl<'a> Parser<'a> {
 
     fn select(&self, range: CodeRange) -> EStrRef<'a> {
         EStrRef::from_bytes(&self.bytes()[range.range()], self.input().encoding())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum ExprLike {
+    Expr(Expr),
+    /// `foo`, to be extended as:
+    ///
+    /// - `foo` itself
+    /// - `foo(args)` parenthesized call
+    /// - `foo args` non-parenthesized call
+    /// - `foo { |args| ... }` block call
+    Identifier {
+        range: CodeRange,
+        name: EString,
+    },
+    /// `Foo` or `obj::Foo`, to be extended as:
+    ///
+    /// - `Foo` or `obj::Foo` itself
+    /// - `Foo(args)` or `obj::Foo(args)` parenthesized call
+    /// - `Foo args` or `obj::Foo args` non-parenthesized call
+    /// - `Foo { |args| ... }` or `obj::Foo { |args| ... }` block call
+    Const {
+        range: CodeRange,
+        /// Used when `expr::Const` is extended as `expr::Const(args)`
+        private: bool,
+        receiver: ConstReceiver,
+        name: EString,
+    },
+    /// call without arguments or block, to be extended as:
+    ///
+    /// - call with parenthesized arguments
+    /// - call with non-parenthesized arguments
+    /// - call with block
+    ///
+    /// Expressions identified as ArglessCall include:
+    ///
+    /// - `foo!` or `foo?`
+    /// - `foo.bar` or `foo&.bar`
+    /// - `foo::bar` (other than const)
+    ArglessCall {
+        range: CodeRange,
+        style: CallStyle,
+        private: bool,
+        optional: bool,
+        receiver: Box<Expr>,
+        method: EString,
+        method_range: CodeRange,
+    },
+    /// call with arguments but without block, to be extended as:
+    ///
+    /// - call with block
+    BlocklessCall {
+        range: CodeRange,
+        style: CallStyle,
+        private: bool,
+        optional: bool,
+        receiver: Box<Expr>,
+        method: EString,
+        method_range: CodeRange,
+        args: Vec<Expr>,
+    },
+}
+
+impl ExprLike {
+    fn into_expr(self) -> Expr {
+        match self {
+            ExprLike::Expr(expr) => expr,
+            ExprLike::Identifier { range, name } => LocalVariableExpr {
+                range,
+                parens: Vec::new(),
+                name,
+                type_annotation: None,
+            }
+            .into(),
+            ExprLike::Const {
+                range,
+                private: _,
+                receiver,
+                name,
+            } => ConstExpr {
+                range,
+                parens: Vec::new(),
+                receiver,
+                name,
+            }
+            .into(),
+            ExprLike::ArglessCall {
+                range,
+                style,
+                private,
+                optional,
+                receiver,
+                method,
+                method_range,
+            } => CallExpr {
+                range,
+                parens: Vec::new(),
+                style,
+                private,
+                optional,
+                receiver,
+                method,
+                method_range,
+                args: vec![],
+            }
+            .into(),
+            ExprLike::BlocklessCall {
+                range,
+                style,
+                private,
+                optional,
+                receiver,
+                method,
+                method_range,
+                args,
+            } => CallExpr {
+                range,
+                parens: Vec::new(),
+                style,
+                private,
+                optional,
+                receiver,
+                method,
+                method_range,
+                args,
+            }
+            .into(),
+        }
     }
 }
 
@@ -1584,6 +1753,7 @@ mod tests {
                     parens: vec![],
                     style: CallStyle::ImplicitSelf,
                     private: true,
+                    optional: false,
                     receiver: Box::new(
                         SelfExpr {
                             range: DUMMY_RANGE,
@@ -1612,6 +1782,7 @@ mod tests {
                     parens: vec![],
                     style: CallStyle::Dot,
                     private: false,
+                    optional: false,
                     receiver: Box::new(
                         LocalVariableExpr {
                             range: pos_in(src, b"x", 0),
@@ -1638,6 +1809,7 @@ mod tests {
                     parens: vec![],
                     style: CallStyle::Dot,
                     private: false,
+                    optional: false,
                     receiver: Box::new(
                         LocalVariableExpr {
                             range: pos_in(src, b"x", 0),
@@ -1734,18 +1906,21 @@ mod tests {
                     parens: vec![],
                     style: CallStyle::BinOp,
                     private: false,
+                    optional: false,
                     receiver: Box::new(
                         CallExpr {
                             range: pos_in(src, b"x * y / z", 0),
                             parens: vec![],
                             style: CallStyle::BinOp,
                             private: false,
+                            optional: false,
                             receiver: Box::new(
                                 CallExpr {
                                     range: pos_in(src, b"x * y", 0),
                                     parens: vec![],
                                     style: CallStyle::BinOp,
                                     private: false,
+                                    optional: false,
                                     receiver: Box::new(
                                         LocalVariableExpr {
                                             range: pos_in(src, b"x", 0),
@@ -1803,12 +1978,14 @@ mod tests {
                     parens: vec![],
                     style: CallStyle::BinOp,
                     private: false,
+                    optional: false,
                     receiver: Box::new(
                         CallExpr {
                             range: pos_in(src, b"x ** y", 0),
                             parens: vec![],
                             style: CallStyle::BinOp,
                             private: false,
+                            optional: false,
                             receiver: Box::new(
                                 LocalVariableExpr {
                                     range: pos_in(src, b"x", 0),
@@ -1837,6 +2014,7 @@ mod tests {
                         parens: vec![],
                         style: CallStyle::BinOp,
                         private: false,
+                        optional: false,
                         receiver: Box::new(
                             LocalVariableExpr {
                                 range: pos_in(src, b"z", 0),
@@ -1875,6 +2053,7 @@ mod tests {
                     parens: vec![],
                     style: CallStyle::BinOp,
                     private: false,
+                    optional: false,
                     receiver: Box::new(
                         LocalVariableExpr {
                             range: pos_in(src, b"x", 0),
@@ -1891,6 +2070,7 @@ mod tests {
                         parens: vec![],
                         style: CallStyle::BinOp,
                         private: false,
+                        optional: false,
                         receiver: Box::new(
                             LocalVariableExpr {
                                 range: pos_in(src, b"y", 0),
@@ -1925,12 +2105,14 @@ mod tests {
                     parens: vec![],
                     style: CallStyle::BinOp,
                     private: false,
+                    optional: false,
                     receiver: Box::new(
                         CallExpr {
                             range: pos_in(src, b"+x", 0),
                             parens: vec![],
                             style: CallStyle::UnOp,
                             private: false,
+                            optional: false,
                             receiver: Box::new(
                                 LocalVariableExpr {
                                     range: pos_in(src, b"x", 0),
@@ -1953,6 +2135,7 @@ mod tests {
                         parens: vec![],
                         style: CallStyle::UnOp,
                         private: false,
+                        optional: false,
                         receiver: Box::new(
                             LocalVariableExpr {
                                 range: pos_in(src, b"y", 0),
@@ -1985,12 +2168,14 @@ mod tests {
                     parens: vec![],
                     style: CallStyle::UnOp,
                     private: false,
+                    optional: false,
                     receiver: Box::new(
                         CallExpr {
                             range: pos_in(src, b"x ** -y ** z", 0),
                             parens: vec![],
                             style: CallStyle::BinOp,
                             private: false,
+                            optional: false,
                             receiver: Box::new(
                                 LocalVariableExpr {
                                     range: pos_in(src, b"x", 0),
@@ -2007,12 +2192,14 @@ mod tests {
                                 parens: vec![],
                                 style: CallStyle::UnOp,
                                 private: false,
+                                optional: false,
                                 receiver: Box::new(
                                     CallExpr {
                                         range: pos_in(src, b"y ** z", 0),
                                         parens: vec![],
                                         style: CallStyle::BinOp,
                                         private: false,
+                                        optional: false,
                                         receiver: Box::new(
                                             LocalVariableExpr {
                                                 range: pos_in(src, b"y", 0),
@@ -2063,6 +2250,7 @@ mod tests {
                     parens: vec![],
                     style: CallStyle::UnOp,
                     private: false,
+                    optional: false,
                     receiver: Box::new(
                         LocalVariableExpr {
                             range: pos_in(src, b"x", 0),
@@ -2090,6 +2278,7 @@ mod tests {
                     parens: vec![],
                     style: CallStyle::UnOp,
                     private: false,
+                    optional: false,
                     receiver: Box::new(
                         LocalVariableExpr {
                             range: pos_in(src, b"x", 0),
@@ -2117,6 +2306,7 @@ mod tests {
                     parens: vec![],
                     style: CallStyle::UnOp,
                     private: false,
+                    optional: false,
                     receiver: Box::new(
                         LocalVariableExpr {
                             range: pos_in(src, b"x", 0),
@@ -2144,6 +2334,7 @@ mod tests {
                     parens: vec![],
                     style: CallStyle::UnOp,
                     private: false,
+                    optional: false,
                     receiver: Box::new(
                         LocalVariableExpr {
                             range: pos_in(src, b"x", 0),
@@ -2171,24 +2362,28 @@ mod tests {
                     parens: vec![],
                     style: CallStyle::UnOp,
                     private: false,
+                    optional: false,
                     receiver: Box::new(
                         CallExpr {
                             range: pos_in(src, b"-+~0", 0),
                             parens: vec![],
                             style: CallStyle::UnOp,
                             private: false,
+                            optional: false,
                             receiver: Box::new(
                                 CallExpr {
                                     range: pos_in(src, b"+~0", 0),
                                     parens: vec![],
                                     style: CallStyle::UnOp,
                                     private: false,
+                                    optional: false,
                                     receiver: Box::new(
                                         CallExpr {
                                             range: pos_in(src, b"~0", 0),
                                             parens: vec![],
                                             style: CallStyle::UnOp,
                                             private: false,
+                                            optional: false,
                                             receiver: Box::new(
                                                 IntegerExpr {
                                                     range: pos_in(src, b"0", 0),

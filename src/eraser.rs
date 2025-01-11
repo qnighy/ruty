@@ -1,4 +1,4 @@
-use crate::ast::{CodeRange, Expr, Program, StringContent, WriteTarget};
+use crate::ast::{CodeRange, ConstReceiver, Expr, Program, StringContent, WriteTarget};
 
 pub fn erase_type(src: &[u8], program: &Program) -> Vec<u8> {
     let mut ranges = Vec::new();
@@ -44,6 +44,11 @@ fn collect_ranges_expr(ranges: &mut Vec<CodeRange>, expr: &Expr) {
         Expr::LocalVariable(expr) => {
             if let Some(ta) = &expr.type_annotation {
                 ranges.push(ta.range);
+            }
+        }
+        Expr::Const(expr) => {
+            if let ConstReceiver::Expr(recv) = &expr.receiver {
+                collect_ranges_expr(ranges, recv);
             }
         }
         Expr::Self_(_) => {}
