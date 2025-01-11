@@ -167,22 +167,21 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr_lv_cmd(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> Expr {
-        let lhs = self.parse_expr_lv_spelled_not(diag, lv, PrecCtx::default());
+        let lhs = self.parse_expr_lv_assignment(diag, lv, PrecCtx::default());
         let token = self.fill_token(diag, LexerState::End);
         if is_cmdarg_begin(&token) {
             let (args, args_range) = self.parse_cmd_args(diag, lv);
             let lhs = lhs.callify();
-            if let ExprLike::ArglessCall {
-                range,
-                style,
-                private,
-                optional,
-                receiver,
-                method,
-                method_range,
-            } = lhs
-            {
-                CallExpr {
+            match lhs {
+                ExprLike::ArglessCall {
+                    range,
+                    style,
+                    private,
+                    optional,
+                    receiver,
+                    method,
+                    method_range,
+                } => CallExpr {
                     range: range | args_range,
                     parens: Vec::new(),
 
@@ -194,67 +193,52 @@ impl<'a> Parser<'a> {
                     method_range,
                     args,
                 }
-                .into()
-            } else {
-                diag.push(Diagnostic {
-                    range: token.range,
-                    message: format!("this expression cannot be called"),
-                });
-                let lhs = lhs.into_expr();
-                CallExpr {
-                    range: *lhs.outer_range() | args_range,
-                    parens: Vec::new(),
-
-                    style: CallStyle::CallOp,
-                    private: false,
-                    optional: false,
-                    receiver: Box::new(lhs),
-                    method: symbol("call"),
-                    method_range: token.range,
-                    args,
-                }
-                .into()
-            }
-        } else {
-            lhs.into_expr()
-        }
-    }
-
-    fn parse_expr_lv_spelled_not(
-        &mut self,
-        diag: &mut Vec<Diagnostic>,
-        lv: &mut LVCtx,
-        prec: PrecCtx,
-    ) -> ExprLike {
-        // TODO: expressions like `false | not(true)` should also be handled
-        let token = self.fill_token(diag, LexerState::Begin);
-        match token.kind {
-            TokenKind::KeywordNot => {
-                let meth = match token.kind {
-                    TokenKind::KeywordNot => "!",
-                    _ => unreachable!(),
-                };
-                self.bump();
-                let inner = self
-                    .parse_expr_lv_assignment(diag, lv, prec.with_invalid_command())
-                    .into_expr();
-                ExprLike::Expr(
+                .into(),
+                ExprLike::NotOp { range } => {
+                    if args.len() > 1 {
+                        diag.push(Diagnostic {
+                            range: args_range,
+                            message: format!("too many arguments"),
+                        });
+                    }
+                    let arg = { args }.swap_remove(0);
                     CallExpr {
-                        range: token.range | *inner.outer_range(),
+                        range: range | args_range,
                         parens: Vec::new(),
 
                         style: CallStyle::SpelloutUnOp,
                         private: false,
                         optional: false,
-                        receiver: Box::new(inner),
-                        method: symbol(meth),
+                        receiver: Box::new(arg),
+                        method: symbol("!"),
                         method_range: token.range,
                         args: vec![],
                     }
-                    .into(),
-                )
+                    .into()
+                }
+                _ => {
+                    diag.push(Diagnostic {
+                        range: token.range,
+                        message: format!("this expression cannot be called"),
+                    });
+                    let lhs = lhs.into_expr(diag);
+                    CallExpr {
+                        range: *lhs.outer_range() | args_range,
+                        parens: Vec::new(),
+
+                        style: CallStyle::CallOp,
+                        private: false,
+                        optional: false,
+                        receiver: Box::new(lhs),
+                        method: symbol("call"),
+                        method_range: token.range,
+                        args,
+                    }
+                    .into()
+                }
             }
-            _ => self.parse_expr_lv_assignment(diag, lv, prec),
+        } else {
+            lhs.into_expr(diag)
         }
     }
 
@@ -287,7 +271,7 @@ impl<'a> Parser<'a> {
                     }
                     .into(),
                     _ => {
-                        let lhs = lhs.into_expr();
+                        let lhs = lhs.into_expr(diag);
                         diag.push(Diagnostic {
                             range: *lhs.outer_range(),
                             message: format!("non-assignable expression"),
@@ -307,7 +291,7 @@ impl<'a> Parser<'a> {
                     _ => {}
                 }
                 let rhs = self.parse_expr_lv_assignment(diag, lv, prec.with_invalid_command());
-                let rhs = rhs.into_expr();
+                let rhs = rhs.into_expr(diag);
                 let expr: Expr = WriteExpr {
                     range: *lhs.range() | *rhs.outer_range(),
                     parens: Vec::new(),
@@ -356,8 +340,8 @@ impl<'a> Parser<'a> {
                     self.bump();
                     let rhs = self
                         .parse_expr_lv_ineq(diag, lv, prec.with_invalid_command())
-                        .into_expr();
-                    let lhs_expr = lhs.into_expr();
+                        .into_expr(diag);
+                    let lhs_expr = lhs.into_expr(diag);
                     lhs = ExprLike::Expr(
                         CallExpr {
                             range: *lhs_expr.outer_range() | *rhs.outer_range(),
@@ -401,8 +385,8 @@ impl<'a> Parser<'a> {
                     self.bump();
                     let rhs = self
                         .parse_expr_lv_bitwise_or(diag, lv, prec.with_invalid_command())
-                        .into_expr();
-                    let lhs_expr = lhs.into_expr();
+                        .into_expr(diag);
+                    let lhs_expr = lhs.into_expr(diag);
                     lhs = ExprLike::Expr(
                         CallExpr {
                             range: *lhs_expr.outer_range() | *rhs.outer_range(),
@@ -447,8 +431,8 @@ impl<'a> Parser<'a> {
                     }
                     let rhs = self
                         .parse_expr_lv_bitwise_and(diag, lv, prec.with_invalid_command())
-                        .into_expr();
-                    let lhs_expr = lhs.into_expr();
+                        .into_expr(diag);
+                    let lhs_expr = lhs.into_expr(diag);
                     lhs = ExprLike::Expr(
                         CallExpr {
                             range: *lhs_expr.outer_range() | *rhs.outer_range(),
@@ -489,8 +473,8 @@ impl<'a> Parser<'a> {
                     self.bump();
                     let rhs = self
                         .parse_expr_lv_shift(diag, lv, prec.with_invalid_command())
-                        .into_expr();
-                    let lhs_expr = lhs.into_expr();
+                        .into_expr(diag);
+                    let lhs_expr = lhs.into_expr(diag);
                     lhs = ExprLike::Expr(
                         CallExpr {
                             range: *lhs_expr.outer_range() | *rhs.outer_range(),
@@ -532,8 +516,8 @@ impl<'a> Parser<'a> {
                     self.bump();
                     let rhs = self
                         .parse_expr_lv_additive(diag, lv, prec.with_invalid_command())
-                        .into_expr();
-                    let lhs_expr = lhs.into_expr();
+                        .into_expr(diag);
+                    let lhs_expr = lhs.into_expr(diag);
                     lhs = ExprLike::Expr(
                         CallExpr {
                             range: *lhs_expr.outer_range() | *rhs.outer_range(),
@@ -575,8 +559,8 @@ impl<'a> Parser<'a> {
                     self.bump();
                     let rhs = self
                         .parse_expr_lv_multiplicative(diag, lv, prec.with_invalid_command())
-                        .into_expr();
-                    let lhs_expr = lhs.into_expr();
+                        .into_expr(diag);
+                    let lhs_expr = lhs.into_expr(diag);
                     lhs = ExprLike::Expr(
                         CallExpr {
                             range: *lhs_expr.outer_range() | *rhs.outer_range(),
@@ -619,8 +603,8 @@ impl<'a> Parser<'a> {
                     self.bump();
                     let rhs = self
                         .parse_expr_lv_exponential(diag, lv, prec.with_invalid_command())
-                        .into_expr();
-                    let lhs_expr = lhs.into_expr();
+                        .into_expr(diag);
+                    let lhs_expr = lhs.into_expr(diag);
                     lhs = ExprLike::Expr(
                         CallExpr {
                             range: *lhs_expr.outer_range() | *rhs.outer_range(),
@@ -660,8 +644,8 @@ impl<'a> Parser<'a> {
                 self.bump();
                 let rhs = self
                     .parse_expr_lv_exponential(diag, lv, prec.with_invalid_command())
-                    .into_expr();
-                match self.reparse_minus(lhs.into_expr()) {
+                    .into_expr(diag);
+                match self.reparse_minus(lhs.into_expr(diag)) {
                     Ok((minus_range, lhs)) => ExprLike::Expr(
                         CallExpr {
                             range: minus_range | *rhs.outer_range(),
@@ -750,7 +734,7 @@ impl<'a> Parser<'a> {
                 self.bump();
                 let inner = self
                     .parse_expr_lv_unary(diag, lv, prec.with_invalid_command())
-                    .into_expr();
+                    .into_expr(diag);
                 ExprLike::Expr(
                     CallExpr {
                         range: token.range | *inner.outer_range(),
@@ -786,7 +770,7 @@ impl<'a> Parser<'a> {
                     message: format!("non-parenthesized calls are not allowed in this context"),
                 });
                 let (args, args_range) = self.parse_cmd_args(diag, lv);
-                let lhs_expr = lhs.into_expr();
+                let lhs_expr = lhs.into_expr(diag);
                 return ExprLike::Expr(
                     CallExpr {
                         range: *lhs_expr.outer_range() | args_range,
@@ -836,12 +820,62 @@ impl<'a> Parser<'a> {
                                 args,
                             };
                         }
+                        ExprLike::NotOp { range } => {
+                            if args.len() == 0 {
+                                // `not()` is `nil.!()` (but why!?!?)
+                                lhs = ExprLike::Expr(
+                                    CallExpr {
+                                        range: range | args_range,
+                                        parens: Vec::new(),
+
+                                        style: CallStyle::SpelloutUnOp,
+                                        private: false,
+                                        optional: false,
+                                        receiver: Box::new(
+                                            NilExpr {
+                                                range: DUMMY_RANGE,
+                                                parens: Vec::new(),
+                                            }
+                                            .into(),
+                                        ),
+                                        method: symbol("!"),
+                                        method_range: token.range,
+                                        args: vec![],
+                                    }
+                                    .into(),
+                                );
+                            } else {
+                                // TODO: also check against `not(expr,)` etc.
+                                if args.len() > 1 {
+                                    diag.push(Diagnostic {
+                                        range: args_range,
+                                        message: format!("too many arguments"),
+                                    });
+                                }
+                                let arg = { args }.swap_remove(0);
+                                lhs = ExprLike::Expr(
+                                    CallExpr {
+                                        range: range | args_range,
+                                        parens: Vec::new(),
+
+                                        style: CallStyle::SpelloutUnOp,
+                                        private: false,
+                                        optional: false,
+                                        receiver: Box::new(arg),
+                                        method: symbol("!"),
+                                        method_range: token.range,
+                                        args: vec![],
+                                    }
+                                    .into(),
+                                );
+                            }
+                        }
                         _ => {
                             diag.push(Diagnostic {
                                 range: token.range,
                                 message: format!("Need a dot to call an expression"),
                             });
-                            let lhs_expr = lhs.into_expr();
+                            let lhs_expr = lhs.into_expr(diag);
                             lhs = ExprLike::Expr(
                                 CallExpr {
                                     range: *lhs_expr.outer_range() | args_range,
@@ -874,7 +908,7 @@ impl<'a> Parser<'a> {
                         TokenKind::LParen => {
                             // expr.(args)
                             let (args, args_range) = self.parse_paren_args(diag, lv);
-                            let lhs_expr = lhs.into_expr();
+                            let lhs_expr = lhs.into_expr(diag);
                             lhs = ExprLike::BlocklessCall {
                                 range: *lhs_expr.outer_range() | args_range,
                                 style: CallStyle::Dot,
@@ -890,7 +924,7 @@ impl<'a> Parser<'a> {
                             self.bump();
                             // expr::Const
                             let s = self.select(token.range);
-                            let lhs_expr = lhs.into_expr();
+                            let lhs_expr = lhs.into_expr(diag);
                             lhs = ExprLike::Const {
                                 range: *lhs_expr.outer_range() | token.range,
                                 private,
@@ -902,7 +936,7 @@ impl<'a> Parser<'a> {
                             self.bump();
                             // expr.meth
                             let s = self.select(token.range);
-                            let lhs_expr = lhs.into_expr();
+                            let lhs_expr = lhs.into_expr(diag);
                             lhs = ExprLike::ArglessCall {
                                 range: *lhs_expr.outer_range() | token.range,
                                 style: CallStyle::Dot,
@@ -918,7 +952,7 @@ impl<'a> Parser<'a> {
                                 range: token.range,
                                 message: format!("unexpected token"),
                             });
-                            let lhs_expr = lhs.into_expr();
+                            let lhs_expr = lhs.into_expr(diag);
                             lhs = ExprLike::ArglessCall {
                                 range: *lhs_expr.outer_range() | token.range,
                                 style: CallStyle::Dot,
@@ -937,7 +971,7 @@ impl<'a> Parser<'a> {
                     if let ExprLike::Identifier { has_local, .. } = &mut lhs {
                         *has_local = true;
                     }
-                    let lhs_expr = lhs.into_expr();
+                    let lhs_expr = lhs.into_expr(diag);
                     lhs = ExprLike::Expr(match lhs_expr {
                         Expr::LocalVariable(mut e) => {
                             let ty_range = *ty.range();
@@ -1036,6 +1070,15 @@ impl<'a> Parser<'a> {
                     method: s.to_estring().asciified(),
                     method_range: token.range,
                 }
+            }
+            TokenKind::KeywordNot => {
+                self.bump();
+                let token2 = self.fill_token(diag, LexerState::FirstArgument);
+                if matches!(token2.kind, TokenKind::Newline) {
+                    self.bump();
+                    self.fill_token(diag, LexerState::Begin);
+                }
+                ExprLike::NotOp { range: token.range }
             }
             TokenKind::Integer => {
                 self.bump();
@@ -1432,6 +1475,13 @@ enum ExprLike {
         receiver: ConstReceiver,
         name: EString,
     },
+    /// The keyword `not`, to be extended as:
+    ///
+    /// - `not(expr)` parenthesized call
+    /// - `not expr` non-parenthesized call
+    NotOp {
+        range: CodeRange,
+    },
     /// call without arguments or block, to be extended as:
     ///
     /// - call with parenthesized arguments
@@ -1468,7 +1518,7 @@ enum ExprLike {
 }
 
 impl ExprLike {
-    fn into_expr(self) -> Expr {
+    fn into_expr(self, diag: &mut Vec<Diagnostic>) -> Expr {
         match self {
             ExprLike::Expr(expr) => expr,
             ExprLike::Identifier {
@@ -1516,6 +1566,31 @@ impl ExprLike {
                 name,
             }
             .into(),
+            ExprLike::NotOp { range } => {
+                diag.push(Diagnostic {
+                    range,
+                    message: format!("the keyword `not` needs an argument"),
+                });
+                // Return not(error)
+                CallExpr {
+                    range,
+                    parens: Vec::new(),
+                    style: CallStyle::SpelloutUnOp,
+                    private: false,
+                    optional: false,
+                    receiver: Box::new(
+                        ErrorExpr {
+                            range: DUMMY_RANGE,
+                            parens: Vec::new(),
+                        }
+                        .into(),
+                    ),
+                    method: symbol("!"),
+                    method_range: range,
+                    args: vec![],
+                }
+                .into()
+            }
             ExprLike::ArglessCall {
                 range,
                 style,
