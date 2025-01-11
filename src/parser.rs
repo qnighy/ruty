@@ -217,18 +217,18 @@ impl<'a> Parser<'a> {
                     _ => unreachable!(),
                 };
                 self.bump();
-                let expr = self
+                let inner = self
                     .parse_expr_lv_assignment(diag, prec.with_invalid_command())
                     .into_expr();
                 ExprLike::Expr(
                     CallExpr {
-                        range: token.range | *expr.outer_range(),
+                        range: token.range | *inner.outer_range(),
                         parens: Vec::new(),
 
                         style: CallStyle::SpelloutUnOp,
                         private: false,
                         optional: false,
-                        receiver: Box::new(expr),
+                        receiver: Box::new(inner),
                         method: symbol(meth),
                         method_range: token.range,
                         args: vec![],
@@ -241,13 +241,13 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr_lv_assignment(&mut self, diag: &mut Vec<Diagnostic>, prec: PrecCtx) -> ExprLike {
-        let expr = self.parse_expr_lv_eq(diag, prec);
+        let lhs = self.parse_expr_lv_eq(diag, prec);
         let token = self.fill_token(diag, LexerState::End);
         match token.kind {
             TokenKind::Eq => {
                 self.bump();
                 let rhs = self.parse_expr_lv_assignment(diag, prec.with_invalid_command());
-                let lhs: WriteTarget = match expr {
+                let lhs: WriteTarget = match lhs {
                     ExprLike::Identifier { range, name } => LocalVariableWriteTarget {
                         range,
                         name,
@@ -261,13 +261,13 @@ impl<'a> Parser<'a> {
                     }
                     .into(),
                     _ => {
-                        let expr = expr.into_expr();
+                        let lhs = lhs.into_expr();
                         diag.push(Diagnostic {
-                            range: *expr.outer_range(),
+                            range: *lhs.outer_range(),
                             message: format!("non-assignable expression"),
                         });
                         ErrorWriteTarget {
-                            range: *expr.outer_range(),
+                            range: *lhs.outer_range(),
                         }
                         .into()
                     }
@@ -284,11 +284,11 @@ impl<'a> Parser<'a> {
             }
             _ => {}
         }
-        expr
+        lhs
     }
 
     fn parse_expr_lv_eq(&mut self, diag: &mut Vec<Diagnostic>, prec: PrecCtx) -> ExprLike {
-        let mut expr = self.parse_expr_lv_ineq(diag, prec);
+        let mut lhs = self.parse_expr_lv_ineq(diag, prec);
         let mut count = 0;
         loop {
             let token = self.fill_token(diag, LexerState::End);
@@ -317,16 +317,16 @@ impl<'a> Parser<'a> {
                     let rhs = self
                         .parse_expr_lv_ineq(diag, prec.with_invalid_command())
                         .into_expr();
-                    let expr_tmp = expr.into_expr();
-                    expr = ExprLike::Expr(
+                    let lhs_expr = lhs.into_expr();
+                    lhs = ExprLike::Expr(
                         CallExpr {
-                            range: *expr_tmp.outer_range() | *rhs.outer_range(),
+                            range: *lhs_expr.outer_range() | *rhs.outer_range(),
                             parens: Vec::new(),
 
                             style: CallStyle::BinOp,
                             private: false,
                             optional: false,
-                            receiver: Box::new(expr_tmp),
+                            receiver: Box::new(lhs_expr),
                             method: symbol(meth),
                             method_range: token.range,
                             args: vec![rhs],
@@ -337,11 +337,11 @@ impl<'a> Parser<'a> {
                 _ => break,
             }
         }
-        expr
+        lhs
     }
 
     fn parse_expr_lv_ineq(&mut self, diag: &mut Vec<Diagnostic>, prec: PrecCtx) -> ExprLike {
-        let mut expr = self.parse_expr_lv_bitwise_or(diag, prec);
+        let mut lhs = self.parse_expr_lv_bitwise_or(diag, prec);
         loop {
             let token = self.fill_token(diag, LexerState::End);
             match token.kind {
@@ -357,16 +357,16 @@ impl<'a> Parser<'a> {
                     let rhs = self
                         .parse_expr_lv_bitwise_or(diag, prec.with_invalid_command())
                         .into_expr();
-                    let expr_tmp = expr.into_expr();
-                    expr = ExprLike::Expr(
+                    let lhs_expr = lhs.into_expr();
+                    lhs = ExprLike::Expr(
                         CallExpr {
-                            range: *expr_tmp.outer_range() | *rhs.outer_range(),
+                            range: *lhs_expr.outer_range() | *rhs.outer_range(),
                             parens: Vec::new(),
 
                             style: CallStyle::BinOp,
                             private: false,
                             optional: false,
-                            receiver: Box::new(expr_tmp),
+                            receiver: Box::new(lhs_expr),
                             method: symbol(meth),
                             method_range: token.range,
                             args: vec![rhs],
@@ -377,11 +377,11 @@ impl<'a> Parser<'a> {
                 _ => break,
             }
         }
-        expr
+        lhs
     }
 
     fn parse_expr_lv_bitwise_or(&mut self, diag: &mut Vec<Diagnostic>, prec: PrecCtx) -> ExprLike {
-        let mut expr = self.parse_expr_lv_bitwise_and(diag, prec);
+        let mut lhs = self.parse_expr_lv_bitwise_and(diag, prec);
         loop {
             let token = self.fill_token(diag, LexerState::End);
             match token.kind {
@@ -398,16 +398,16 @@ impl<'a> Parser<'a> {
                     let rhs = self
                         .parse_expr_lv_bitwise_and(diag, prec.with_invalid_command())
                         .into_expr();
-                    let expr_tmp = expr.into_expr();
-                    expr = ExprLike::Expr(
+                    let lhs_expr = lhs.into_expr();
+                    lhs = ExprLike::Expr(
                         CallExpr {
-                            range: *expr_tmp.outer_range() | *rhs.outer_range(),
+                            range: *lhs_expr.outer_range() | *rhs.outer_range(),
                             parens: Vec::new(),
 
                             style: CallStyle::BinOp,
                             private: false,
                             optional: false,
-                            receiver: Box::new(expr_tmp),
+                            receiver: Box::new(lhs_expr),
                             method: symbol(meth),
                             method_range: token.range,
                             args: vec![rhs],
@@ -418,11 +418,11 @@ impl<'a> Parser<'a> {
                 _ => break,
             }
         }
-        expr
+        lhs
     }
 
     fn parse_expr_lv_bitwise_and(&mut self, diag: &mut Vec<Diagnostic>, prec: PrecCtx) -> ExprLike {
-        let mut expr = self.parse_expr_lv_shift(diag, prec);
+        let mut lhs = self.parse_expr_lv_shift(diag, prec);
         loop {
             let token = self.fill_token(diag, LexerState::End);
             match token.kind {
@@ -435,16 +435,16 @@ impl<'a> Parser<'a> {
                     let rhs = self
                         .parse_expr_lv_shift(diag, prec.with_invalid_command())
                         .into_expr();
-                    let expr_tmp = expr.into_expr();
-                    expr = ExprLike::Expr(
+                    let lhs_expr = lhs.into_expr();
+                    lhs = ExprLike::Expr(
                         CallExpr {
-                            range: *expr_tmp.outer_range() | *rhs.outer_range(),
+                            range: *lhs_expr.outer_range() | *rhs.outer_range(),
                             parens: Vec::new(),
 
                             style: CallStyle::BinOp,
                             private: false,
                             optional: false,
-                            receiver: Box::new(expr_tmp),
+                            receiver: Box::new(lhs_expr),
                             method: symbol(meth),
                             method_range: token.range,
                             args: vec![rhs],
@@ -455,11 +455,11 @@ impl<'a> Parser<'a> {
                 _ => break,
             }
         }
-        expr
+        lhs
     }
 
     fn parse_expr_lv_shift(&mut self, diag: &mut Vec<Diagnostic>, prec: PrecCtx) -> ExprLike {
-        let mut expr = self.parse_expr_lv_additive(diag, prec);
+        let mut lhs = self.parse_expr_lv_additive(diag, prec);
         loop {
             let token = self.fill_token(diag, LexerState::End);
             match token.kind {
@@ -473,16 +473,16 @@ impl<'a> Parser<'a> {
                     let rhs = self
                         .parse_expr_lv_additive(diag, prec.with_invalid_command())
                         .into_expr();
-                    let expr_tmp = expr.into_expr();
-                    expr = ExprLike::Expr(
+                    let lhs_expr = lhs.into_expr();
+                    lhs = ExprLike::Expr(
                         CallExpr {
-                            range: *expr_tmp.outer_range() | *rhs.outer_range(),
+                            range: *lhs_expr.outer_range() | *rhs.outer_range(),
                             parens: Vec::new(),
 
                             style: CallStyle::BinOp,
                             private: false,
                             optional: false,
-                            receiver: Box::new(expr_tmp),
+                            receiver: Box::new(lhs_expr),
                             method: symbol(meth),
                             method_range: token.range,
                             args: vec![rhs],
@@ -493,11 +493,11 @@ impl<'a> Parser<'a> {
                 _ => break,
             }
         }
-        expr
+        lhs
     }
 
     fn parse_expr_lv_additive(&mut self, diag: &mut Vec<Diagnostic>, prec: PrecCtx) -> ExprLike {
-        let mut expr = self.parse_expr_lv_multiplicative(diag, prec);
+        let mut lhs = self.parse_expr_lv_multiplicative(diag, prec);
         loop {
             let token = self.fill_token(diag, LexerState::End);
             match token.kind {
@@ -511,16 +511,16 @@ impl<'a> Parser<'a> {
                     let rhs = self
                         .parse_expr_lv_multiplicative(diag, prec.with_invalid_command())
                         .into_expr();
-                    let expr_tmp = expr.into_expr();
-                    expr = ExprLike::Expr(
+                    let lhs_expr = lhs.into_expr();
+                    lhs = ExprLike::Expr(
                         CallExpr {
-                            range: *expr_tmp.outer_range() | *rhs.outer_range(),
+                            range: *lhs_expr.outer_range() | *rhs.outer_range(),
                             parens: Vec::new(),
 
                             style: CallStyle::BinOp,
                             private: false,
                             optional: false,
-                            receiver: Box::new(expr_tmp),
+                            receiver: Box::new(lhs_expr),
                             method: symbol(meth),
                             method_range: token.range,
                             args: vec![rhs],
@@ -531,7 +531,7 @@ impl<'a> Parser<'a> {
                 _ => break,
             }
         }
-        expr
+        lhs
     }
 
     fn parse_expr_lv_multiplicative(
@@ -539,7 +539,7 @@ impl<'a> Parser<'a> {
         diag: &mut Vec<Diagnostic>,
         prec: PrecCtx,
     ) -> ExprLike {
-        let mut expr = self.parse_expr_lv_exponential(diag, prec);
+        let mut lhs = self.parse_expr_lv_exponential(diag, prec);
         loop {
             let token = self.fill_token(diag, LexerState::End);
             match token.kind {
@@ -554,16 +554,16 @@ impl<'a> Parser<'a> {
                     let rhs = self
                         .parse_expr_lv_exponential(diag, prec.with_invalid_command())
                         .into_expr();
-                    let expr_tmp = expr.into_expr();
-                    expr = ExprLike::Expr(
+                    let lhs_expr = lhs.into_expr();
+                    lhs = ExprLike::Expr(
                         CallExpr {
-                            range: *expr_tmp.outer_range() | *rhs.outer_range(),
+                            range: *lhs_expr.outer_range() | *rhs.outer_range(),
                             parens: Vec::new(),
 
                             style: CallStyle::BinOp,
                             private: false,
                             optional: false,
-                            receiver: Box::new(expr_tmp),
+                            receiver: Box::new(lhs_expr),
                             method: symbol(meth),
                             method_range: token.range,
                             args: vec![rhs],
@@ -574,11 +574,11 @@ impl<'a> Parser<'a> {
                 _ => break,
             }
         }
-        expr
+        lhs
     }
 
     fn parse_expr_lv_exponential(&mut self, diag: &mut Vec<Diagnostic>, prec: PrecCtx) -> ExprLike {
-        let expr = self.parse_expr_lv_unary(diag, prec);
+        let lhs = self.parse_expr_lv_unary(diag, prec);
         let token = self.fill_token(diag, LexerState::End);
         match token.kind {
             TokenKind::StarStar => {
@@ -590,7 +590,7 @@ impl<'a> Parser<'a> {
                 let rhs = self
                     .parse_expr_lv_exponential(diag, prec.with_invalid_command())
                     .into_expr();
-                match self.reparse_minus(expr.into_expr()) {
+                match self.reparse_minus(lhs.into_expr()) {
                     Ok((minus_range, lhs)) => ExprLike::Expr(
                         CallExpr {
                             range: minus_range | *rhs.outer_range(),
@@ -637,7 +637,7 @@ impl<'a> Parser<'a> {
                     ),
                 }
             }
-            _ => expr,
+            _ => lhs,
         }
     }
 
@@ -672,18 +672,18 @@ impl<'a> Parser<'a> {
                     _ => unreachable!(),
                 };
                 self.bump();
-                let expr = self
+                let inner = self
                     .parse_expr_lv_unary(diag, prec.with_invalid_command())
                     .into_expr();
                 ExprLike::Expr(
                     CallExpr {
-                        range: token.range | *expr.outer_range(),
+                        range: token.range | *inner.outer_range(),
                         parens: Vec::new(),
 
                         style: CallStyle::UnOp,
                         private: false,
                         optional: false,
-                        receiver: Box::new(expr),
+                        receiver: Box::new(inner),
                         method: symbol(meth),
                         method_range: token.range,
                         args: vec![],
@@ -700,7 +700,7 @@ impl<'a> Parser<'a> {
         diag: &mut Vec<Diagnostic>,
         prec: PrecCtx,
     ) -> ExprLike {
-        let expr = self.parse_expr_lv_call_like(diag);
+        let lhs = self.parse_expr_lv_call_like(diag);
         if prec.invalid_command {
             let token = self.fill_token(diag, LexerState::End);
             if is_cmdarg_begin(&token) {
@@ -709,16 +709,16 @@ impl<'a> Parser<'a> {
                     message: format!("non-parenthesized calls are not allowed in this context"),
                 });
                 let (args, args_range) = self.parse_cmd_args(diag);
-                let expr_tmp = expr.into_expr();
+                let lhs_expr = lhs.into_expr();
                 return ExprLike::Expr(
                     CallExpr {
-                        range: *expr_tmp.outer_range() | args_range,
+                        range: *lhs_expr.outer_range() | args_range,
                         parens: Vec::new(),
 
                         style: CallStyle::CallOp,
                         private: false,
                         optional: false,
-                        receiver: Box::new(expr_tmp),
+                        receiver: Box::new(lhs_expr),
                         method: symbol("call"),
                         method_range: token.range,
                         args,
@@ -727,18 +727,18 @@ impl<'a> Parser<'a> {
                 );
             }
         }
-        expr
+        lhs
     }
 
     fn parse_expr_lv_call_like(&mut self, diag: &mut Vec<Diagnostic>) -> ExprLike {
-        let mut expr = self.parse_expr_lv_primary(diag);
+        let mut lhs = self.parse_expr_lv_primary(diag);
         loop {
             let token = self.fill_token(diag, LexerState::End);
             match token.kind {
                 TokenKind::LParen => {
                     let (args, args_range) = self.parse_paren_args(diag);
-                    expr = expr.callify();
-                    match expr {
+                    lhs = lhs.callify();
+                    match lhs {
                         ExprLike::ArglessCall {
                             range,
                             style,
@@ -748,7 +748,7 @@ impl<'a> Parser<'a> {
                             method,
                             method_range,
                         } => {
-                            expr = ExprLike::BlocklessCall {
+                            lhs = ExprLike::BlocklessCall {
                                 range: range | args_range,
                                 style,
                                 private,
@@ -764,16 +764,16 @@ impl<'a> Parser<'a> {
                                 range: token.range,
                                 message: format!("Need a dot to call an expression"),
                             });
-                            let expr_tmp = expr.into_expr();
-                            expr = ExprLike::Expr(
+                            let lhs_expr = lhs.into_expr();
+                            lhs = ExprLike::Expr(
                                 CallExpr {
-                                    range: *expr_tmp.outer_range() | args_range,
+                                    range: *lhs_expr.outer_range() | args_range,
                                     parens: Vec::new(),
 
                                     style: CallStyle::CallOp,
                                     private: false,
                                     optional: false,
-                                    receiver: Box::new(expr_tmp),
+                                    receiver: Box::new(lhs_expr),
                                     method: symbol("call"),
                                     method_range: token.range,
                                     args,
@@ -784,7 +784,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 TokenKind::Dot | TokenKind::AmpDot | TokenKind::ColonColon => {
-                    let private = if let ExprLike::Expr(Expr::Self_(expr)) = &expr {
+                    let private = if let ExprLike::Expr(Expr::Self_(expr)) = &lhs {
                         expr.parens.is_empty()
                     } else {
                         false
@@ -797,13 +797,13 @@ impl<'a> Parser<'a> {
                         TokenKind::LParen => {
                             // expr.(args)
                             let (args, args_range) = self.parse_paren_args(diag);
-                            let expr_tmp = expr.into_expr();
-                            expr = ExprLike::BlocklessCall {
-                                range: *expr_tmp.outer_range() | args_range,
+                            let lhs_expr = lhs.into_expr();
+                            lhs = ExprLike::BlocklessCall {
+                                range: *lhs_expr.outer_range() | args_range,
                                 style: CallStyle::Dot,
                                 private,
                                 optional,
-                                receiver: Box::new(expr_tmp),
+                                receiver: Box::new(lhs_expr),
                                 method: symbol("call"),
                                 method_range: token.range,
                                 args,
@@ -813,11 +813,11 @@ impl<'a> Parser<'a> {
                             self.bump();
                             // expr::Const
                             let s = self.select(token.range);
-                            let expr_tmp = expr.into_expr();
-                            expr = ExprLike::Const {
-                                range: *expr_tmp.outer_range() | token.range,
+                            let lhs_expr = lhs.into_expr();
+                            lhs = ExprLike::Const {
+                                range: *lhs_expr.outer_range() | token.range,
                                 private,
-                                receiver: ConstReceiver::Expr(Box::new(expr_tmp)),
+                                receiver: ConstReceiver::Expr(Box::new(lhs_expr)),
                                 name: s.to_estring().asciified(),
                             };
                         }
@@ -825,13 +825,13 @@ impl<'a> Parser<'a> {
                             self.bump();
                             // expr.meth
                             let s = self.select(token.range);
-                            let expr_tmp = expr.into_expr();
-                            expr = ExprLike::ArglessCall {
-                                range: *expr_tmp.outer_range() | token.range,
+                            let lhs_expr = lhs.into_expr();
+                            lhs = ExprLike::ArglessCall {
+                                range: *lhs_expr.outer_range() | token.range,
                                 style: CallStyle::Dot,
                                 private,
                                 optional,
-                                receiver: Box::new(expr_tmp),
+                                receiver: Box::new(lhs_expr),
                                 method: s.to_estring().asciified(),
                                 method_range: token.range,
                             };
@@ -841,13 +841,13 @@ impl<'a> Parser<'a> {
                                 range: token.range,
                                 message: format!("unexpected token"),
                             });
-                            let expr_tmp = expr.into_expr();
-                            expr = ExprLike::ArglessCall {
-                                range: *expr_tmp.outer_range() | token.range,
+                            let lhs_expr = lhs.into_expr();
+                            lhs = ExprLike::ArglessCall {
+                                range: *lhs_expr.outer_range() | token.range,
                                 style: CallStyle::Dot,
                                 private,
                                 optional,
-                                receiver: Box::new(expr_tmp),
+                                receiver: Box::new(lhs_expr),
                                 method: symbol(""),
                                 method_range: token.range,
                             };
@@ -857,8 +857,8 @@ impl<'a> Parser<'a> {
                 TokenKind::At => {
                     self.bump();
                     let ty = self.parse_type(diag);
-                    let expr_tmp = expr.into_expr();
-                    expr = ExprLike::Expr(match expr_tmp {
+                    let lhs_expr = lhs.into_expr();
+                    lhs = ExprLike::Expr(match lhs_expr {
                         Expr::LocalVariable(mut e) => {
                             let ty_range = *ty.range();
                             e.type_annotation = Some(TypeAnnotation {
@@ -873,7 +873,7 @@ impl<'a> Parser<'a> {
                                 range: token.range | *ty.range(),
                                 message: format!("non-annotatable expression"),
                             });
-                            expr_tmp
+                            lhs_expr
                         }
                     });
                 }
@@ -881,7 +881,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        expr
+        lhs
     }
 
     fn parse_expr_lv_primary(&mut self, diag: &mut Vec<Diagnostic>) -> ExprLike {
