@@ -1,5 +1,6 @@
 mod catalog;
 mod charplus;
+mod estr;
 mod estring;
 mod iface;
 mod impls;
@@ -8,7 +9,8 @@ use std::{collections::HashMap, sync::LazyLock};
 
 pub use catalog::Encoding;
 pub use charplus::CharPlus;
-pub use estring::{EStrMut, EStrRef, EString};
+pub use estr::{Chars, EStrMut, EStrRef};
+pub use estring::EString;
 use iface::{EncNext, EncodingImpl};
 
 struct AsciiCaseInsensitive<'a>(&'a str);
