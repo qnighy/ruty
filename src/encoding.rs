@@ -53,6 +53,14 @@ impl Encoding {
         self.aliases_impl()
     }
 
+    pub fn is_stateless(&self) -> bool {
+        self.encoding_impl().is_stateless()
+    }
+
+    pub fn is_ascii_compatible(&self) -> bool {
+        self.encoding_impl().is_ascii_compatible()
+    }
+
     pub fn next_len(&self, bytes: &[u8], mut state: EncodingState) -> usize {
         if bytes.is_empty() {
             return 0;

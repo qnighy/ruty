@@ -580,7 +580,7 @@ impl<'a> Lexer<'a> {
     // }
 
     pub(super) fn bytes(&self) -> &'a [u8] {
-        self.input.bytes()
+        self.input.as_bytes()
     }
 
     pub(super) fn pos(&self) -> usize {
@@ -1581,7 +1581,7 @@ mod tests {
             if token.kind == TokenKind::EOF {
                 break;
             }
-            state = next_state_for_testing(&token, input.bytes(), state);
+            state = next_state_for_testing(&token, input.as_bytes(), state);
             tokens.push(token);
         }
         tokens

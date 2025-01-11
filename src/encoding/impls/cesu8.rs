@@ -6,6 +6,9 @@ impl EncodingImpl for Cesu8Impl {
     fn is_stateless(&self) -> bool {
         true
     }
+    fn is_ascii_compatible(&self) -> bool {
+        true
+    }
     fn next_char(&self, bytes: &[u8], _state: EncodingState) -> EncNext {
         let has_cont = |len: usize| len <= bytes.len() && bytes[1..len].iter().all(|&b| is_cont(b));
         let b0 = bytes[0];

@@ -6,6 +6,9 @@ impl EncodingImpl for Ascii8bitImpl {
     fn is_stateless(&self) -> bool {
         true
     }
+    fn is_ascii_compatible(&self) -> bool {
+        true
+    }
     fn next_char(&self, bytes: &[u8], _state: EncodingState) -> EncNext {
         EncNext::Valid {
             len: 1,

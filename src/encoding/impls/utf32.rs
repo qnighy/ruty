@@ -22,6 +22,9 @@ impl<const LE: bool, const BOM: bool> EncodingImpl for Utf32Impl<LE, BOM> {
     fn is_stateless(&self) -> bool {
         !BOM
     }
+    fn is_ascii_compatible(&self) -> bool {
+        false
+    }
     fn next_char(&self, bytes: &[u8], state: EncodingState) -> EncNext {
         if bytes.len() < 4 {
             return EncNext::Invalid { len: 1 };

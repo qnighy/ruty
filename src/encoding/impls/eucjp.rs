@@ -9,6 +9,9 @@ impl EncodingImpl for EucJpImpl {
     fn is_stateless(&self) -> bool {
         true
     }
+    fn is_ascii_compatible(&self) -> bool {
+        true
+    }
     fn next_char(&self, bytes: &[u8], _state: EncodingState) -> EncNext {
         match bytes[0] {
             b0 @ 0x00..0x80 => EncNext::Valid {

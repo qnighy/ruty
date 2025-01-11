@@ -1,9 +1,11 @@
 use std::fmt;
 
-use crate::encoding::{CharPlus, EncNext, Encoding, EncodingImpl, EncodingState};
+use crate::encoding::{CharPlus, EString, EncNext, Encoding, EncodingImpl, EncodingState};
 
 use super::charplus::SmallBytes;
 
+/// Equivalent to [`&'a str`][str] but with encoding information.
+/// Additionally, it can contain invalid byte sequences.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EStrRef<'a> {
     bytes: &'a [u8],
@@ -28,9 +30,95 @@ impl<'a> EStrRef<'a> {
         }
     }
 
-    pub fn bytes(&self) -> &'a [u8] {
+    pub const fn len(&self) -> usize {
+        self.bytes.len()
+    }
+
+    pub const fn is_empty(&self) -> bool {
+        self.bytes.is_empty()
+    }
+
+    // pub fn is_char_boundary(&self, index: usize) -> bool {}
+
+    pub const fn as_bytes(&self) -> &'a [u8] {
         self.bytes
     }
+
+    pub const fn as_ptr(&self) -> *const u8 {
+        self.bytes.as_ptr()
+    }
+
+    // pub fn get<I>(&self, index: I) -> Option<EStrRef<'a>> {}
+    // pub unsafe fn get_unchecked<I>(&self, index: I) -> EStrRef<'a> {}
+
+    // pub fn split_at(&self, mid: usize) -> (EStrRef<'a>, EStrRef<'a>) {}
+    // pub fn split_at_checked(&self, mid: usize) -> Option<(EStrRef<'a>, EStrRef<'a>)> {}
+
+    pub fn chars(&self) -> Chars<'a> {
+        Chars {
+            bytes: self.bytes,
+            encoding: self.encoding,
+            enc_impl: self.encoding.encoding_impl(),
+            state: self.state,
+        }
+    }
+
+    // pub fn char_indices(&self) -> CharIndices<'a> {}
+    // pub fn bytes(&self) -> Bytes<'a> {}
+
+    // pub fn split_whitespace(&self) -> SplitWhitespace<'_>
+    // pub fn split_ascii_whitespace(&self) -> SplitAsciiWhitespace<'_>
+    // pub fn lines(&self) -> Lines<'_>
+
+    // pub fn contains<P>(&self, pat: P) -> bool
+    // pub fn starts_with<P>(&self, pat: P) -> bool
+    // pub fn ends_with<P>(&self, pat: P) -> bool
+    // pub fn find<P>(&self, pat: P) -> Option<usize>
+    // pub fn rfind<P>(&self, pat: P) -> Option<usize>
+    // pub fn split<P>(&self, pat: P) -> Split<'_, P>
+    // pub fn split_inclusive<P>(&self, pat: P) -> SplitInclusive<'_, P>
+    // pub fn rsplit<P>(&self, pat: P) -> RSplit<'_, P>
+    // pub fn split_terminator<P>(&self, pat: P) -> SplitTerminator<'_, P>
+    // pub fn rsplit_terminator<P>(&self, pat: P) -> RSplitTerminator<'_, P>
+    // pub fn splitn<P>(&self, n: usize, pat: P) -> SplitN<'_, P>
+    // pub fn rsplitn<P>(&self, n: usize, pat: P) -> RSplitN<'_, P>
+    // pub fn split_once<P>(&self, delimiter: P) -> Option<(&str, &str)>
+    // pub fn rsplit_once<P>(&self, delimiter: P) -> Option<(&str, &str)>
+    // pub fn matches<P>(&self, pat: P) -> Matches<'_, P>
+    // pub fn rmatches<P>(&self, pat: P) -> RMatches<'_, P>
+    // pub fn match_indices<P>(&self, pat: P) -> MatchIndices<'_, P>
+    // pub fn rmatch_indices<P>(&self, pat: P) -> RMatchIndices<'_, P>
+
+    // pub fn trim(&self) -> &str
+    // pub fn trim_start(&self) -> &str
+    // pub fn trim_end(&self) -> &str
+    // pub fn trim_matches<P>(&self, pat: P) -> &str
+    // pub fn trim_start_matches<P>(&self, pat: P) -> &str
+    // pub fn strip_prefix<P>(&self, prefix: P) -> Option<&str>
+    // pub fn strip_suffix<P>(&self, suffix: P) -> Option<&str>
+    // pub fn trim_end_matches<P>(&self, pat: P) -> &str
+
+    // pub fn parse<F>(&self) -> Result<F, <F as FromStr>::Err>
+
+    pub fn is_ascii(&self) -> bool {
+        self.encoding.is_ascii_compatible() && self.bytes.is_ascii()
+    }
+
+    // pub fn eq_ignore_ascii_case(&self, other: &str) -> bool
+    // pub const fn trim_ascii_start(&self) -> &str
+    // pub const fn trim_ascii_end(&self) -> &str
+    // pub const fn trim_ascii(&self) -> &str
+    // pub fn escape_debug(&self) -> EscapeDebug<'_>
+    // pub fn escape_default(&self) -> EscapeDefault<'_>
+    // pub fn escape_unicode(&self) -> EscapeUnicode<'_>
+
+    // pub fn replace<P>(&self, from: P, to: &str) -> String
+    // pub fn replacen<P>(&self, pat: P, to: &str, count: usize) -> String
+    // pub fn to_lowercase(&self) -> String
+    // pub fn to_uppercase(&self) -> String
+    // pub fn repeat(&self, n: usize) -> String
+    // pub fn to_ascii_uppercase(&self) -> String
+    // pub fn to_ascii_lowercase(&self) -> String
 
     pub fn encoding(&self) -> Encoding {
         self.encoding
@@ -40,13 +128,9 @@ impl<'a> EStrRef<'a> {
         self.state
     }
 
-    pub fn chars(&self) -> Chars<'a> {
-        Chars {
-            bytes: self.bytes,
-            encoding: self.encoding,
-            enc_impl: self.encoding.encoding_impl(),
-            state: self.state,
-        }
+    pub fn to_estring(&self) -> EString {
+        // TODO: check state
+        EString::from_bytes(self.bytes.to_owned(), self.encoding)
     }
 
     pub fn is_valid(&self) -> bool {
@@ -131,6 +215,8 @@ impl<'a> fmt::Debug for EStrRef<'a> {
     }
 }
 
+/// Equivalent to [`&'a mut str`][str] but with encoding information.
+/// Additionally, it can contain invalid byte sequences.
 #[derive(PartialEq, Eq, Hash)]
 pub struct EStrMut<'a> {
     bytes: &'a mut [u8],
@@ -159,21 +245,97 @@ impl<'a> EStrMut<'a> {
         }
     }
 
-    pub fn reborrow(&self) -> EStrRef<'_> {
-        EStrRef::from_bytes_and_state(self.bytes, self.encoding, self.state)
+    pub const fn len(&self) -> usize {
+        self.bytes.len()
     }
 
-    pub fn reborrow_mut(&mut self) -> EStrMut<'_> {
-        EStrMut::from_bytes_and_state(self.bytes, self.encoding, self.state)
+    pub const fn is_empty(&self) -> bool {
+        self.bytes.is_empty()
     }
 
-    pub fn bytes(&self) -> &[u8] {
+    // pub fn is_char_boundary(&self, index: usize) -> bool {}
+
+    pub fn as_bytes(&self) -> &[u8] {
         self.bytes
     }
 
-    pub fn bytes_mut(&mut self) -> &mut [u8] {
+    pub fn as_bytes_mut(&mut self) -> &mut [u8] {
         self.bytes
     }
+
+    pub const fn as_ptr(&self) -> *const u8 {
+        self.bytes.as_ptr()
+    }
+
+    // pub fn get<I>(&self, index: I) -> Option<EStrRef<'a>> {}
+    // pub unsafe fn get_unchecked<I>(&self, index: I) -> EStrRef<'a> {}
+    // pub unsafe fn get_unchecked_mut<I>(self, index: I) -> EStrMut<'a> {}
+
+    // pub fn split_at(&self, mid: usize) -> (EStrRef<'a>, EStrRef<'a>) {}
+    // pub fn split_at_mut(self, mid: usize) -> (EStrMut<'a>, EStrMut<'a>) {}
+    // pub fn split_at_checked(&self, mid: usize) -> Option<(EStrRef<'a>, EStrRef<'a>)> {}
+    // pub fn split_at_mut_checked(self, mid: usize) -> Option<(EStrMut<'a>, EStrMut<'a>)> {}
+
+    pub fn chars(&self) -> Chars<'_> {
+        self.reborrow().chars()
+    }
+
+    // pub fn char_indices(&self) -> CharIndices<'a> {}
+    // pub fn bytes(&self) -> Bytes<'a> {}
+
+    // pub fn split_whitespace(&self) -> SplitWhitespace<'_>
+    // pub fn split_ascii_whitespace(&self) -> SplitAsciiWhitespace<'_>
+    // pub fn lines(&self) -> Lines<'_>
+
+    // pub fn contains<P>(&self, pat: P) -> bool
+    // pub fn starts_with<P>(&self, pat: P) -> bool
+    // pub fn ends_with<P>(&self, pat: P) -> bool
+    // pub fn find<P>(&self, pat: P) -> Option<usize>
+    // pub fn rfind<P>(&self, pat: P) -> Option<usize>
+    // pub fn split<P>(&self, pat: P) -> Split<'_, P>
+    // pub fn split_inclusive<P>(&self, pat: P) -> SplitInclusive<'_, P>
+    // pub fn rsplit<P>(&self, pat: P) -> RSplit<'_, P>
+    // pub fn split_terminator<P>(&self, pat: P) -> SplitTerminator<'_, P>
+    // pub fn rsplit_terminator<P>(&self, pat: P) -> RSplitTerminator<'_, P>
+    // pub fn splitn<P>(&self, n: usize, pat: P) -> SplitN<'_, P>
+    // pub fn rsplitn<P>(&self, n: usize, pat: P) -> RSplitN<'_, P>
+    // pub fn split_once<P>(&self, delimiter: P) -> Option<(&str, &str)>
+    // pub fn rsplit_once<P>(&self, delimiter: P) -> Option<(&str, &str)>
+    // pub fn matches<P>(&self, pat: P) -> Matches<'_, P>
+    // pub fn rmatches<P>(&self, pat: P) -> RMatches<'_, P>
+    // pub fn match_indices<P>(&self, pat: P) -> MatchIndices<'_, P>
+    // pub fn rmatch_indices<P>(&self, pat: P) -> RMatchIndices<'_, P>
+
+    // pub fn trim(&self) -> &str
+    // pub fn trim_start(&self) -> &str
+    // pub fn trim_end(&self) -> &str
+    // pub fn trim_matches<P>(&self, pat: P) -> &str
+    // pub fn trim_start_matches<P>(&self, pat: P) -> &str
+    // pub fn strip_prefix<P>(&self, prefix: P) -> Option<&str>
+    // pub fn strip_suffix<P>(&self, suffix: P) -> Option<&str>
+    // pub fn trim_end_matches<P>(&self, pat: P) -> &str
+
+    // pub fn parse<F>(&self) -> Result<F, <F as FromStr>::Err>
+
+    pub fn is_ascii(&self) -> bool {
+        self.encoding.is_ascii_compatible() && self.bytes.is_ascii()
+    }
+
+    // pub fn eq_ignore_ascii_case(&self, other: &str) -> bool
+    // pub const fn trim_ascii_start(&self) -> &str
+    // pub const fn trim_ascii_end(&self) -> &str
+    // pub const fn trim_ascii(&self) -> &str
+    // pub fn escape_debug(&self) -> EscapeDebug<'_>
+    // pub fn escape_default(&self) -> EscapeDefault<'_>
+    // pub fn escape_unicode(&self) -> EscapeUnicode<'_>
+
+    // pub fn replace<P>(&self, from: P, to: &str) -> String
+    // pub fn replacen<P>(&self, pat: P, to: &str, count: usize) -> String
+    // pub fn to_lowercase(&self) -> String
+    // pub fn to_uppercase(&self) -> String
+    // pub fn repeat(&self, n: usize) -> String
+    // pub fn to_ascii_uppercase(&self) -> String
+    // pub fn to_ascii_lowercase(&self) -> String
 
     pub fn encoding(&self) -> Encoding {
         self.encoding
@@ -181,6 +343,26 @@ impl<'a> EStrMut<'a> {
 
     pub fn state(&self) -> EncodingState {
         self.state
+    }
+
+    pub fn to_estring(&self) -> EString {
+        self.reborrow().to_estring()
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.reborrow().is_valid()
+    }
+
+    pub fn starts_with_ruby_uppercase(&self) -> bool {
+        self.reborrow().starts_with_ruby_uppercase()
+    }
+
+    pub fn reborrow(&self) -> EStrRef<'_> {
+        EStrRef::from_bytes_and_state(self.bytes, self.encoding, self.state)
+    }
+
+    pub fn reborrow_mut(&mut self) -> EStrMut<'_> {
+        EStrMut::from_bytes_and_state(self.bytes, self.encoding, self.state)
     }
 }
 
