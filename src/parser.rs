@@ -62,7 +62,15 @@ impl<'a> Parser<'a> {
             lv.push(local.clone());
         }
         let lv_checkpoint = lv.checkpoint();
-        let body = self.parse_stmt_list(diag, &mut lv);
+        let body = self.parse_stmt_list(
+            diag,
+            &mut lv,
+            BailCtx {
+                end_style: EndStyle::EOF,
+                indent: 0,
+                ..Default::default()
+            },
+        );
         let token = self.fill_token(diag, LexerState::End);
         match token.kind {
             TokenKind::EOF => {}
@@ -84,18 +92,19 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_stmt_list(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> Expr {
+    fn parse_stmt_list(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        lv: &mut LVCtx,
+        bail: BailCtx,
+    ) -> Expr {
         let mut separator_prefix = Vec::<StmtSep>::new();
         let mut stmts = Vec::<Stmt>::new();
         let mut range = DUMMY_RANGE;
         loop {
             let token = self.fill_token(diag, LexerState::Begin);
             match token.kind {
-                TokenKind::EOF
-                | TokenKind::RParen
-                | TokenKind::RBrace
-                | TokenKind::RBracket
-                | TokenKind::KeywordEnd => break,
+                _ if bail.should_bail(&token) => break,
                 TokenKind::Semicolon | TokenKind::Newline => {
                     range |= token.range;
                     self.bump();
@@ -1169,7 +1178,15 @@ impl<'a> Parser<'a> {
                         TokenKind::StringInterpolationBegin => {
                             self.bump();
                             let open_range = token.range;
-                            let inner = self.parse_stmt_list(diag, lv);
+                            let inner = self.parse_stmt_list(
+                                diag,
+                                lv,
+                                BailCtx {
+                                    end_style: EndStyle::RBrace,
+                                    indent: token.indent,
+                                    ..Default::default()
+                                },
+                            );
                             let token = self.fill_token(diag, LexerState::End);
                             if let TokenKind::RBrace = token.kind {
                                 self.bump();
@@ -1227,7 +1244,15 @@ impl<'a> Parser<'a> {
                 let open_range = token.range;
                 self.bump();
                 self.fill_token(diag, LexerState::BeginLabelable);
-                let expr = self.parse_stmt_list(diag, lv);
+                let expr = self.parse_stmt_list(
+                    diag,
+                    lv,
+                    BailCtx {
+                        end_style: EndStyle::RParen,
+                        indent: token.indent,
+                        ..Default::default()
+                    },
+                );
                 let close_range = loop {
                     let token = self.fill_token(diag, LexerState::End);
                     match token.kind {
@@ -1489,6 +1514,87 @@ impl PrecCtx {
             ..self
         }
     }
+}
+
+/// Describes how a closed-world parsing function (i.e. consumes unknown tokens by default)
+/// should behave when it encounters certain tokens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+struct BailCtx {
+    /// End parsing when `,` is encountered.
+    bail_on_comma: bool,
+    /// End parsing when `;` or newline is encountered.
+    bail_on_semicolon: bool,
+    /// Expected token to end the expression or such.
+    end_style: EndStyle,
+    /// Expected indentation level.
+    /// Used after paren mismatch is detected so that we can recover from the error
+    /// in a more graceful way.
+    indent: usize,
+}
+
+impl BailCtx {
+    fn should_bail(self, token: &Token) -> bool {
+        match token.kind {
+            TokenKind::RParen
+            | TokenKind::RBracket
+            | TokenKind::RBrace
+            | TokenKind::KeywordEnd
+            | TokenKind::EOF => {
+                let exact_match = match (self.end_style, token.kind) {
+                    (EndStyle::RParen, TokenKind::RParen)
+                    | (EndStyle::RBracket, TokenKind::RBracket)
+                    | (EndStyle::RBrace, TokenKind::RBrace)
+                    | (EndStyle::End, TokenKind::KeywordEnd)
+                    | (EndStyle::EOF, TokenKind::EOF) => true,
+                    _ => false,
+                };
+                if exact_match {
+                    return true;
+                }
+                if token.indent > self.indent {
+                    // Token too deep. Assume it's an extra closing delimiter.
+                    return false;
+                } else if token.indent < self.indent {
+                    // Token too shallow. Assume there's a missing closing delimiter.
+                    return true;
+                }
+                let token_tier = match token.kind {
+                    TokenKind::RParen => 2,
+                    TokenKind::RBracket => 2,
+                    TokenKind::RBrace => 2,
+                    TokenKind::KeywordEnd => 1,
+                    TokenKind::EOF => 0,
+                    _ => unreachable!(),
+                };
+                let self_tier = match self.end_style {
+                    EndStyle::RParen => 2,
+                    EndStyle::RBracket => 2,
+                    EndStyle::RBrace => 2,
+                    EndStyle::End => 1,
+                    EndStyle::EOF => 0,
+                };
+                token_tier <= self_tier
+            }
+            TokenKind::Comma => self.bail_on_comma,
+            TokenKind::Semicolon | TokenKind::Newline => self.bail_on_semicolon,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+enum EndStyle {
+    /// Expects `)` as the final delimiter.
+    RParen,
+    /// Expects `]` as the final delimiter.
+    RBracket,
+    /// Expects `}` as the final delimiter.
+    RBrace,
+    /// Expects `end` as the final delimiter.
+    End,
+    /// Expects EOF as the final delimiter.
+    #[default]
+    EOF,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
