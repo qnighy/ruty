@@ -1446,10 +1446,19 @@ impl<'a> Parser<'a> {
     }
 
     fn bump(&mut self) {
-        if self.next_token.is_some() {
-            self.next_token = None;
-        } else {
-            panic!("bump: no token to bump");
+        match self.next_token {
+            Some(Token {
+                kind: TokenKind::EOF,
+                ..
+            }) => {
+                // do nothing
+            }
+            Some(_) => {
+                self.next_token = None;
+            }
+            None => {
+                panic!("bump: no token to bump");
+            }
         }
     }
 
