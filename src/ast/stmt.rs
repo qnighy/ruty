@@ -7,18 +7,9 @@ use crate::{
 pub struct Stmt {
     pub range: CodeRange,
 
+    pub separator_prefix: Vec<StmtSep>,
     pub expr: Expr,
-
-    pub semi: Vec<StmtSep>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct StmtList {
-    pub range: CodeRange,
-
-    pub semi_prefix: Vec<StmtSep>,
-
-    pub stmts: Vec<Stmt>,
+    pub separator_suffix: Vec<StmtSep>,
 }
 
 /// Operators separating statements.
@@ -43,5 +34,5 @@ pub struct Program {
     pub range: CodeRange,
 
     pub locals: Vec<EString>,
-    pub stmt_list: StmtList,
+    pub body: Expr,
 }

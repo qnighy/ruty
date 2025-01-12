@@ -1,5 +1,5 @@
 use crate::{
-    ast::{CodeRange, Paren, StmtList, TypeAnnotation, WriteTarget},
+    ast::{CodeRange, Paren, Stmt, TypeAnnotation, WriteTarget},
     EString,
 };
 
@@ -82,27 +82,24 @@ pub struct SeqExpr {
     pub range: CodeRange,
     pub parens: Vec<Paren>,
 
-    pub paren: SeqParen,
-    pub stmt_list: StmtList,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SeqParen {
-    pub kind: SeqParenKind,
-    pub open_range: CodeRange,
-    pub close_range: CodeRange,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SeqParenKind {
-    Paren,
-    BeginEnd,
+    pub statements: Vec<Stmt>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NilExpr {
     pub range: CodeRange,
     pub parens: Vec<Paren>,
+
+    pub style: NilStyle,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum NilStyle {
+    /// The `nil` keyword.
+    Keyword,
+    /// Implied nil, such as a part of `()` or `begin end`
+    /// In this case, the parser records a dummy range.
+    Implicit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -174,7 +171,7 @@ pub struct InterpolationContent {
 
     pub open_range: CodeRange,
     pub close_range: CodeRange,
-    pub stmt_list: StmtList,
+    pub expr: Expr,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

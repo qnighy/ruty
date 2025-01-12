@@ -2,19 +2,24 @@ use std::{collections::HashMap, sync::LazyLock};
 
 use crate::{
     ast::{
-        ErrorType, Expr, FalseType, IntegerType, NilType, Program, RegexpType, StmtList,
-        StringContent, StringType, TrueType, Type, TypeAnnotation, WriteTarget, DUMMY_RANGE,
+        ErrorType, Expr, FalseType, IntegerType, NilType, Program, RegexpType, StringContent,
+        StringType, TrueType, Type, TypeAnnotation, WriteTarget, DUMMY_RANGE,
     },
     Diagnostic, EString,
 };
 
 pub fn typecheck_program(diag: &mut Vec<Diagnostic>, program: &Program) {
-    typecheck_stmt_list(diag, &program.stmt_list);
+    typecheck_expr(diag, &program.body);
 }
 
 fn typecheck_expr(diag: &mut Vec<Diagnostic>, expr: &Expr) -> Type {
     match expr {
-        Expr::Seq(expr) => typecheck_stmt_list(diag, &expr.stmt_list),
+        Expr::Seq(expr) => {
+            for stmt in &expr.statements[..expr.statements.len() - 1] {
+                typecheck_expr(diag, &stmt.expr);
+            }
+            typecheck_expr(diag, &expr.statements[expr.statements.len() - 1].expr)
+        }
         Expr::Nil(_) => NilType { range: DUMMY_RANGE }.into(),
         Expr::False(_) => FalseType { range: DUMMY_RANGE }.into(),
         Expr::True(_) => TrueType { range: DUMMY_RANGE }.into(),
@@ -23,7 +28,7 @@ fn typecheck_expr(diag: &mut Vec<Diagnostic>, expr: &Expr) -> Type {
             for content in &expr.contents {
                 match content {
                     StringContent::Interpolation(content) => {
-                        typecheck_stmt_list(diag, &content.stmt_list);
+                        typecheck_expr(diag, &content.expr);
                     }
                     StringContent::Text(_) => {}
                 }
@@ -34,7 +39,7 @@ fn typecheck_expr(diag: &mut Vec<Diagnostic>, expr: &Expr) -> Type {
             for content in &expr.contents {
                 match content {
                     StringContent::Interpolation(content) => {
-                        typecheck_stmt_list(diag, &content.stmt_list);
+                        typecheck_expr(diag, &content.expr);
                     }
                     StringContent::Text(_) => {}
                 }
@@ -45,7 +50,7 @@ fn typecheck_expr(diag: &mut Vec<Diagnostic>, expr: &Expr) -> Type {
             for content in &expr.contents {
                 match content {
                     StringContent::Interpolation(content) => {
-                        typecheck_stmt_list(diag, &content.stmt_list);
+                        typecheck_expr(diag, &content.expr);
                     }
                     StringContent::Text(_) => {}
                 }
@@ -162,18 +167,6 @@ fn typecheck_expr(diag: &mut Vec<Diagnostic>, expr: &Expr) -> Type {
             });
             ErrorType { range: DUMMY_RANGE }.into()
         }
-    }
-}
-
-fn typecheck_stmt_list(diag: &mut Vec<Diagnostic>, stmt_list: &StmtList) -> Type {
-    let stmts = &stmt_list.stmts;
-    if stmts.is_empty() {
-        NilType { range: DUMMY_RANGE }.into()
-    } else {
-        for stmt in &stmts[..stmts.len() - 1] {
-            typecheck_expr(diag, &stmt.expr);
-        }
-        typecheck_expr(diag, &stmts[stmts.len() - 1].expr)
     }
 }
 

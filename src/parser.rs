@@ -1,15 +1,15 @@
 mod lexer;
 
-use std::collections::HashMap;
+use std::{collections::HashMap, mem::take};
 
 use crate::{
     ast::{
         CallExpr, CallStyle, CodeRange, ConstExpr, ConstReceiver, ErrorExpr, ErrorType,
-        ErrorWriteTarget, Expr, FalseExpr, FalseType, IntegerExpr, IntegerType,
-        InterpolationContent, LocalVariableExpr, LocalVariableWriteTarget, NilExpr, NilType,
-        ParenParen, Program, RegexpExpr, RegexpType, SelfExpr, SeqExpr, SeqParen, SeqParenKind,
-        Stmt, StmtList, StmtSep, StmtSepKind, StringContent, StringExpr, StringType, TextContent,
-        TrueExpr, TrueType, Type, TypeAnnotation, WriteExpr, WriteTarget, XStringExpr, DUMMY_RANGE,
+        ErrorWriteTarget, Expr, FalseExpr, FalseType, ImplicitParen, IntegerExpr, IntegerType,
+        InterpolationContent, LocalVariableExpr, LocalVariableWriteTarget, NilExpr, NilStyle,
+        NilType, Paren, ParenParen, Program, RegexpExpr, RegexpType, SelfExpr, SeqExpr, Stmt,
+        StmtSep, StmtSepKind, StringContent, StringExpr, StringType, TextContent, TrueExpr,
+        TrueType, Type, TypeAnnotation, WriteExpr, WriteTarget, XStringExpr, DUMMY_RANGE,
     },
     encoding::EStrRef,
     Diagnostic, EString,
@@ -62,7 +62,7 @@ impl<'a> Parser<'a> {
             lv.push(local.clone());
         }
         let lv_checkpoint = lv.checkpoint();
-        let stmt_list = self.parse_stmt_list(diag, &mut lv);
+        let body = self.parse_stmt_list(diag, &mut lv);
         let token = self.fill_token(diag, LexerState::End);
         match token.kind {
             TokenKind::EOF => {}
@@ -80,14 +80,14 @@ impl<'a> Parser<'a> {
                 end: self.bytes().len(),
             },
             locals,
-            stmt_list,
+            body,
         }
     }
 
-    fn parse_stmt_list(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> StmtList {
-        let start_pos = self.lexer.pos();
-        let mut semi_prefix = Vec::<StmtSep>::new();
+    fn parse_stmt_list(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> Expr {
+        let mut separator_prefix = Vec::<StmtSep>::new();
         let mut stmts = Vec::<Stmt>::new();
+        let mut range = DUMMY_RANGE;
         loop {
             let token = self.fill_token(diag, LexerState::Begin);
             match token.kind {
@@ -97,6 +97,7 @@ impl<'a> Parser<'a> {
                 | TokenKind::RBracket
                 | TokenKind::KeywordEnd => break,
                 TokenKind::Semicolon | TokenKind::Newline => {
+                    range |= token.range;
                     self.bump();
                     let kind = match token.kind {
                         TokenKind::Semicolon => StmtSepKind::Semicolon,
@@ -105,12 +106,12 @@ impl<'a> Parser<'a> {
                     };
                     if let Some(last_stmt) = stmts.last_mut() {
                         last_stmt.range = last_stmt.range | token.range;
-                        last_stmt.semi.push(StmtSep {
+                        last_stmt.separator_suffix.push(StmtSep {
                             range: token.range,
                             kind,
                         });
                     } else {
-                        semi_prefix.push(StmtSep {
+                        separator_prefix.push(StmtSep {
                             range: token.range,
                             kind,
                         });
@@ -118,32 +119,56 @@ impl<'a> Parser<'a> {
                 }
                 _ => {
                     let expr = self.parse_expr_lv_cmd(diag, lv);
+                    range |= *expr.outer_range();
+                    let separator_prefix = take(&mut separator_prefix);
                     stmts.push(Stmt {
                         range: *expr.outer_range(),
                         expr,
-                        semi: Vec::new(),
+                        separator_prefix,
+                        separator_suffix: Vec::new(),
                     });
                 }
             }
         }
-        let start = if let Some(first_semi) = semi_prefix.first() {
-            first_semi.range.start
-        } else if let Some(first_stmt) = stmts.first() {
-            first_stmt.range.start
+        if stmts.is_empty() {
+            // Empty case such as `()` or `(;)`.
+            // In these cases, interpret them like `(nil)` or `(nil;)`.
+            let separator_suffix = take(&mut separator_prefix);
+            stmts.push(Stmt {
+                range,
+                expr: NilExpr {
+                    range: DUMMY_RANGE,
+                    parens: Vec::new(),
+
+                    style: NilStyle::Implicit,
+                }
+                .into(),
+                separator_prefix: Vec::new(),
+                separator_suffix,
+            });
+        }
+        if stmts.len() == 1 {
+            let stmt = stmts.swap_remove(0);
+            let mut expr = stmt.expr;
+            if !stmt.separator_prefix.is_empty() || !stmt.separator_suffix.is_empty() {
+                expr.parens_mut().push(
+                    ImplicitParen {
+                        range: stmt.range,
+                        separator_prefix: stmt.separator_prefix,
+                        separator_suffix: stmt.separator_suffix,
+                    }
+                    .into(),
+                );
+            }
+            expr
         } else {
-            start_pos
-        };
-        let end = if let Some(last_stmt) = stmts.last() {
-            last_stmt.range.end
-        } else if let Some(last_semi) = semi_prefix.last() {
-            last_semi.range.end
-        } else {
-            start_pos
-        };
-        StmtList {
-            range: CodeRange { start, end },
-            semi_prefix,
-            stmts,
+            SeqExpr {
+                range,
+                parens: Vec::new(),
+
+                statements: stmts,
+            }
+            .into()
         }
     }
 
@@ -834,7 +859,17 @@ impl<'a> Parser<'a> {
                                         receiver: Box::new(
                                             NilExpr {
                                                 range: DUMMY_RANGE,
-                                                parens: Vec::new(),
+                                                parens: vec![ParenParen {
+                                                    range,
+                                                    // TODO: put a correct range
+                                                    open_range: DUMMY_RANGE,
+                                                    separator_prefix: vec![],
+                                                    separator_suffix: vec![],
+                                                    // TODO: put a correct range
+                                                    close_range: DUMMY_RANGE,
+                                                }
+                                                .into()],
+                                                style: NilStyle::Implicit,
                                             }
                                             .into(),
                                         ),
@@ -1007,6 +1042,8 @@ impl<'a> Parser<'a> {
                     NilExpr {
                         range: token.range,
                         parens: Vec::new(),
+
+                        style: NilStyle::Keyword,
                     }
                     .into(),
                 )
@@ -1132,7 +1169,7 @@ impl<'a> Parser<'a> {
                         TokenKind::StringInterpolationBegin => {
                             self.bump();
                             let open_range = token.range;
-                            let stmt_list = self.parse_stmt_list(diag, lv);
+                            let inner = self.parse_stmt_list(diag, lv);
                             let token = self.fill_token(diag, LexerState::End);
                             if let TokenKind::RBrace = token.kind {
                                 self.bump();
@@ -1146,7 +1183,7 @@ impl<'a> Parser<'a> {
                                 range: open_range | token.range,
                                 open_range,
                                 close_range: token.range,
-                                stmt_list,
+                                expr: inner,
                             }));
                         }
                         // TokenKind::StringVarInterpolation => {}
@@ -1190,7 +1227,7 @@ impl<'a> Parser<'a> {
                 let open_range = token.range;
                 self.bump();
                 self.fill_token(diag, LexerState::BeginLabelable);
-                let stmt_list = self.parse_stmt_list(diag, lv);
+                let expr = self.parse_stmt_list(diag, lv);
                 let close_range = loop {
                     let token = self.fill_token(diag, LexerState::End);
                     match token.kind {
@@ -1213,34 +1250,35 @@ impl<'a> Parser<'a> {
                         }
                     }
                 };
-                if stmt_list.stmts.len() == 1 {
-                    let separator_prefix = { stmt_list.semi_prefix }.drain(..).collect::<Vec<_>>();
-                    let stmt = { stmt_list.stmts }.swap_remove(0);
-                    let separator_suffix = { stmt.semi }.drain(..).collect::<Vec<_>>();
-                    let mut expr = stmt.expr;
+                // Add paren
+                let mut expr = expr;
+                if matches!(expr.parens().last(), Some(Paren::Implicit(_))) {
+                    let Paren::Implicit(paren) = expr.parens_mut().pop().unwrap() else {
+                        unreachable!();
+                    };
                     expr.parens_mut().push(
                         ParenParen {
                             range: open_range | close_range,
                             open_range,
-                            separator_prefix,
-                            separator_suffix,
+                            separator_prefix: paren.separator_prefix,
+                            separator_suffix: paren.separator_suffix,
                             close_range,
                         }
                         .into(),
                     );
-                    ExprLike::Expr(expr)
                 } else {
-                    ExprLike::Expr(Expr::Seq(SeqExpr {
-                        range: open_range | close_range,
-                        parens: Vec::new(),
-                        paren: SeqParen {
-                            kind: SeqParenKind::Paren,
+                    expr.parens_mut().push(
+                        ParenParen {
+                            range: open_range | close_range,
                             open_range,
+                            separator_prefix: Vec::new(),
+                            separator_suffix: Vec::new(),
                             close_range,
-                        },
-                        stmt_list,
-                    }))
+                        }
+                        .into(),
+                    );
                 }
+                ExprLike::Expr(expr)
             }
             _ => {
                 self.bump();
@@ -1933,12 +1971,13 @@ mod tests {
                 Program {
                     range: pos_in(src, b"x; y\nz", 0),
                     locals: vec![],
-                    stmt_list: StmtList {
+                    body: SeqExpr {
                         range: pos_in(src, b"x; y\nz", 0),
-                        semi_prefix: vec![],
-                        stmts: vec![
+                        parens: vec![],
+                        statements: vec![
                             Stmt {
                                 range: pos_in(src, b"x;", 0),
+                                separator_prefix: vec![],
                                 expr: LocalVariableExpr {
                                     range: pos_in(src, b"x", 0),
                                     parens: vec![],
@@ -1946,13 +1985,14 @@ mod tests {
                                     type_annotation: None,
                                 }
                                 .into(),
-                                semi: vec![StmtSep {
+                                separator_suffix: vec![StmtSep {
                                     range: pos_in(src, b";", 0),
-                                    kind: StmtSepKind::Semicolon
+                                    kind: StmtSepKind::Semicolon,
                                 }],
                             },
                             Stmt {
                                 range: pos_in(src, b"y\n", 0),
+                                separator_prefix: vec![],
                                 expr: LocalVariableExpr {
                                     range: pos_in(src, b"y", 0),
                                     parens: vec![],
@@ -1960,13 +2000,14 @@ mod tests {
                                     type_annotation: None,
                                 }
                                 .into(),
-                                semi: vec![StmtSep {
+                                separator_suffix: vec![StmtSep {
                                     range: pos_in(src, b"\n", 0),
-                                    kind: StmtSepKind::Newline
+                                    kind: StmtSepKind::Newline,
                                 }],
                             },
                             Stmt {
                                 range: pos_in(src, b"z", 0),
+                                separator_prefix: vec![],
                                 expr: LocalVariableExpr {
                                     range: pos_in(src, b"z", 0),
                                     parens: vec![],
@@ -1974,10 +2015,11 @@ mod tests {
                                     type_annotation: None,
                                 }
                                 .into(),
-                                semi: vec![],
+                                separator_suffix: vec![],
                             },
                         ],
-                    },
+                    }
+                    .into(),
                 }
                 .into(),
                 vec![],
@@ -2089,44 +2131,44 @@ mod tests {
             p_expr(src, &["x", "y"]),
             (
                 SeqExpr {
-                    range: pos_in(src, b"(x\ny)", 0),
-                    parens: vec![],
-                    paren: SeqParen {
-                        kind: SeqParenKind::Paren,
+                    range: pos_in(src, b"x\ny", 0),
+                    parens: vec![ParenParen {
+                        range: pos_in(src, b"(x\ny)", 0),
                         open_range: pos_in(src, b"(", 0),
+                        separator_prefix: vec![],
+                        separator_suffix: vec![],
                         close_range: pos_in(src, b")", 0),
-                    },
-                    stmt_list: StmtList {
-                        range: pos_in(src, b"x\ny", 0),
-                        semi_prefix: vec![],
-                        stmts: vec![
-                            Stmt {
-                                range: pos_in(src, b"x\n", 0),
-                                expr: LocalVariableExpr {
-                                    range: pos_in(src, b"x", 0),
-                                    parens: vec![],
-                                    name: symbol("x"),
-                                    type_annotation: None,
-                                }
-                                .into(),
-                                semi: vec![StmtSep {
-                                    range: pos_in(src, b"\n", 0),
-                                    kind: StmtSepKind::Newline
-                                }],
-                            },
-                            Stmt {
-                                range: pos_in(src, b"y", 0),
-                                expr: LocalVariableExpr {
-                                    range: pos_in(src, b"y", 0),
-                                    parens: vec![],
-                                    name: symbol("y"),
-                                    type_annotation: None,
-                                }
-                                .into(),
-                                semi: vec![],
+                    }
+                    .into()],
+                    statements: vec![
+                        Stmt {
+                            range: pos_in(src, b"x\n", 0),
+                            separator_prefix: vec![],
+                            expr: LocalVariableExpr {
+                                range: pos_in(src, b"x", 0),
+                                parens: vec![],
+                                name: symbol("x"),
+                                type_annotation: None,
                             }
-                        ]
-                    },
+                            .into(),
+                            separator_suffix: vec![StmtSep {
+                                range: pos_in(src, b"\n", 0),
+                                kind: StmtSepKind::Newline
+                            }],
+                        },
+                        Stmt {
+                            range: pos_in(src, b"y", 0),
+                            separator_prefix: vec![],
+                            expr: LocalVariableExpr {
+                                range: pos_in(src, b"y", 0),
+                                parens: vec![],
+                                name: symbol("y"),
+                                type_annotation: None,
+                            }
+                            .into(),
+                            separator_suffix: vec![],
+                        }
+                    ],
                 }
                 .into(),
                 vec![],
@@ -2143,6 +2185,8 @@ mod tests {
                 NilExpr {
                     range: pos_in(src, b"nil", 0),
                     parens: vec![],
+
+                    style: NilStyle::Keyword,
                 }
                 .into(),
                 vec![],
@@ -2289,21 +2333,13 @@ mod tests {
                             range: pos_in(src, b"#{bar}", 0),
                             open_range: pos_in(src, b"#{", 0),
                             close_range: pos_in(src, b"}", 0),
-                            stmt_list: StmtList {
+                            expr: LocalVariableExpr {
                                 range: pos_in(src, b"bar", 0),
-                                semi_prefix: vec![],
-                                stmts: vec![Stmt {
-                                    range: pos_in(src, b"bar", 0),
-                                    expr: LocalVariableExpr {
-                                        range: pos_in(src, b"bar", 0),
-                                        parens: vec![],
-                                        name: symbol("bar"),
-                                        type_annotation: None,
-                                    }
-                                    .into(),
-                                    semi: vec![],
-                                }],
-                            },
+                                parens: vec![],
+                                name: symbol("bar"),
+                                type_annotation: None,
+                            }
+                            .into(),
                         }),
                         StringContent::Text(TextContent {
                             range: pos_in(src, b" baz", 0),

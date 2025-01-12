@@ -20,13 +20,15 @@ pub fn erase_type(src: &[u8], program: &Program) -> Vec<u8> {
 }
 
 fn collect_ranges_program(ranges: &mut Vec<CodeRange>, program: &Program) {
-    collect_ranges_stmt_list(ranges, &program.stmt_list);
+    collect_ranges_expr(ranges, &program.body);
 }
 
 fn collect_ranges_expr(ranges: &mut Vec<CodeRange>, expr: &Expr) {
     match expr {
         Expr::Seq(expr) => {
-            collect_ranges_stmt_list(ranges, &expr.stmt_list);
+            for stmt in &expr.statements {
+                collect_ranges_expr(ranges, &stmt.expr);
+            }
         }
         Expr::Nil(_) => {}
         Expr::False(_) => {}
@@ -74,15 +76,9 @@ fn collect_ranges_string_contents(ranges: &mut Vec<CodeRange>, contents: &[Strin
         match content {
             StringContent::Text(_) => {}
             StringContent::Interpolation(content) => {
-                collect_ranges_stmt_list(ranges, &content.stmt_list);
+                collect_ranges_expr(ranges, &content.expr);
             }
         }
-    }
-}
-
-fn collect_ranges_stmt_list(ranges: &mut Vec<CodeRange>, stmt_list: &crate::ast::StmtList) {
-    for stmt in &stmt_list.stmts {
-        collect_ranges_expr(ranges, &stmt.expr);
     }
 }
 

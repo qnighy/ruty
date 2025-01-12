@@ -4,17 +4,20 @@ use crate::ast::{CodeRange, StmtSep};
 pub enum Paren {
     Paren(ParenParen),
     BeginEnd(BeginEndParen),
+    Implicit(ImplicitParen),
 }
 
 impl_from!(
     (Paren, ParenParen, Paren::Paren),
     (Paren, BeginEndParen, Paren::BeginEnd),
+    (Paren, ImplicitParen, Paren::Implicit),
 );
 
 impl_delegators!(
     enum Paren {
         Paren(ParenParen),
         BeginEnd(BeginEndParen),
+        Implicit(ImplicitParen),
     }
     range (mut range_mut): CodeRange,
 );
@@ -41,4 +44,12 @@ pub struct BeginEndParen {
     pub separator_prefix: Vec<StmtSep>,
     pub separator_suffix: Vec<StmtSep>,
     pub end_range: CodeRange,
+}
+
+/// Represents `;` prefixes and/or suffixes not wrapped in parentheses.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ImplicitParen {
+    pub range: CodeRange,
+    pub separator_prefix: Vec<StmtSep>,
+    pub separator_suffix: Vec<StmtSep>,
 }
