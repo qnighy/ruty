@@ -9,27 +9,32 @@ pub struct Stmt {
 
     pub expr: Expr,
 
-    pub semi: Vec<Semicolon>,
+    pub semi: Vec<StmtSep>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StmtList {
     pub range: CodeRange,
 
-    pub semi_prefix: Vec<Semicolon>,
+    pub semi_prefix: Vec<StmtSep>,
 
     pub stmts: Vec<Stmt>,
 }
 
+/// Operators separating statements.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Semicolon {
+pub struct StmtSep {
     pub range: CodeRange,
-    pub kind: SemicolonKind,
+    pub kind: StmtSepKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SemicolonKind {
+pub enum StmtSepKind {
+    /// Explicit semicolon `;`.
     Semicolon,
+    /// Unexpected comma `,` interpreted as a semicolon during error recovery.
+    InvalidComma,
+    /// Newline token.
     Newline,
 }
 

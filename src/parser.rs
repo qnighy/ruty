@@ -7,8 +7,8 @@ use crate::{
         CallExpr, CallStyle, CodeRange, ConstExpr, ConstReceiver, ErrorExpr, ErrorType,
         ErrorWriteTarget, Expr, FalseExpr, FalseType, IntegerExpr, IntegerType,
         InterpolationContent, LocalVariableExpr, LocalVariableWriteTarget, NilExpr, NilType,
-        ParenParen, Program, RegexpExpr, RegexpType, SelfExpr, Semicolon, SemicolonKind, SeqExpr,
-        SeqParen, SeqParenKind, Stmt, StmtList, StringContent, StringExpr, StringType, TextContent,
+        ParenParen, Program, RegexpExpr, RegexpType, SelfExpr, SeqExpr, SeqParen, SeqParenKind,
+        Stmt, StmtList, StmtSep, StmtSepKind, StringContent, StringExpr, StringType, TextContent,
         TrueExpr, TrueType, Type, TypeAnnotation, WriteExpr, WriteTarget, XStringExpr, DUMMY_RANGE,
     },
     encoding::EStrRef,
@@ -86,7 +86,7 @@ impl<'a> Parser<'a> {
 
     fn parse_stmt_list(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> StmtList {
         let start_pos = self.lexer.pos();
-        let mut semi_prefix = Vec::<Semicolon>::new();
+        let mut semi_prefix = Vec::<StmtSep>::new();
         let mut stmts = Vec::<Stmt>::new();
         loop {
             let token = self.fill_token(diag, LexerState::Begin);
@@ -99,18 +99,18 @@ impl<'a> Parser<'a> {
                 TokenKind::Semicolon | TokenKind::Newline => {
                     self.bump();
                     let kind = match token.kind {
-                        TokenKind::Semicolon => SemicolonKind::Semicolon,
-                        TokenKind::Newline => SemicolonKind::Newline,
+                        TokenKind::Semicolon => StmtSepKind::Semicolon,
+                        TokenKind::Newline => StmtSepKind::Newline,
                         _ => unreachable!(),
                     };
                     if let Some(last_stmt) = stmts.last_mut() {
                         last_stmt.range = last_stmt.range | token.range;
-                        last_stmt.semi.push(Semicolon {
+                        last_stmt.semi.push(StmtSep {
                             range: token.range,
                             kind,
                         });
                     } else {
-                        semi_prefix.push(Semicolon {
+                        semi_prefix.push(StmtSep {
                             range: token.range,
                             kind,
                         });
@@ -1217,7 +1217,7 @@ impl<'a> Parser<'a> {
                     let semicolon_prefix = { stmt_list.semi_prefix }
                         .drain(..)
                         .filter_map(|s| {
-                            if s.kind == SemicolonKind::Semicolon {
+                            if s.kind == StmtSepKind::Semicolon {
                                 Some(s.range)
                             } else {
                                 None
@@ -1228,7 +1228,7 @@ impl<'a> Parser<'a> {
                     let semicolon_suffix = { stmt.semi }
                         .drain(..)
                         .filter_map(|s| {
-                            if s.kind == SemicolonKind::Semicolon {
+                            if s.kind == StmtSepKind::Semicolon {
                                 Some(s.range)
                             } else {
                                 None
@@ -1964,9 +1964,9 @@ mod tests {
                                     type_annotation: None,
                                 }
                                 .into(),
-                                semi: vec![Semicolon {
+                                semi: vec![StmtSep {
                                     range: pos_in(src, b";", 0),
-                                    kind: SemicolonKind::Semicolon
+                                    kind: StmtSepKind::Semicolon
                                 }],
                             },
                             Stmt {
@@ -1978,9 +1978,9 @@ mod tests {
                                     type_annotation: None,
                                 }
                                 .into(),
-                                semi: vec![Semicolon {
+                                semi: vec![StmtSep {
                                     range: pos_in(src, b"\n", 0),
-                                    kind: SemicolonKind::Newline
+                                    kind: StmtSepKind::Newline
                                 }],
                             },
                             Stmt {
@@ -2118,9 +2118,9 @@ mod tests {
                                     type_annotation: None,
                                 }
                                 .into(),
-                                semi: vec![Semicolon {
+                                semi: vec![StmtSep {
                                     range: pos_in(src, b"\n", 0),
-                                    kind: SemicolonKind::Newline
+                                    kind: StmtSepKind::Newline
                                 }],
                             },
                             Stmt {
