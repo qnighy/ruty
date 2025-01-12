@@ -4,12 +4,13 @@ use std::{collections::HashMap, mem::take};
 
 use crate::{
     ast::{
-        CallExpr, CallStyle, CodeRange, ConstExpr, ConstReceiver, ErrorExpr, ErrorType,
-        ErrorWriteTarget, Expr, FalseExpr, FalseType, ImplicitParen, IntegerExpr, IntegerType,
-        InterpolationContent, LocalVariableExpr, LocalVariableWriteTarget, NilExpr, NilStyle,
-        NilType, Paren, ParenParen, Program, RegexpExpr, RegexpType, SelfExpr, SeqExpr, Stmt,
-        StmtSep, StmtSepKind, StringContent, StringExpr, StringType, TextContent, TrueExpr,
-        TrueType, Type, TypeAnnotation, WriteExpr, WriteTarget, XStringExpr, DUMMY_RANGE,
+        AndExpr, CallExpr, CallStyle, CodeRange, ConstExpr, ConstReceiver, ErrorExpr, ErrorType,
+        ErrorWriteTarget, Expr, FalseExpr, FalseType, IfExpr, ImplicitParen, IntegerExpr,
+        IntegerType, InterpolationContent, LocalVariableExpr, LocalVariableWriteTarget, NilExpr,
+        NilStyle, NilType, OrExpr, Paren, ParenParen, Program, RegexpExpr, RegexpType, SelfExpr,
+        SeqExpr, Stmt, StmtSep, StmtSepKind, StringContent, StringExpr, StringType, TextContent,
+        TrueExpr, TrueType, Type, TypeAnnotation, UntilExpr, WhileExpr, WriteExpr, WriteTarget,
+        XStringExpr, DUMMY_RANGE,
     },
     encoding::EStrRef,
     Diagnostic, EString,
@@ -127,7 +128,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 _ => {
-                    let expr = self.parse_expr_lv_cmd(diag, lv);
+                    let expr = self.parse_expr_lv_spelled_cond_infix(diag, lv);
                     range |= *expr.outer_range();
                     let separator_prefix = take(&mut separator_prefix);
                     stmts.push(Stmt {
@@ -186,7 +187,7 @@ impl<'a> Parser<'a> {
         for local in locals {
             lv.push(local.clone());
         }
-        let expr = self.parse_expr_lv_cmd(diag, &mut lv);
+        let expr = self.parse_expr_lv_spelled_cond_infix(diag, &mut lv);
         let token = self.fill_token(diag, LexerState::End);
         match token.kind {
             TokenKind::EOF => {}
@@ -198,6 +199,123 @@ impl<'a> Parser<'a> {
             }
         }
         expr
+    }
+
+    fn parse_expr_lv_spelled_cond_infix(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        lv: &mut LVCtx,
+    ) -> Expr {
+        let mut lhs = self.parse_expr_lv_spelled_and_or(diag, lv);
+        let mut count = 0;
+        loop {
+            let token = self.fill_token(diag, LexerState::End);
+            match token.kind {
+                TokenKind::KeywordIfInfix
+                | TokenKind::KeywordUnlessInfix
+                | TokenKind::KeywordWhileInfix
+                | TokenKind::KeywordUntilInfix => {
+                    count += 1;
+                    if count > 1 {
+                        diag.push(Diagnostic {
+                            range: token.range,
+                            message: format!("these operators cannot be chained"),
+                        });
+                    }
+                    self.bump();
+                    let rhs = self.parse_expr_lv_spelled_and_or(diag, lv);
+                    lhs = match token.kind {
+                        TokenKind::KeywordIfInfix => IfExpr {
+                            range: *lhs.outer_range() | *rhs.outer_range(),
+                            parens: Vec::new(),
+
+                            cond: Box::new(lhs),
+                            then: Box::new(rhs),
+                            else_: Box::new(
+                                NilExpr {
+                                    range: DUMMY_RANGE,
+                                    parens: Vec::new(),
+
+                                    style: NilStyle::Implicit,
+                                }
+                                .into(),
+                            ),
+                        }
+                        .into(),
+                        TokenKind::KeywordUnlessInfix => IfExpr {
+                            range: *lhs.outer_range() | *rhs.outer_range(),
+                            parens: Vec::new(),
+
+                            cond: Box::new(lhs),
+                            then: Box::new(
+                                NilExpr {
+                                    range: DUMMY_RANGE,
+                                    parens: Vec::new(),
+
+                                    style: NilStyle::Implicit,
+                                }
+                                .into(),
+                            ),
+                            else_: Box::new(rhs),
+                        }
+                        .into(),
+                        TokenKind::KeywordWhileInfix => WhileExpr {
+                            range: *lhs.outer_range() | *rhs.outer_range(),
+                            parens: Vec::new(),
+
+                            cond: Box::new(lhs),
+                            body: Box::new(rhs),
+                        }
+                        .into(),
+                        TokenKind::KeywordUntilInfix => UntilExpr {
+                            range: *lhs.outer_range() | *rhs.outer_range(),
+                            parens: Vec::new(),
+
+                            cond: Box::new(lhs),
+                            body: Box::new(rhs),
+                        }
+                        .into(),
+                        _ => unreachable!(),
+                    };
+                }
+                _ => break,
+            }
+        }
+        lhs
+    }
+
+    fn parse_expr_lv_spelled_and_or(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> Expr {
+        let mut lhs = self.parse_expr_lv_cmd(diag, lv);
+        loop {
+            let token = self.fill_token(diag, LexerState::End);
+            match token.kind {
+                TokenKind::KeywordAnd | TokenKind::KeywordOr => {
+                    self.bump();
+                    let rhs = self.parse_expr_lv_cmd(diag, lv);
+                    lhs = match token.kind {
+                        TokenKind::KeywordAnd => AndExpr {
+                            range: *lhs.outer_range() | *rhs.outer_range(),
+                            parens: Vec::new(),
+
+                            lhs: Box::new(lhs),
+                            rhs: Box::new(rhs),
+                        }
+                        .into(),
+                        TokenKind::KeywordOr => OrExpr {
+                            range: *lhs.outer_range() | *rhs.outer_range(),
+                            parens: Vec::new(),
+
+                            lhs: Box::new(lhs),
+                            rhs: Box::new(rhs),
+                        }
+                        .into(),
+                        _ => unreachable!(),
+                    };
+                }
+                _ => break,
+            }
+        }
+        lhs
     }
 
     fn parse_expr_lv_cmd(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> Expr {
@@ -282,7 +400,7 @@ impl<'a> Parser<'a> {
         lv: &mut LVCtx,
         prec: PrecCtx,
     ) -> ExprLike {
-        let lhs = self.parse_expr_lv_eq(diag, lv, prec);
+        let lhs = self.parse_expr_lv_tertiary_cond(diag, lv, prec);
         let token = self.fill_token(diag, LexerState::End);
         match token.kind {
             TokenKind::Eq => {
@@ -340,6 +458,134 @@ impl<'a> Parser<'a> {
         lhs
     }
 
+    fn parse_expr_lv_tertiary_cond(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        lv: &mut LVCtx,
+        prec: PrecCtx,
+    ) -> ExprLike {
+        let lhs = self.parse_expr_lv_logical_or(diag, lv, prec);
+        let token = self.fill_token(diag, LexerState::End);
+        match token.kind {
+            TokenKind::Question => {
+                self.bump();
+                // TODO: middle expression precedence needs review
+                let mid = self
+                    .parse_expr_lv_assignment(diag, lv, prec.with_invalid_command())
+                    .into_expr(diag);
+                let mid2_token = self.fill_token(diag, LexerState::End);
+                if !matches!(mid2_token.kind, TokenKind::Colon) {
+                    diag.push(Diagnostic {
+                        range: mid2_token.range,
+                        message: format!("expected `:`"),
+                    });
+                    let lhs_expr = lhs.into_expr(diag);
+                    return ExprLike::Expr(
+                        IfExpr {
+                            range: *lhs_expr.outer_range() | mid2_token.range,
+                            parens: Vec::new(),
+
+                            cond: Box::new(lhs_expr),
+                            then: Box::new(mid),
+                            else_: Box::new(
+                                NilExpr {
+                                    range: DUMMY_RANGE,
+                                    parens: Vec::new(),
+
+                                    style: NilStyle::Implicit,
+                                }
+                                .into(),
+                            ),
+                        }
+                        .into(),
+                    );
+                }
+                let rhs = self
+                    .parse_expr_lv_tertiary_cond(diag, lv, prec.with_invalid_command())
+                    .into_expr(diag);
+                let lhs_expr = lhs.into_expr(diag);
+                ExprLike::Expr(
+                    IfExpr {
+                        range: *lhs_expr.outer_range() | *rhs.outer_range(),
+                        parens: Vec::new(),
+
+                        cond: Box::new(lhs_expr),
+                        then: Box::new(mid),
+                        else_: Box::new(rhs),
+                    }
+                    .into(),
+                )
+            }
+            _ => lhs,
+        }
+    }
+
+    fn parse_expr_lv_logical_or(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        lv: &mut LVCtx,
+        prec: PrecCtx,
+    ) -> ExprLike {
+        let mut lhs = self.parse_expr_lv_logical_and(diag, lv, prec);
+        loop {
+            let token = self.fill_token(diag, LexerState::End);
+            match token.kind {
+                TokenKind::VertVert => {
+                    self.bump();
+                    let rhs = self
+                        .parse_expr_lv_logical_and(diag, lv, prec.with_invalid_command())
+                        .into_expr(diag);
+                    let lhs_expr = lhs.into_expr(diag);
+                    lhs = ExprLike::Expr(
+                        OrExpr {
+                            range: *lhs_expr.outer_range() | *rhs.outer_range(),
+                            parens: Vec::new(),
+
+                            lhs: Box::new(lhs_expr),
+                            rhs: Box::new(rhs),
+                        }
+                        .into(),
+                    );
+                }
+                _ => break,
+            }
+        }
+        lhs
+    }
+
+    fn parse_expr_lv_logical_and(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        lv: &mut LVCtx,
+        prec: PrecCtx,
+    ) -> ExprLike {
+        let mut lhs = self.parse_expr_lv_eq(diag, lv, prec);
+        loop {
+            let token = self.fill_token(diag, LexerState::End);
+            match token.kind {
+                TokenKind::AmpAmp => {
+                    self.bump();
+                    let rhs = self
+                        .parse_expr_lv_eq(diag, lv, prec.with_invalid_command())
+                        .into_expr(diag);
+                    let lhs_expr = lhs.into_expr(diag);
+                    lhs = ExprLike::Expr(
+                        AndExpr {
+                            range: *lhs_expr.outer_range() | *rhs.outer_range(),
+                            parens: Vec::new(),
+
+                            lhs: Box::new(lhs_expr),
+                            rhs: Box::new(rhs),
+                        }
+                        .into(),
+                    );
+                }
+                _ => break,
+            }
+        }
+        lhs
+    }
+
     fn parse_expr_lv_eq(
         &mut self,
         diag: &mut Vec<Diagnostic>,
@@ -355,7 +601,8 @@ impl<'a> Parser<'a> {
                 | TokenKind::ExclEq
                 | TokenKind::EqEqEq
                 | TokenKind::EqMatch
-                | TokenKind::ExclTilde => {
+                | TokenKind::ExclTilde
+                | TokenKind::LtEqGt => {
                     count += 1;
                     if count > 1 {
                         diag.push(Diagnostic {
@@ -369,6 +616,7 @@ impl<'a> Parser<'a> {
                         TokenKind::EqEqEq => "===",
                         TokenKind::EqMatch => "=~",
                         TokenKind::ExclTilde => "!~",
+                        TokenKind::LtEqGt => "<=>",
                         _ => unimplemented!(),
                     };
                     self.bump();
@@ -1240,6 +1488,8 @@ impl<'a> Parser<'a> {
                     .into(),
                 })
             }
+            TokenKind::KeywordIf => ExprLike::Expr(self.parse_if_chain(diag, lv)),
+            TokenKind::KeywordUnless => ExprLike::Expr(self.parse_unless(diag, lv)),
             TokenKind::LParen => {
                 let open_range = token.range;
                 self.bump();
@@ -1318,6 +1568,240 @@ impl<'a> Parser<'a> {
                     }
                     .into(),
                 )
+            }
+        }
+    }
+
+    fn parse_if_chain(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> Expr {
+        let if_token = self.fill_token(diag, LexerState::Begin);
+        self.bump();
+        let cond = self.parse_expr_lv_spelled_and_or(diag, lv);
+        let then_token = self.fill_token(diag, LexerState::End);
+        match then_token.kind {
+            TokenKind::Semicolon | TokenKind::Newline => {
+                self.bump();
+                let then_token = self.fill_token(diag, LexerState::Begin);
+                if matches!(then_token.kind, TokenKind::KeywordThen) {
+                    self.bump();
+                }
+            }
+            TokenKind::KeywordThen => {
+                self.bump();
+            }
+            _ => {
+                diag.push(Diagnostic {
+                    range: then_token.range,
+                    message: format!("expected 'then'"),
+                });
+            }
+        }
+        let then = self.parse_stmt_list(
+            diag,
+            lv,
+            BailCtx {
+                end_style: EndStyle::EndOrElse,
+                indent: if_token.indent,
+                ..Default::default()
+            },
+        );
+        let else_token = self.fill_token(diag, LexerState::End);
+        match else_token.kind {
+            TokenKind::KeywordElse => {
+                self.bump();
+                let else_ = self.parse_stmt_list(
+                    diag,
+                    lv,
+                    BailCtx {
+                        end_style: EndStyle::End,
+                        indent: else_token.indent,
+                        ..Default::default()
+                    },
+                );
+                let end_token = self.fill_token(diag, LexerState::End);
+                if !matches!(end_token.kind, TokenKind::KeywordEnd) {
+                    diag.push(Diagnostic {
+                        range: end_token.range,
+                        message: format!("expected 'end'"),
+                    });
+                    return IfExpr {
+                        range: if_token.range | *else_.outer_range(),
+                        parens: Vec::new(),
+
+                        cond: Box::new(cond),
+                        then: Box::new(then),
+                        else_: Box::new(else_),
+                    }
+                    .into();
+                }
+                self.bump();
+                IfExpr {
+                    range: if_token.range | end_token.range,
+                    parens: Vec::new(),
+
+                    cond: Box::new(cond),
+                    then: Box::new(then),
+                    else_: Box::new(else_),
+                }
+                .into()
+            }
+            TokenKind::KeywordElsif => {
+                let else_ = self.parse_if_chain(diag, lv);
+                IfExpr {
+                    range: if_token.range | *else_.outer_range(),
+                    parens: Vec::new(),
+
+                    cond: Box::new(cond),
+                    then: Box::new(then),
+                    else_: Box::new(else_),
+                }
+                .into()
+            }
+            _ => {
+                let end_range = if matches!(else_token.kind, TokenKind::KeywordEnd) {
+                    self.bump();
+                    else_token.range
+                } else {
+                    diag.push(Diagnostic {
+                        range: else_token.range,
+                        message: format!("expected 'end', 'else', or 'elsif'"),
+                    });
+                    DUMMY_RANGE
+                };
+                IfExpr {
+                    range: if_token.range | *then.outer_range() | end_range,
+                    parens: Vec::new(),
+
+                    cond: Box::new(cond),
+                    then: Box::new(then),
+                    else_: Box::new(
+                        NilExpr {
+                            range: DUMMY_RANGE,
+                            parens: Vec::new(),
+                            style: NilStyle::Implicit,
+                        }
+                        .into(),
+                    ),
+                }
+                .into()
+            }
+        }
+    }
+
+    fn parse_unless(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> Expr {
+        let unless_token = self.fill_token(diag, LexerState::Begin);
+        self.bump();
+        let cond = self.parse_expr_lv_spelled_and_or(diag, lv);
+        let then_token = self.fill_token(diag, LexerState::End);
+        match then_token.kind {
+            TokenKind::Semicolon | TokenKind::Newline => {
+                self.bump();
+                let then_token = self.fill_token(diag, LexerState::Begin);
+                if matches!(then_token.kind, TokenKind::KeywordThen) {
+                    self.bump();
+                }
+            }
+            TokenKind::KeywordThen => {
+                self.bump();
+            }
+            _ => {
+                diag.push(Diagnostic {
+                    range: then_token.range,
+                    message: format!("expected 'then'"),
+                });
+            }
+        }
+        let then = self.parse_stmt_list(
+            diag,
+            lv,
+            BailCtx {
+                end_style: EndStyle::EndOrElse,
+                indent: unless_token.indent,
+                ..Default::default()
+            },
+        );
+        let else_token = self.fill_token(diag, LexerState::End);
+        match else_token.kind {
+            TokenKind::KeywordElse => {
+                self.bump();
+                let else_ = self.parse_stmt_list(
+                    diag,
+                    lv,
+                    BailCtx {
+                        end_style: EndStyle::End,
+                        indent: else_token.indent,
+                        ..Default::default()
+                    },
+                );
+                let end_token = self.fill_token(diag, LexerState::End);
+                if !matches!(end_token.kind, TokenKind::KeywordEnd) {
+                    diag.push(Diagnostic {
+                        range: end_token.range,
+                        message: format!("expected 'end'"),
+                    });
+                    return IfExpr {
+                        range: unless_token.range | *else_.outer_range(),
+                        parens: Vec::new(),
+
+                        cond: Box::new(cond),
+                        then: Box::new(else_),
+                        else_: Box::new(then),
+                    }
+                    .into();
+                }
+                self.bump();
+                IfExpr {
+                    range: unless_token.range | end_token.range,
+                    parens: Vec::new(),
+
+                    cond: Box::new(cond),
+                    then: Box::new(else_),
+                    else_: Box::new(then),
+                }
+                .into()
+            }
+            TokenKind::KeywordElsif => {
+                diag.push(Diagnostic {
+                    range: else_token.range,
+                    message: format!("'unless' cannot have 'elsif'"),
+                });
+                let else_ = self.parse_if_chain(diag, lv);
+                IfExpr {
+                    range: unless_token.range | *else_.outer_range(),
+                    parens: Vec::new(),
+
+                    cond: Box::new(cond),
+                    then: Box::new(else_),
+                    else_: Box::new(then),
+                }
+                .into()
+            }
+            _ => {
+                let end_range = if matches!(else_token.kind, TokenKind::KeywordEnd) {
+                    self.bump();
+                    else_token.range
+                } else {
+                    diag.push(Diagnostic {
+                        range: else_token.range,
+                        message: format!("expected 'end', 'else', or 'elsif'"),
+                    });
+                    DUMMY_RANGE
+                };
+                IfExpr {
+                    range: then_token.range | *then.outer_range() | end_range,
+                    parens: Vec::new(),
+
+                    cond: Box::new(cond),
+                    then: Box::new(
+                        NilExpr {
+                            range: DUMMY_RANGE,
+                            parens: Vec::new(),
+                            style: NilStyle::Implicit,
+                        }
+                        .into(),
+                    ),
+                    else_: Box::new(then),
+                }
+                .into()
             }
         }
     }
@@ -1544,6 +2028,9 @@ impl BailCtx {
                     (EndStyle::RParen, TokenKind::RParen)
                     | (EndStyle::RBracket, TokenKind::RBracket)
                     | (EndStyle::RBrace, TokenKind::RBrace)
+                    | (EndStyle::EndOrElse, TokenKind::KeywordEnd)
+                    | (EndStyle::EndOrElse, TokenKind::KeywordElse)
+                    | (EndStyle::EndOrElse, TokenKind::KeywordElsif)
                     | (EndStyle::End, TokenKind::KeywordEnd)
                     | (EndStyle::EOF, TokenKind::EOF) => true,
                     _ => false,
@@ -1570,6 +2057,7 @@ impl BailCtx {
                     EndStyle::RParen => 2,
                     EndStyle::RBracket => 2,
                     EndStyle::RBrace => 2,
+                    EndStyle::EndOrElse => 1,
                     EndStyle::End => 1,
                     EndStyle::EOF => 0,
                 };
@@ -1592,6 +2080,8 @@ enum EndStyle {
     RBrace,
     /// Expects `end` as the final delimiter.
     End,
+    /// Expects `end`, `else`, or `elsif` as the final delimiter.
+    EndOrElse,
     /// Expects EOF as the final delimiter.
     #[default]
     EOF,

@@ -67,6 +67,27 @@ fn collect_ranges_expr(ranges: &mut Vec<CodeRange>, expr: &Expr) {
             collect_ranges_write_target(ranges, &*expr.lhs);
             collect_ranges_expr(ranges, &*expr.rhs);
         }
+        Expr::And(expr) => {
+            collect_ranges_expr(ranges, &expr.lhs);
+            collect_ranges_expr(ranges, &expr.rhs);
+        }
+        Expr::Or(expr) => {
+            collect_ranges_expr(ranges, &expr.lhs);
+            collect_ranges_expr(ranges, &expr.rhs);
+        }
+        Expr::If(expr) => {
+            collect_ranges_expr(ranges, &expr.cond);
+            collect_ranges_expr(ranges, &expr.then);
+            collect_ranges_expr(ranges, &expr.else_);
+        }
+        Expr::While(expr) => {
+            collect_ranges_expr(ranges, &expr.cond);
+            collect_ranges_expr(ranges, &expr.body);
+        }
+        Expr::Until(expr) => {
+            collect_ranges_expr(ranges, &expr.cond);
+            collect_ranges_expr(ranges, &expr.body);
+        }
         Expr::Error(_) => {}
     }
 }

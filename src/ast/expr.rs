@@ -21,6 +21,11 @@ pub enum Expr {
     SourceLine(SourceLineExpr),
     Call(CallExpr),
     Write(WriteExpr),
+    And(AndExpr),
+    Or(OrExpr),
+    If(IfExpr),
+    While(WhileExpr),
+    Until(UntilExpr),
     Error(ErrorExpr),
 }
 
@@ -41,6 +46,11 @@ impl_from!(
     (Expr, SourceLineExpr, Expr::SourceLine),
     (Expr, CallExpr, Expr::Call),
     (Expr, WriteExpr, Expr::Write),
+    (Expr, AndExpr, Expr::And),
+    (Expr, OrExpr, Expr::Or),
+    (Expr, IfExpr, Expr::If),
+    (Expr, WhileExpr, Expr::While),
+    (Expr, UntilExpr, Expr::Until),
     (Expr, ErrorExpr, Expr::Error),
 );
 impl_delegators!(
@@ -61,6 +71,11 @@ impl_delegators!(
         SourceLine(SourceLineExpr),
         Call(CallExpr),
         Write(WriteExpr),
+        And(AndExpr),
+        Or(OrExpr),
+        If(IfExpr),
+        While(WhileExpr),
+        Until(UntilExpr),
         Error(ErrorExpr),
     }
     range (mut range_mut): CodeRange,
@@ -261,6 +276,73 @@ pub struct WriteExpr {
 
     pub lhs: Box<WriteTarget>,
     pub rhs: Box<Expr>,
+}
+
+/// `lhs && rhs` or `lhs and rhs`
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AndExpr {
+    pub range: CodeRange,
+    pub parens: Vec<Paren>,
+
+    pub lhs: Box<Expr>,
+    pub rhs: Box<Expr>,
+}
+
+/// `lhs || rhs` or `lhs or rhs`
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct OrExpr {
+    pub range: CodeRange,
+    pub parens: Vec<Paren>,
+
+    pub lhs: Box<Expr>,
+    pub rhs: Box<Expr>,
+}
+
+/// One of:
+///
+/// - `if cond; then_expr end`
+/// - `if cond; then_expr else else_expr end`
+/// - `... elsif cond; then_expr end`
+/// - `... elsif cond; then_expr else else_expr end`
+/// - `unless cond; else_expr end`
+/// - `unless cond; else_expr else then_expr end`
+/// - `then_expr if cond`
+/// - `else_expr unless cond`
+/// - `cond ? then_expr : else_expr`
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct IfExpr {
+    pub range: CodeRange,
+    pub parens: Vec<Paren>,
+
+    pub cond: Box<Expr>,
+    pub then: Box<Expr>,
+    pub else_: Box<Expr>,
+}
+
+/// One of:
+///
+/// - `while cond; body end`
+/// - `body while cond`
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct WhileExpr {
+    pub range: CodeRange,
+    pub parens: Vec<Paren>,
+
+    pub cond: Box<Expr>,
+    pub body: Box<Expr>,
+}
+
+/// One of:
+///
+/// - `until cond; body end`
+/// - `body until cond`
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct UntilExpr {
+    pub range: CodeRange,
+    pub parens: Vec<Paren>,
+
+    pub cond: Box<Expr>,
+    pub body: Box<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
