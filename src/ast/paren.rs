@@ -1,4 +1,4 @@
-use crate::ast::CodeRange;
+use crate::ast::{CodeRange, StmtSep};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Paren {
@@ -28,8 +28,8 @@ impl_delegators!(
 pub struct ParenParen {
     pub range: CodeRange,
     pub open_range: CodeRange,
-    pub semicolon_prefix: Vec<CodeRange>,
-    pub semicolon_suffix: Vec<CodeRange>,
+    pub separator_prefix: Vec<StmtSep>,
+    pub separator_suffix: Vec<StmtSep>,
     pub close_range: CodeRange,
 }
 
@@ -38,7 +38,7 @@ pub struct ParenParen {
 pub struct BeginEndParen {
     pub range: CodeRange,
     pub begin_range: CodeRange,
-    pub semicolon_prefix: Vec<CodeRange>,
-    pub semicolon_suffix: Vec<CodeRange>,
+    pub separator_prefix: Vec<StmtSep>,
+    pub separator_suffix: Vec<StmtSep>,
     pub end_range: CodeRange,
 }

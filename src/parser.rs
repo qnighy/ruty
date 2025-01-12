@@ -1214,34 +1214,16 @@ impl<'a> Parser<'a> {
                     }
                 };
                 if stmt_list.stmts.len() == 1 {
-                    let semicolon_prefix = { stmt_list.semi_prefix }
-                        .drain(..)
-                        .filter_map(|s| {
-                            if s.kind == StmtSepKind::Semicolon {
-                                Some(s.range)
-                            } else {
-                                None
-                            }
-                        })
-                        .collect::<Vec<_>>();
+                    let separator_prefix = { stmt_list.semi_prefix }.drain(..).collect::<Vec<_>>();
                     let stmt = { stmt_list.stmts }.swap_remove(0);
-                    let semicolon_suffix = { stmt.semi }
-                        .drain(..)
-                        .filter_map(|s| {
-                            if s.kind == StmtSepKind::Semicolon {
-                                Some(s.range)
-                            } else {
-                                None
-                            }
-                        })
-                        .collect::<Vec<_>>();
+                    let separator_suffix = { stmt.semi }.drain(..).collect::<Vec<_>>();
                     let mut expr = stmt.expr;
                     expr.parens_mut().push(
                         ParenParen {
                             range: open_range | close_range,
                             open_range,
-                            semicolon_prefix,
-                            semicolon_suffix,
+                            separator_prefix,
+                            separator_suffix,
                             close_range,
                         }
                         .into(),
@@ -2014,8 +1996,8 @@ mod tests {
                     parens: vec![ParenParen {
                         range: pos_in(src, b"(x)", 0),
                         open_range: pos_in(src, b"(", 0),
-                        semicolon_prefix: vec![],
-                        semicolon_suffix: vec![],
+                        separator_prefix: vec![],
+                        separator_suffix: vec![],
                         close_range: pos_in(src, b")", 0),
                     }
                     .into()],
@@ -2035,8 +2017,11 @@ mod tests {
                     parens: vec![ParenParen {
                         range: pos_in(src, b"(\nx\n)", 0),
                         open_range: pos_in(src, b"(", 0),
-                        semicolon_prefix: vec![],
-                        semicolon_suffix: vec![],
+                        separator_prefix: vec![],
+                        separator_suffix: vec![StmtSep {
+                            range: pos_in(src, b"\n", 1),
+                            kind: StmtSepKind::Newline,
+                        }],
                         close_range: pos_in(src, b")", 0),
                     }
                     .into()],
@@ -2056,8 +2041,11 @@ mod tests {
                     parens: vec![ParenParen {
                         range: pos_in(src, b"(x;)", 0),
                         open_range: pos_in(src, b"(", 0),
-                        semicolon_prefix: vec![],
-                        semicolon_suffix: vec![pos_in(src, b";", 0)],
+                        separator_prefix: vec![],
+                        separator_suffix: vec![StmtSep {
+                            range: pos_in(src, b";", 0),
+                            kind: StmtSepKind::Semicolon,
+                        }],
                         close_range: pos_in(src, b")", 0),
                     }
                     .into()],
@@ -2077,8 +2065,11 @@ mod tests {
                     parens: vec![ParenParen {
                         range: pos_in(src, b"(;x)", 0),
                         open_range: pos_in(src, b"(", 0),
-                        semicolon_prefix: vec![pos_in(src, b";", 0)],
-                        semicolon_suffix: vec![],
+                        separator_prefix: vec![StmtSep {
+                            range: pos_in(src, b";", 0),
+                            kind: StmtSepKind::Semicolon,
+                        }],
+                        separator_suffix: vec![],
                         close_range: pos_in(src, b")", 0),
                     }
                     .into()],
