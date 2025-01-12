@@ -1,8 +1,44 @@
 use crate::ast::CodeRange;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Paren {
+pub enum Paren {
+    Paren(ParenParen),
+    BeginEnd(BeginEndParen),
+}
+
+impl_from!(
+    (Paren, ParenParen, Paren::Paren),
+    (Paren, BeginEndParen, Paren::BeginEnd),
+);
+
+impl_delegators!(
+    enum Paren {
+        Paren(ParenParen),
+        BeginEnd(BeginEndParen),
+    }
+    range (mut range_mut): CodeRange,
+);
+
+/// Represents `(` ... `)` in the source code, other than:
+///
+/// - a pair of parentheses containing two or more expressions
+/// - a pair of parentheses containing no expressions, which is equivalent to `nil`
+/// - a pair of parentheses which is a part of a parenthesized argument list or parameter list
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ParenParen {
     pub range: CodeRange,
     pub open_range: CodeRange,
+    pub semicolon_prefix: Vec<CodeRange>,
+    pub semicolon_suffix: Vec<CodeRange>,
     pub close_range: CodeRange,
+}
+
+/// Represents `begin` ... `end` in the source code.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BeginEndParen {
+    pub range: CodeRange,
+    pub begin_range: CodeRange,
+    pub semicolon_prefix: Vec<CodeRange>,
+    pub semicolon_suffix: Vec<CodeRange>,
+    pub end_range: CodeRange,
 }

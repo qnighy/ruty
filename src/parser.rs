@@ -6,10 +6,10 @@ use crate::{
     ast::{
         CallExpr, CallStyle, CodeRange, ConstExpr, ConstReceiver, ErrorExpr, ErrorType,
         ErrorWriteTarget, Expr, FalseExpr, FalseType, IntegerExpr, IntegerType,
-        InterpolationContent, LocalVariableExpr, LocalVariableWriteTarget, NilExpr, NilType, Paren,
-        Program, RegexpExpr, RegexpType, SelfExpr, Semicolon, SemicolonKind, SeqExpr, SeqParen,
-        SeqParenKind, Stmt, StmtList, StringContent, StringExpr, StringType, TextContent, TrueExpr,
-        TrueType, Type, TypeAnnotation, WriteExpr, WriteTarget, XStringExpr, DUMMY_RANGE,
+        InterpolationContent, LocalVariableExpr, LocalVariableWriteTarget, NilExpr, NilType,
+        ParenParen, Program, RegexpExpr, RegexpType, SelfExpr, Semicolon, SemicolonKind, SeqExpr,
+        SeqParen, SeqParenKind, Stmt, StmtList, StringContent, StringExpr, StringType, TextContent,
+        TrueExpr, TrueType, Type, TypeAnnotation, WriteExpr, WriteTarget, XStringExpr, DUMMY_RANGE,
     },
     encoding::EStrRef,
     Diagnostic, EString,
@@ -1213,19 +1213,39 @@ impl<'a> Parser<'a> {
                         }
                     }
                 };
-                let is_simple = stmt_list.semi_prefix.is_empty()
-                    && stmt_list.stmts.len() == 1
-                    && stmt_list.stmts[0]
-                        .semi
-                        .iter()
-                        .all(|s| s.kind == SemicolonKind::Newline);
-                if is_simple {
-                    let mut expr = { stmt_list }.stmts.pop().unwrap().expr;
-                    expr.parens_mut().push(Paren {
-                        range: open_range | close_range,
-                        open_range,
-                        close_range,
-                    });
+                if stmt_list.stmts.len() == 1 {
+                    let semicolon_prefix = { stmt_list.semi_prefix }
+                        .drain(..)
+                        .filter_map(|s| {
+                            if s.kind == SemicolonKind::Semicolon {
+                                Some(s.range)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    let stmt = { stmt_list.stmts }.swap_remove(0);
+                    let semicolon_suffix = { stmt.semi }
+                        .drain(..)
+                        .filter_map(|s| {
+                            if s.kind == SemicolonKind::Semicolon {
+                                Some(s.range)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    let mut expr = stmt.expr;
+                    expr.parens_mut().push(
+                        ParenParen {
+                            range: open_range | close_range,
+                            open_range,
+                            semicolon_prefix,
+                            semicolon_suffix,
+                            close_range,
+                        }
+                        .into(),
+                    );
                     ExprLike::Expr(expr)
                 } else {
                     ExprLike::Expr(Expr::Seq(SeqExpr {
@@ -1898,7 +1918,7 @@ mod tests {
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
 
-    use crate::ast::{pos_in, IntegerExpr};
+    use crate::ast::{pos_in, IntegerExpr, ParenParen};
 
     use super::*;
 
@@ -1991,11 +2011,14 @@ mod tests {
             (
                 LocalVariableExpr {
                     range: pos_in(src, b"x", 0),
-                    parens: vec![Paren {
+                    parens: vec![ParenParen {
                         range: pos_in(src, b"(x)", 0),
                         open_range: pos_in(src, b"(", 0),
+                        semicolon_prefix: vec![],
+                        semicolon_suffix: vec![],
                         close_range: pos_in(src, b")", 0),
-                    }],
+                    }
+                    .into()],
                     name: symbol("x"),
                     type_annotation: None,
                 }
@@ -2009,11 +2032,56 @@ mod tests {
             (
                 LocalVariableExpr {
                     range: pos_in(src, b"x", 0),
-                    parens: vec![Paren {
+                    parens: vec![ParenParen {
                         range: pos_in(src, b"(\nx\n)", 0),
                         open_range: pos_in(src, b"(", 0),
+                        semicolon_prefix: vec![],
+                        semicolon_suffix: vec![],
                         close_range: pos_in(src, b")", 0),
-                    }],
+                    }
+                    .into()],
+                    name: symbol("x"),
+                    type_annotation: None,
+                }
+                .into(),
+                vec![],
+            )
+        );
+        let src = EStrRef::from("(x;)");
+        assert_eq!(
+            p_expr(src, &["x"]),
+            (
+                LocalVariableExpr {
+                    range: pos_in(src, b"x", 0),
+                    parens: vec![ParenParen {
+                        range: pos_in(src, b"(x;)", 0),
+                        open_range: pos_in(src, b"(", 0),
+                        semicolon_prefix: vec![],
+                        semicolon_suffix: vec![pos_in(src, b";", 0)],
+                        close_range: pos_in(src, b")", 0),
+                    }
+                    .into()],
+                    name: symbol("x"),
+                    type_annotation: None,
+                }
+                .into(),
+                vec![],
+            )
+        );
+        let src = EStrRef::from("(;x)");
+        assert_eq!(
+            p_expr(src, &["x"]),
+            (
+                LocalVariableExpr {
+                    range: pos_in(src, b"x", 0),
+                    parens: vec![ParenParen {
+                        range: pos_in(src, b"(;x)", 0),
+                        open_range: pos_in(src, b"(", 0),
+                        semicolon_prefix: vec![pos_in(src, b";", 0)],
+                        semicolon_suffix: vec![],
+                        close_range: pos_in(src, b")", 0),
+                    }
+                    .into()],
                     name: symbol("x"),
                     type_annotation: None,
                 }
@@ -2025,76 +2093,6 @@ mod tests {
 
     #[test]
     fn test_parse_parenthesized_seq_expr() {
-        let src = EStrRef::from("(x;)");
-        assert_eq!(
-            p_expr(src, &["x"]),
-            (
-                SeqExpr {
-                    range: pos_in(src, b"(x;)", 0),
-                    parens: vec![],
-                    paren: SeqParen {
-                        kind: SeqParenKind::Paren,
-                        open_range: pos_in(src, b"(", 0),
-                        close_range: pos_in(src, b")", 0),
-                    },
-                    stmt_list: StmtList {
-                        range: pos_in(src, b"x;", 0),
-                        semi_prefix: vec![],
-                        stmts: vec![Stmt {
-                            range: pos_in(src, b"x;", 0),
-                            expr: LocalVariableExpr {
-                                range: pos_in(src, b"x", 0),
-                                parens: vec![],
-                                name: symbol("x"),
-                                type_annotation: None,
-                            }
-                            .into(),
-                            semi: vec![Semicolon {
-                                range: pos_in(src, b";", 0),
-                                kind: SemicolonKind::Semicolon
-                            }],
-                        }]
-                    },
-                }
-                .into(),
-                vec![],
-            )
-        );
-        let src = EStrRef::from("(;x)");
-        assert_eq!(
-            p_expr(src, &["x"]),
-            (
-                SeqExpr {
-                    range: pos_in(src, b"(;x)", 0),
-                    parens: vec![],
-                    paren: SeqParen {
-                        kind: SeqParenKind::Paren,
-                        open_range: pos_in(src, b"(", 0),
-                        close_range: pos_in(src, b")", 0),
-                    },
-                    stmt_list: StmtList {
-                        range: pos_in(src, b";x", 0),
-                        semi_prefix: vec![Semicolon {
-                            range: pos_in(src, b";", 0),
-                            kind: SemicolonKind::Semicolon
-                        }],
-                        stmts: vec![Stmt {
-                            range: pos_in(src, b"x", 0),
-                            expr: LocalVariableExpr {
-                                range: pos_in(src, b"x", 0),
-                                parens: vec![],
-                                name: symbol("x"),
-                                type_annotation: None,
-                            }
-                            .into(),
-                            semi: vec![],
-                        }]
-                    },
-                }
-                .into(),
-                vec![],
-            )
-        );
         let src = EStrRef::from("(x\ny)");
         assert_eq!(
             p_expr(src, &["x", "y"]),

@@ -70,7 +70,7 @@ impl_delegators!(
 impl Expr {
     pub fn outer_range(&self) -> &CodeRange {
         if let Some(last_paren) = self.parens().last() {
-            &last_paren.range
+            last_paren.range()
         } else {
             self.range()
         }
