@@ -2540,10 +2540,15 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::fmt;
+
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
 
-    use crate::ast::{pos_in, IntegerExpr, ParenParen};
+    use crate::{
+        ast::{pos_in, IntegerExpr, ParenParen},
+        CharPlus,
+    };
 
     use super::*;
 
@@ -2551,6 +2556,23 @@ mod tests {
         let locals = locals.iter().map(|&s| symbol(s)).collect::<Vec<_>>();
         let mut diag = Vec::new();
         let program = parse(&mut diag, input, &locals);
+        (program, diag)
+    }
+
+    fn pp_program(input: EStrRef<'_>, locals: &[&str]) -> (String, Vec<String>) {
+        let locals = locals.iter().map(|&s| symbol(s)).collect::<Vec<_>>();
+        let mut diag = Vec::new();
+        let program = parse(&mut diag, input, &locals);
+        let program = {
+            struct Disp(Program);
+            impl fmt::Display for Disp {
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    fmt_expr(f, &self.0.body, 10)
+                }
+            }
+            format!("{}", Disp(program))
+        };
+        let diag = diag.into_iter().map(|d| d.message).collect();
         (program, diag)
     }
 
@@ -2567,8 +2589,255 @@ mod tests {
         (ty, diag)
     }
 
+    fn fmt_expr(f: &mut fmt::Formatter<'_>, expr: &Expr, outer_level: i32) -> fmt::Result {
+        let level = match expr {
+            Expr::Seq(_) => 0,
+            Expr::Nil(_) => 0,
+            Expr::False(_) => 0,
+            Expr::True(_) => 0,
+            Expr::Integer(expr) => 0,
+            Expr::String(expr) => 0,
+            Expr::Regexp(expr) => 0,
+            Expr::XString(expr) => 0,
+            Expr::LocalVariable(expr) => 0,
+            Expr::Const(expr) => match expr.receiver {
+                ConstReceiver::None => 0,
+                ConstReceiver::Expr(_) => 1,
+                ConstReceiver::Object => 0,
+            },
+            Expr::Self_(_) => 0,
+            Expr::SourceEncoding(_) => 0,
+            Expr::SourceFile(_) => 0,
+            Expr::SourceLine(_) => 0,
+            Expr::Call(_) => 1,
+            Expr::Write(_) => 2,
+            Expr::And(_) => 2,
+            Expr::Or(_) => 2,
+            Expr::If(_) => 0,
+            Expr::While(_) => 0,
+            Expr::Until(_) => 0,
+            Expr::Error(_) => 0,
+        };
+        if outer_level < level {
+            write!(f, "(")?;
+        }
+        match expr {
+            Expr::Seq(expr) => {
+                write!(f, "(")?;
+                for stmt in &expr.statements {
+                    fmt_expr(f, &stmt.expr, 10)?;
+                    write!(f, "; ")?;
+                }
+                write!(f, ")")?;
+            }
+            Expr::Nil(_) => {
+                write!(f, "nil")?;
+            }
+            Expr::False(_) => {
+                write!(f, "false")?;
+            }
+            Expr::True(_) => {
+                write!(f, "true")?;
+            }
+            Expr::Integer(expr) => {
+                write!(f, "{}", expr.value)?;
+            }
+            Expr::String(expr) => {
+                write!(f, "\"")?;
+                fmt_string_contents(f, &expr.contents, '"')?;
+                write!(f, "\"")?;
+            }
+            Expr::Regexp(expr) => {
+                write!(f, "/")?;
+                fmt_string_contents(f, &expr.contents, '/')?;
+                write!(f, "/")?;
+            }
+            Expr::XString(expr) => {
+                write!(f, "`")?;
+                fmt_string_contents(f, &expr.contents, '`')?;
+                write!(f, "`")?;
+            }
+            Expr::LocalVariable(expr) => {
+                fmt_name(f, &expr.name)?;
+            }
+            Expr::Const(expr) => {
+                match &expr.receiver {
+                    ConstReceiver::None => {}
+                    ConstReceiver::Expr(receiver) => {
+                        fmt_expr(f, receiver, level)?;
+                        write!(f, "::")?;
+                    }
+                    ConstReceiver::Object => {
+                        write!(f, "::")?;
+                    }
+                }
+                fmt_name(f, &expr.name)?;
+            }
+            Expr::Self_(_) => {
+                write!(f, "self")?;
+            }
+            Expr::SourceEncoding(_) => {
+                write!(f, "__ENCODING__")?;
+            }
+            Expr::SourceFile(_) => {
+                write!(f, "__FILE__")?;
+            }
+            Expr::SourceLine(_) => {
+                write!(f, "__LINE__")?;
+            }
+            Expr::Call(expr) => {
+                if expr.private {
+                    write!(f, "self")?;
+                } else if matches!(&*expr.receiver, Expr::Self_(_)) {
+                    write!(f, "(self)")?;
+                } else {
+                    fmt_expr(f, &expr.receiver, level)?;
+                }
+                if expr.optional {
+                    write!(f, "&.")?;
+                } else {
+                    write!(f, ".")?;
+                }
+                fmt_name(f, &expr.method)?;
+                write!(f, "(")?;
+                for (i, arg) in expr.args.iter().enumerate() {
+                    fmt_expr(f, arg, 10)?;
+                    if i + 1 < expr.args.len() {
+                        write!(f, ", ")?;
+                    }
+                }
+                write!(f, ")")?;
+            }
+            Expr::Write(expr) => {
+                fmt_write_target(f, &expr.lhs)?;
+                write!(f, " = ")?;
+                fmt_expr(f, &expr.rhs, level - 1)?;
+            }
+            Expr::And(expr) => {
+                fmt_expr(f, &expr.lhs, level - 1)?;
+                write!(f, " && ")?;
+                fmt_expr(f, &expr.rhs, level - 1)?;
+            }
+            Expr::Or(expr) => {
+                fmt_expr(f, &expr.lhs, level - 1)?;
+                write!(f, " || ")?;
+                fmt_expr(f, &expr.rhs, level - 1)?;
+            }
+            Expr::If(expr) => {
+                write!(f, "if ")?;
+                fmt_expr(f, &expr.cond, 10)?;
+                write!(f, " then ")?;
+                fmt_expr(f, &expr.then, 10)?;
+                write!(f, " else ")?;
+                fmt_expr(f, &expr.else_, 10)?;
+                write!(f, " end")?;
+            }
+            Expr::While(expr) => {
+                write!(f, "while ")?;
+                fmt_expr(f, &expr.cond, 10)?;
+                write!(f, " do ")?;
+                fmt_expr(f, &expr.body, 10)?;
+                write!(f, " end")?;
+            }
+            Expr::Until(expr) => {
+                write!(f, "until ")?;
+                fmt_expr(f, &expr.cond, 10)?;
+                write!(f, " do ")?;
+                fmt_expr(f, &expr.body, 10)?;
+                write!(f, " end")?;
+            }
+            Expr::Error(_) => {
+                write!(f, "<error>")?;
+            }
+        }
+        if outer_level < level {
+            write!(f, ")")?;
+        }
+        Ok(())
+    }
+
+    fn fmt_write_target(f: &mut fmt::Formatter<'_>, expr: &WriteTarget) -> fmt::Result {
+        match expr {
+            WriteTarget::LocalVariable(expr) => fmt_name(f, &expr.name)?,
+            WriteTarget::Error(error_write_target) => write!(f, "<error>")?,
+        }
+        Ok(())
+    }
+
+    fn fmt_name(f: &mut fmt::Formatter<'_>, name: &EString) -> fmt::Result {
+        for ch in name.chars() {
+            match ch {
+                CharPlus::Unicode(ch) => write!(f, "{}", ch)?,
+                CharPlus::NonUnicode(bytes) | CharPlus::Invalid(bytes) | CharPlus::Shift(bytes) => {
+                    for _ in bytes.iter() {
+                        write!(f, "\u{FFFD}")?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn fmt_string_contents(
+        f: &mut fmt::Formatter<'_>,
+        contents: &[StringContent],
+        delim: char,
+    ) -> fmt::Result {
+        for content in contents {
+            match content {
+                StringContent::Text(content) => {
+                    for ch in content.value.chars() {
+                        match ch {
+                            CharPlus::Unicode('\x07') => write!(f, "\\a")?,
+                            CharPlus::Unicode('\x08') => write!(f, "\\b")?,
+                            CharPlus::Unicode('\t') => write!(f, "\\t")?,
+                            CharPlus::Unicode('\n') => write!(f, "\\n")?,
+                            CharPlus::Unicode('\x0B') => write!(f, "\\v")?,
+                            CharPlus::Unicode('\x0C') => write!(f, "\\f")?,
+                            CharPlus::Unicode('\r') => write!(f, "\\r")?,
+                            CharPlus::Unicode('\x1B') => write!(f, "\\e")?,
+                            CharPlus::Unicode('"') if delim == '"' => write!(f, "\\\"")?,
+                            CharPlus::Unicode('/') if delim == '/' => write!(f, "\\/")?,
+                            CharPlus::Unicode('`') if delim == '`' => write!(f, "\\`")?,
+                            CharPlus::Unicode('#') => write!(f, "\\#")?,
+                            CharPlus::Unicode('\\') => write!(f, "\\\\")?,
+                            CharPlus::Unicode(ch)
+                                if ('\x00'..='\x1F').contains(&ch) || ch == '\x7F' =>
+                            {
+                                write!(f, "\\x{:02X}", ch as u32)?;
+                            }
+                            CharPlus::Unicode(ch) => write!(f, "{}", ch)?,
+                            CharPlus::NonUnicode(bytes)
+                            | CharPlus::Invalid(bytes)
+                            | CharPlus::Shift(bytes) => {
+                                for &byte in bytes.iter() {
+                                    write!(f, "\\x{:02X}", byte)?;
+                                }
+                            }
+                        }
+                    }
+                }
+                StringContent::Interpolation(content) => {
+                    write!(f, "#{{")?;
+                    fmt_expr(f, &content.expr, 10)?;
+                    write!(f, "}}")?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     #[test]
     fn test_parse_toplevel_stmts() {
+        assert_eq!(
+            pp_program(EStrRef::from("x; y\nz"), &["x", "y", "z"]),
+            ("(x; y; z; )".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from(""), &["x", "y", "z"]),
+            ("nil".to_owned(), vec![])
+        );
+
         let src = EStrRef::from("x; y\nz");
         assert_eq!(
             p_program(src, &["x", "y", "z"]),
@@ -2634,6 +2903,23 @@ mod tests {
 
     #[test]
     fn test_parse_parenthesized_expr() {
+        assert_eq!(
+            pp_program(EStrRef::from("(x)"), &["x"]),
+            ("x".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("(\nx\n)"), &["x"]),
+            ("x".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("(x;)"), &["x"]),
+            ("x".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("(;x)"), &["x"]),
+            ("x".to_owned(), vec![])
+        );
+
         let src = EStrRef::from("(x)");
         assert_eq!(
             p_expr(src, &["x"]),
@@ -2731,6 +3017,15 @@ mod tests {
 
     #[test]
     fn test_parse_parenthesized_seq_expr() {
+        assert_eq!(
+            pp_program(EStrRef::from("(x\ny)"), &["x", "y"]),
+            ("(x; y; )".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("(x;y)"), &["x", "y"]),
+            ("(x; y; )".to_owned(), vec![])
+        );
+
         let src = EStrRef::from("(x\ny)");
         assert_eq!(
             p_expr(src, &["x", "y"]),
@@ -2783,6 +3078,15 @@ mod tests {
 
     #[test]
     fn test_parse_nil_expr() {
+        assert_eq!(
+            pp_program(EStrRef::from("nil"), &[]),
+            ("nil".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("()"), &[]),
+            ("nil".to_owned(), vec![])
+        );
+
         let src = EStrRef::from("nil");
         assert_eq!(
             p_expr(src, &[]),
@@ -2801,6 +3105,15 @@ mod tests {
 
     #[test]
     fn test_parse_false_true_expr() {
+        assert_eq!(
+            pp_program(EStrRef::from("false"), &[]),
+            ("false".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("true"), &[]),
+            ("true".to_owned(), vec![])
+        );
+
         let src = EStrRef::from("false");
         assert_eq!(
             p_expr(src, &[]),
@@ -2829,6 +3142,11 @@ mod tests {
 
     #[test]
     fn test_parse_variable_expr() {
+        assert_eq!(
+            pp_program(EStrRef::from("x"), &["x"]),
+            ("x".to_owned(), vec![])
+        );
+
         let src = EStrRef::from("x");
         assert_eq!(
             p_expr(src, &["x"]),
@@ -2867,6 +3185,11 @@ mod tests {
 
     #[test]
     fn test_parse_integer_expr() {
+        assert_eq!(
+            pp_program(EStrRef::from("42"), &[]),
+            ("42".to_owned(), vec![])
+        );
+
         let src = EStrRef::from("42");
         assert_eq!(
             p_expr(src, &[]),
@@ -2884,6 +3207,27 @@ mod tests {
 
     #[test]
     fn test_parse_string_expr() {
+        assert_eq!(
+            pp_program(EStrRef::from("'foo'"), &[]),
+            ("\"foo\"".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("\"foo\""), &[]),
+            ("\"foo\"".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("'foo #{bar} baz'"), &[]),
+            ("\"foo \\#{bar} baz\"".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("\"foo #{bar} baz\""), &["bar"]),
+            ("\"foo #{bar} baz\"".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("\"foo #{0; 1} baz\""), &[]),
+            ("\"foo #{(0; 1; )} baz\"".to_owned(), vec![])
+        );
+
         let src = EStrRef::from("'foo'");
         assert_eq!(
             p_expr(src, &[]),
@@ -2960,6 +3304,15 @@ mod tests {
 
     #[test]
     fn test_parse_regexp_expr() {
+        assert_eq!(
+            pp_program(EStrRef::from("/foo/"), &[]),
+            ("/foo/".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("/foo #{bar} baz/"), &["bar"]),
+            ("/foo #{bar} baz/".to_owned(), vec![])
+        );
+
         let src = EStrRef::from("/foo/");
         assert_eq!(
             p_expr(src, &[]),
@@ -2982,6 +3335,15 @@ mod tests {
 
     #[test]
     fn test_parse_xstring_expr() {
+        assert_eq!(
+            pp_program(EStrRef::from("`foo`"), &[]),
+            ("`foo`".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("`foo #{(bar)} baz`"), &["bar"]),
+            ("`foo #{bar} baz`".to_owned(), vec![])
+        );
+
         let src = EStrRef::from("`foo`");
         assert_eq!(
             p_expr(src, &[]),
@@ -3003,7 +3365,60 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_const() {
+        assert_eq!(
+            pp_program(EStrRef::from("Foo"), &[]),
+            ("Foo".to_owned(), vec![])
+        );
+        // assert_eq!(
+        //     pp_program(EStrRef::from("::Foo"), &[]),
+        //     ("::Foo".to_owned(), vec![])
+        // );
+        assert_eq!(
+            pp_program(EStrRef::from("0::Foo"), &[]),
+            ("0::Foo".to_owned(), vec![])
+        );
+    }
+
+    #[test]
     fn test_func_call() {
+        assert_eq!(
+            pp_program(EStrRef::from("foo()"), &[]),
+            ("self.foo()".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("foo()"), &["foo"]),
+            ("self.foo()".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("foo(1)"), &[]),
+            ("self.foo(1)".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("foo(1,)"), &[]),
+            ("self.foo(1)".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("foo(1,2)"), &[]),
+            ("self.foo(1, 2)".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("Foo()"), &[]),
+            ("self.Foo()".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("foo!"), &[]),
+            ("self.foo!()".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("foo?"), &[]),
+            ("self.foo?()".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("foo!(1)"), &[]),
+            ("self.foo!(1)".to_owned(), vec![])
+        );
+
         let src = EStrRef::from("foo()");
         assert_eq!(
             p_expr(src, &[]),
@@ -3033,6 +3448,23 @@ mod tests {
 
     #[test]
     fn test_cmd_func_call() {
+        assert_eq!(
+            pp_program(EStrRef::from("foo 1, 2"), &[]),
+            ("self.foo(1, 2)".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("Foo 1, 2"), &[]),
+            ("self.Foo(1, 2)".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("foo! 1, 2"), &[]),
+            ("self.foo!(1, 2)".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("foo? 1, 2"), &[]),
+            ("self.foo?(1, 2)".to_owned(), vec![])
+        );
+
         let src = EStrRef::from("foo 1, 2");
         assert_eq!(
             p_expr(src, &[]),
@@ -3075,6 +3507,39 @@ mod tests {
 
     #[test]
     fn test_method_call() {
+        assert_eq!(
+            pp_program(EStrRef::from("x.foo"), &["x"]),
+            ("x.foo()".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("x.foo()"), &["x"]),
+            ("x.foo()".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("x.Foo"), &["x"]),
+            ("x.Foo()".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("x.Foo()"), &["x"]),
+            ("x.Foo()".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("x.foo!"), &["x"]),
+            ("x.foo!()".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("x.foo!()"), &["x"]),
+            ("x.foo!()".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("x&.foo"), &["x"]),
+            ("x&.foo()".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("x&.foo()"), &["x"]),
+            ("x&.foo()".to_owned(), vec![])
+        );
+
         let src = EStrRef::from("x.foo()");
         assert_eq!(
             p_expr(src, &["x"]),

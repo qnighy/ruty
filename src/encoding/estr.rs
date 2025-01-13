@@ -63,7 +63,15 @@ impl<'a> EStrRef<'a> {
         }
     }
 
-    // pub fn char_indices(&self) -> CharIndices<'a> {}
+    pub fn char_indices(&self) -> CharIndices<'a> {
+        CharIndices {
+            bytes: self.bytes,
+            pos: 0,
+            encoding: self.encoding,
+            enc_impl: self.encoding.encoding_impl(),
+            state: self.state,
+        }
+    }
     // pub fn bytes(&self) -> Bytes<'a> {}
 
     // pub fn split_whitespace(&self) -> SplitWhitespace<'_>
@@ -289,7 +297,9 @@ impl<'a> EStrMut<'a> {
         self.reborrow().chars()
     }
 
-    // pub fn char_indices(&self) -> CharIndices<'a> {}
+    pub fn char_indices(&self) -> CharIndices<'_> {
+        self.reborrow().char_indices()
+    }
     // pub fn bytes(&self) -> Bytes<'a> {}
 
     // pub fn split_whitespace(&self) -> SplitWhitespace<'_>
@@ -431,6 +441,61 @@ impl<'a> Iterator for Chars<'a> {
                 self.bytes = &self.bytes[len..];
                 self.state = next_state;
                 ch
+            }
+        })
+    }
+}
+
+#[derive(Clone)]
+pub struct CharIndices<'a> {
+    bytes: &'a [u8],
+    pos: usize,
+    encoding: Encoding,
+    enc_impl: &'static dyn EncodingImpl,
+    state: EncodingState,
+}
+
+impl<'a> std::fmt::Debug for CharIndices<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CharIndices")
+            .field("bytes", &self.bytes)
+            .field("pos", &self.pos)
+            .field("encoding", &self.encoding)
+            .field("state", &self.state)
+            .finish()
+    }
+}
+
+impl<'a> Iterator for CharIndices<'a> {
+    type Item = (usize, CharPlus);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.bytes.is_empty() {
+            return None;
+        }
+
+        let start = self.pos;
+        let next = self.enc_impl.next_char(self.bytes, self.state);
+        Some(match next {
+            EncNext::Valid { len, unicode } => {
+                let ch = if let Some(unicode) = unicode {
+                    CharPlus::Unicode(unicode)
+                } else {
+                    CharPlus::NonUnicode(SmallBytes::try_from(&self.bytes[..len]).unwrap())
+                };
+                self.pos += len;
+                (start, ch)
+            }
+            EncNext::Invalid { len } => {
+                let ch = CharPlus::Invalid(SmallBytes::try_from(&self.bytes[..len]).unwrap());
+                self.pos += len;
+                (start, ch)
+            }
+            EncNext::Shift { len, next_state } => {
+                let ch = CharPlus::Shift(SmallBytes::try_from(&self.bytes[..len]).unwrap());
+                self.pos += len;
+                self.state = next_state;
+                (start, ch)
             }
         })
     }

@@ -9,7 +9,7 @@ use std::{collections::HashMap, sync::LazyLock};
 
 pub use catalog::Encoding;
 pub use charplus::CharPlus;
-pub use estr::{Chars, EStrMut, EStrRef};
+pub use estr::{CharIndices, Chars, EStrMut, EStrRef};
 pub use estring::EString;
 use iface::{EncNext, EncodingImpl};
 

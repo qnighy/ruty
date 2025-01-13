@@ -1,6 +1,6 @@
 use std::{collections::TryReserveError, fmt};
 
-use crate::encoding::{Chars, EStrMut, EStrRef, Encoding};
+use crate::encoding::{CharIndices, Chars, EStrMut, EStrRef, Encoding};
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct EString {
@@ -95,6 +95,10 @@ impl EString {
 
     pub fn chars(&self) -> Chars<'_> {
         self.as_estr().chars()
+    }
+
+    pub fn char_indices(&self) -> CharIndices<'_> {
+        self.as_estr().char_indices()
     }
 
     pub fn is_valid(&self) -> bool {
