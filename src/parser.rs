@@ -229,8 +229,8 @@ impl<'a> Parser<'a> {
                             range: *lhs.outer_range() | *rhs.outer_range(),
                             parens: Vec::new(),
 
-                            cond: Box::new(lhs),
-                            then: Box::new(rhs),
+                            cond: Box::new(rhs),
+                            then: Box::new(lhs),
                             else_: Box::new(
                                 NilExpr {
                                     range: DUMMY_RANGE,
@@ -246,7 +246,7 @@ impl<'a> Parser<'a> {
                             range: *lhs.outer_range() | *rhs.outer_range(),
                             parens: Vec::new(),
 
-                            cond: Box::new(lhs),
+                            cond: Box::new(rhs),
                             then: Box::new(
                                 NilExpr {
                                     range: DUMMY_RANGE,
@@ -256,23 +256,23 @@ impl<'a> Parser<'a> {
                                 }
                                 .into(),
                             ),
-                            else_: Box::new(rhs),
+                            else_: Box::new(lhs),
                         }
                         .into(),
                         TokenKind::KeywordWhileInfix => WhileExpr {
                             range: *lhs.outer_range() | *rhs.outer_range(),
                             parens: Vec::new(),
 
-                            cond: Box::new(lhs),
-                            body: Box::new(rhs),
+                            cond: Box::new(rhs),
+                            body: Box::new(lhs),
                         }
                         .into(),
                         TokenKind::KeywordUntilInfix => UntilExpr {
                             range: *lhs.outer_range() | *rhs.outer_range(),
                             parens: Vec::new(),
 
-                            cond: Box::new(lhs),
-                            body: Box::new(rhs),
+                            cond: Box::new(rhs),
+                            body: Box::new(lhs),
                         }
                         .into(),
                         _ => unreachable!(),
@@ -474,7 +474,9 @@ impl<'a> Parser<'a> {
                     .parse_expr_lv_assignment(diag, lv, prec.with_invalid_command())
                     .into_expr(diag);
                 let mid2_token = self.fill_token(diag, LexerState::End);
-                if !matches!(mid2_token.kind, TokenKind::Colon) {
+                if matches!(mid2_token.kind, TokenKind::Colon) {
+                    self.bump();
+                } else {
                     diag.push(Diagnostic {
                         range: mid2_token.range,
                         message: format!("expected `:`"),
@@ -2023,6 +2025,8 @@ impl BailCtx {
             | TokenKind::RBracket
             | TokenKind::RBrace
             | TokenKind::KeywordEnd
+            | TokenKind::KeywordElse
+            | TokenKind::KeywordElsif
             | TokenKind::EOF => {
                 let exact_match = match (self.end_style, token.kind) {
                     (EndStyle::RParen, TokenKind::RParen)
@@ -2050,6 +2054,8 @@ impl BailCtx {
                     TokenKind::RBracket => 2,
                     TokenKind::RBrace => 2,
                     TokenKind::KeywordEnd => 1,
+                    TokenKind::KeywordElse => 1,
+                    TokenKind::KeywordElsif => 1,
                     TokenKind::EOF => 0,
                     _ => unreachable!(),
                 };
@@ -4255,6 +4261,133 @@ mod tests {
                 .into(),
                 vec![],
             )
+        );
+    }
+
+    #[test]
+    fn test_parse_logical_or() {
+        assert_eq!(
+            pp_program(EStrRef::from("x || y"), &["x", "y"]),
+            ("x || y".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("x || y || z"), &["x", "y", "z"]),
+            ("(x || y) || z".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("x or y"), &["x", "y"]),
+            ("x || y".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("x or y or z"), &["x", "y", "z"]),
+            ("(x || y) || z".to_owned(), vec![])
+        );
+    }
+
+    #[test]
+    fn test_parse_logical_and() {
+        assert_eq!(
+            pp_program(EStrRef::from("x && y"), &["x", "y"]),
+            ("x && y".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("x && y && z"), &["x", "y", "z"]),
+            ("(x && y) && z".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("x and y"), &["x", "y"]),
+            ("x && y".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("x and y and z"), &["x", "y", "z"]),
+            ("(x && y) && z".to_owned(), vec![])
+        );
+    }
+
+    #[test]
+    fn test_parse_if_exprs() {
+        assert_eq!(
+            pp_program(EStrRef::from("if 0; 1 end"), &[]),
+            ("if 0 then 1 else nil end".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("if 0 then 1 end"), &[]),
+            ("if 0 then 1 else nil end".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("if 0; then 1 end"), &[]),
+            ("if 0 then 1 else nil end".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("if 0 then 1 else 2 end"), &[]),
+            ("if 0 then 1 else 2 end".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("if 0 then 1; 2 else 3; 4 end"), &[]),
+            ("if 0 then (1; 2; ) else (3; 4; ) end".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("if 0 then 1 elsif 2 then 3 end"), &[]),
+            (
+                "if 0 then 1 else if 2 then 3 else nil end end".to_owned(),
+                vec![]
+            )
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("if 0 then 1 elsif 2 then 3 else 4 end"), &[]),
+            (
+                "if 0 then 1 else if 2 then 3 else 4 end end".to_owned(),
+                vec![]
+            )
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("unless 0 then 1 end"), &[]),
+            ("if 0 then nil else 1 end".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("unless 0 then 1 else 2 end"), &[]),
+            ("if 0 then 2 else 1 end".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("0 if 1"), &[]),
+            ("if 1 then 0 else nil end".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("0 unless 1"), &[]),
+            ("if 1 then nil else 0 end".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("0 ? 1 : 2"), &[]),
+            ("if 0 then 1 else 2 end".to_owned(), vec![])
+        );
+        assert_eq!(
+            pp_program(EStrRef::from("0 ? 1 : 2 ? 3 : 4"), &[]),
+            (
+                "if 0 then 1 else if 2 then 3 else 4 end end".to_owned(),
+                vec![]
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_while_until_exprs() {
+        // TODO
+        // assert_eq!(
+        //     pp_program(EStrRef::from("while 0; 1 end"), &[]),
+        //     ("while 0 do 1 end".to_owned(), vec![])
+        // );
+        assert_eq!(
+            pp_program(EStrRef::from("0 while 1"), &[]),
+            ("while 1 do 0 end".to_owned(), vec![])
+        );
+        // TODO
+        // assert_eq!(
+        //     pp_program(EStrRef::from("until 0; 1 end"), &[]),
+        //     ("until 0 do 1 end".to_owned(), vec![])
+        // );
+        assert_eq!(
+            pp_program(EStrRef::from("0 until 1"), &[]),
+            ("until 1 do 0 end".to_owned(), vec![])
         );
     }
 
