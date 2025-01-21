@@ -8,9 +8,9 @@ use crate::{
         ErrorWriteTarget, Expr, FalseExpr, FalseType, IfExpr, ImplicitParen, IntegerExpr,
         IntegerType, InterpolationContent, LocalVariableExpr, LocalVariableWriteTarget, NilExpr,
         NilStyle, NilType, OrExpr, Paren, ParenParen, Program, RegexpExpr, RegexpType, SelfExpr,
-        SeqExpr, Stmt, StmtSep, StmtSepKind, StringContent, StringExpr, StringType, TextContent,
-        TrueExpr, TrueType, Type, TypeAnnotation, UntilExpr, WhileExpr, WriteExpr, WriteTarget,
-        XStringExpr, DUMMY_RANGE,
+        SeqExpr, SourceEncodingExpr, SourceFileExpr, SourceLineExpr, Stmt, StmtSep, StmtSepKind,
+        StringContent, StringExpr, StringType, TextContent, TrueExpr, TrueType, Type,
+        TypeAnnotation, UntilExpr, WhileExpr, WriteExpr, WriteTarget, XStringExpr, DUMMY_RANGE,
     },
     encoding::EStrRef,
     Diagnostic, EString,
@@ -1376,6 +1376,46 @@ impl<'a> Parser<'a> {
                 }
                 ExprLike::NotOp { range: token.range }
             }
+            TokenKind::KeywordSelf => {
+                self.bump();
+                ExprLike::Expr(
+                    SelfExpr {
+                        range: token.range,
+                        parens: Vec::new(),
+                    }
+                    .into(),
+                )
+            }
+            TokenKind::KeywordCapitalDoubleUnderscoreEncoding => {
+                self.bump();
+                ExprLike::Expr(
+                    SourceEncodingExpr {
+                        range: token.range,
+                        parens: Vec::new(),
+                    }
+                    .into(),
+                )
+            }
+            TokenKind::KeywordCapitalDoubleUnderscoreFile => {
+                self.bump();
+                ExprLike::Expr(
+                    SourceFileExpr {
+                        range: token.range,
+                        parens: Vec::new(),
+                    }
+                    .into(),
+                )
+            }
+            TokenKind::KeywordCapitalDoubleUnderscoreLine => {
+                self.bump();
+                ExprLike::Expr(
+                    SourceLineExpr {
+                        range: token.range,
+                        parens: Vec::new(),
+                    }
+                    .into(),
+                )
+            }
             TokenKind::Integer => {
                 self.bump();
                 ExprLike::Expr(
@@ -1492,6 +1532,65 @@ impl<'a> Parser<'a> {
             }
             TokenKind::KeywordIf => ExprLike::Expr(self.parse_if_chain(diag, lv)),
             TokenKind::KeywordUnless => ExprLike::Expr(self.parse_unless(diag, lv)),
+            TokenKind::KeywordWhile | TokenKind::KeywordUntil => {
+                let flip = matches!(token.kind, TokenKind::KeywordUntil);
+                let indent = token.indent;
+                self.bump();
+                let cond = self.parse_expr_lv_spelled_and_or(diag, lv);
+                let do_token = self.fill_token(diag, LexerState::End);
+                match do_token.kind {
+                    TokenKind::Semicolon | TokenKind::Newline | TokenKind::KeywordDo => {
+                        self.bump();
+                    }
+                    _ => {
+                        diag.push(Diagnostic {
+                            range: do_token.range,
+                            message: format!("expected 'do', ';', or newline"),
+                        });
+                    }
+                }
+                let body = self.parse_stmt_list(
+                    diag,
+                    lv,
+                    BailCtx {
+                        end_style: EndStyle::End,
+                        indent,
+                        ..Default::default()
+                    },
+                );
+                let end_token = self.fill_token(diag, LexerState::End);
+                if matches!(end_token.kind, TokenKind::KeywordEnd) {
+                    self.bump();
+                } else {
+                    diag.push(Diagnostic {
+                        range: end_token.range,
+                        message: format!("expected 'end'"),
+                    });
+                }
+                if flip {
+                    ExprLike::Expr(
+                        UntilExpr {
+                            range: token.range | *body.outer_range() | end_token.range,
+                            parens: Vec::new(),
+
+                            cond: Box::new(cond),
+                            body: Box::new(body),
+                        }
+                        .into(),
+                    )
+                } else {
+                    ExprLike::Expr(
+                        WhileExpr {
+                            range: token.range | *body.outer_range() | end_token.range,
+                            parens: Vec::new(),
+
+                            cond: Box::new(cond),
+                            body: Box::new(body),
+                        }
+                        .into(),
+                    )
+                }
+            }
             TokenKind::LParen => {
                 let open_range = token.range;
                 self.bump();
@@ -4371,20 +4470,18 @@ mod tests {
 
     #[test]
     fn test_parse_while_until_exprs() {
-        // TODO
-        // assert_eq!(
-        //     pp_program(EStrRef::from("while 0; 1 end"), &[]),
-        //     ("while 0 do 1 end".to_owned(), vec![])
-        // );
+        assert_eq!(
+            pp_program(EStrRef::from("while 0; 1 end"), &[]),
+            ("while 0 do 1 end".to_owned(), vec![])
+        );
         assert_eq!(
             pp_program(EStrRef::from("0 while 1"), &[]),
             ("while 1 do 0 end".to_owned(), vec![])
         );
-        // TODO
-        // assert_eq!(
-        //     pp_program(EStrRef::from("until 0; 1 end"), &[]),
-        //     ("until 0 do 1 end".to_owned(), vec![])
-        // );
+        assert_eq!(
+            pp_program(EStrRef::from("until 0; 1 end"), &[]),
+            ("until 0 do 1 end".to_owned(), vec![])
+        );
         assert_eq!(
             pp_program(EStrRef::from("0 until 1"), &[]),
             ("until 1 do 0 end".to_owned(), vec![])

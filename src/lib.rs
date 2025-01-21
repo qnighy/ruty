@@ -2,6 +2,7 @@ pub mod ast;
 mod checker;
 pub mod encoding;
 mod eraser;
+mod iseq;
 mod parser;
 
 use crate::ast::CodeRange;
