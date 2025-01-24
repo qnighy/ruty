@@ -47,6 +47,7 @@ pub(crate) struct Instr {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum InstrKind {
+    Entry,
     Label {
         from: Vec<usize>,
     },
@@ -126,6 +127,10 @@ pub(crate) fn iseq_from_program(program: &Program) -> ISeq {
     for (i, name) in program.locals.iter().enumerate() {
         locals_map.insert(name.clone(), i + 1);
     }
+    iseq.push(Instr {
+        kind: InstrKind::Entry,
+        range: DUMMY_RANGE,
+    });
     let result_id = compile_expr(&mut iseq, &program.body, &locals_map);
     iseq.push(Instr {
         kind: InstrKind::Return {
@@ -521,8 +526,9 @@ mod tests {
             ISeq {
                 num_locals: 1,
                 instructions: vec![
+                    i(InstrKind::Entry),
                     i(InstrKind::LoadConstNil),
-                    i(InstrKind::Return { value_id: 0 }),
+                    i(InstrKind::Return { value_id: 1 }),
                 ],
             }
         );
@@ -535,8 +541,9 @@ mod tests {
             ISeq {
                 num_locals: 1,
                 instructions: vec![
+                    i(InstrKind::Entry),
                     i(InstrKind::LoadConstFalse),
-                    i(InstrKind::Return { value_id: 0 }),
+                    i(InstrKind::Return { value_id: 1 }),
                 ],
             }
         );
@@ -549,8 +556,9 @@ mod tests {
             ISeq {
                 num_locals: 1,
                 instructions: vec![
+                    i(InstrKind::Entry),
                     i(InstrKind::LoadConstTrue),
-                    i(InstrKind::Return { value_id: 0 }),
+                    i(InstrKind::Return { value_id: 1 }),
                 ],
             }
         );
@@ -563,8 +571,9 @@ mod tests {
             ISeq {
                 num_locals: 1,
                 instructions: vec![
+                    i(InstrKind::Entry),
                     i(InstrKind::LoadConstInteger { value: 42 }),
-                    i(InstrKind::Return { value_id: 0 }),
+                    i(InstrKind::Return { value_id: 1 }),
                 ],
             }
         );
@@ -577,13 +586,14 @@ mod tests {
             ISeq {
                 num_locals: 2,
                 instructions: vec![
+                    i(InstrKind::Entry),
                     i(InstrKind::LoadConstInteger { value: 42 }),
                     i(InstrKind::WriteLocal {
                         local_id: 1,
-                        value_id: 0,
+                        value_id: 1,
                     }),
                     i(InstrKind::ReadLocal { local_id: 1 }),
-                    i(InstrKind::Return { value_id: 2 }),
+                    i(InstrKind::Return { value_id: 3 }),
                 ],
             }
         );
@@ -596,10 +606,11 @@ mod tests {
             ISeq {
                 num_locals: 1,
                 instructions: vec![
+                    i(InstrKind::Entry),
                     i(InstrKind::ReadConst {
                         name: symbol("Object"),
                     }),
-                    i(InstrKind::Return { value_id: 0 }),
+                    i(InstrKind::Return { value_id: 1 }),
                 ],
             }
         );
@@ -612,14 +623,15 @@ mod tests {
             ISeq {
                 num_locals: 1,
                 instructions: vec![
+                    i(InstrKind::Entry),
                     i(InstrKind::ReadConst {
                         name: symbol("Gem"),
                     }),
                     i(InstrKind::ReadConstUnder {
                         name: symbol("Version"),
-                        receiver_id: 0,
+                        receiver_id: 1,
                     }),
-                    i(InstrKind::Return { value_id: 1 }),
+                    i(InstrKind::Return { value_id: 2 }),
                 ],
             }
         );
@@ -632,12 +644,13 @@ mod tests {
     //         ISeq {
     //             num_locals: 1,
     //             instructions: vec![
+    //                 i(InstrKind::Entry),
     //                 i(InstrKind::LoadObjectClass),
     //                 i(InstrKind::ReadConstUnder {
     //                     name: symbol("Integer"),
-    //                     receiver_id: 0,
+    //                     receiver_id: 1,
     //                 }),
-    //                 i(InstrKind::Return { value_id: 1 }),
+    //                 i(InstrKind::Return { value_id: 2 }),
     //             ],
     //         }
     //     );
@@ -650,8 +663,9 @@ mod tests {
             ISeq {
                 num_locals: 1,
                 instructions: vec![
+                    i(InstrKind::Entry),
                     i(InstrKind::ReadLocal { local_id: 0 }),
-                    i(InstrKind::Return { value_id: 0 }),
+                    i(InstrKind::Return { value_id: 1 }),
                 ],
             }
         );
@@ -664,8 +678,9 @@ mod tests {
             ISeq {
                 num_locals: 1,
                 instructions: vec![
+                    i(InstrKind::Entry),
                     i(InstrKind::LoadSourceEncoding),
-                    i(InstrKind::Return { value_id: 0 }),
+                    i(InstrKind::Return { value_id: 1 }),
                 ],
             }
         );
@@ -678,8 +693,9 @@ mod tests {
             ISeq {
                 num_locals: 1,
                 instructions: vec![
+                    i(InstrKind::Entry),
                     i(InstrKind::LoadSourceFile),
-                    i(InstrKind::Return { value_id: 0 }),
+                    i(InstrKind::Return { value_id: 1 }),
                 ],
             }
         );
@@ -692,8 +708,9 @@ mod tests {
             ISeq {
                 num_locals: 1,
                 instructions: vec![
+                    i(InstrKind::Entry),
                     i(InstrKind::LoadSourceLine),
-                    i(InstrKind::Return { value_id: 0 }),
+                    i(InstrKind::Return { value_id: 1 }),
                 ],
             }
         );
@@ -706,15 +723,16 @@ mod tests {
             ISeq {
                 num_locals: 1,
                 instructions: vec![
+                    i(InstrKind::Entry),
                     i(InstrKind::ReadLocal { local_id: 0 }),
                     i(InstrKind::LoadConstInteger { value: 1 }),
                     i(InstrKind::Call {
-                        receiver_id: 0,
+                        receiver_id: 1,
                         method_name: symbol("puts"),
-                        arg_ids: vec![1],
+                        arg_ids: vec![2],
                         private: true,
                     }),
-                    i(InstrKind::Return { value_id: 2 }),
+                    i(InstrKind::Return { value_id: 3 }),
                 ],
             }
         );
@@ -727,30 +745,37 @@ mod tests {
             ISeq {
                 num_locals: 1,
                 instructions: vec![
+                    i(InstrKind::Entry),
                     i(InstrKind::ReadLocal { local_id: 0 }),
                     i(InstrKind::Branch {
                         branch_type: BranchType::NotNil,
-                        cond_id: 0,
-                        then_id: 2,
-                        else_id: 6,
+                        cond_id: 1,
+                        then_id: 3,
+                        else_id: 7,
                     }),
                     // Then...
-                    i(InstrKind::Label { from: vec![1] }),
+                    i(InstrKind::Label { from: vec![2] }),
                     i(InstrKind::LoadConstInteger { value: 1 }),
                     i(InstrKind::Call {
-                        receiver_id: 0,
+                        receiver_id: 1,
                         method_name: symbol("puts"),
-                        arg_ids: vec![3],
+                        arg_ids: vec![4],
                         private: true,
                     }),
-                    i(InstrKind::JumpValue { to: 9, value_id: 4 }),
+                    i(InstrKind::JumpValue {
+                        to: 10,
+                        value_id: 5
+                    }),
                     // Else...
-                    i(InstrKind::Label { from: vec![1] }),
+                    i(InstrKind::Label { from: vec![2] }),
                     i(InstrKind::LoadConstNil),
-                    i(InstrKind::JumpValue { to: 9, value_id: 7 }),
+                    i(InstrKind::JumpValue {
+                        to: 10,
+                        value_id: 8
+                    }),
                     // After the branch:
-                    i(InstrKind::Label { from: vec![5, 8] }),
-                    i(InstrKind::Return { value_id: 9 }),
+                    i(InstrKind::Label { from: vec![6, 9] }),
+                    i(InstrKind::Return { value_id: 10 }),
                 ],
             }
         );
@@ -763,14 +788,15 @@ mod tests {
             ISeq {
                 num_locals: 1,
                 instructions: vec![
+                    i(InstrKind::Entry),
                     i(InstrKind::LoadConstInteger { value: 1 }),
                     i(InstrKind::Call {
-                        receiver_id: 0,
+                        receiver_id: 1,
                         method_name: symbol("to_s"),
                         arg_ids: vec![],
                         private: false,
                     }),
-                    i(InstrKind::Return { value_id: 1 }),
+                    i(InstrKind::Return { value_id: 2 }),
                 ],
             }
         );
@@ -783,29 +809,30 @@ mod tests {
             ISeq {
                 num_locals: 1,
                 instructions: vec![
+                    i(InstrKind::Entry),
                     i(InstrKind::LoadConstInteger { value: 1 }),
                     i(InstrKind::Branch {
                         branch_type: BranchType::NotNil,
-                        cond_id: 0,
-                        then_id: 2,
-                        else_id: 5,
+                        cond_id: 1,
+                        then_id: 3,
+                        else_id: 6,
                     }),
                     // Then...
-                    i(InstrKind::Label { from: vec![1] }),
+                    i(InstrKind::Label { from: vec![2] }),
                     i(InstrKind::Call {
-                        receiver_id: 0,
+                        receiver_id: 1,
                         method_name: symbol("to_s"),
                         arg_ids: vec![],
                         private: false,
                     }),
-                    i(InstrKind::JumpValue { to: 8, value_id: 3 }),
+                    i(InstrKind::JumpValue { to: 9, value_id: 4 }),
                     // Else...
-                    i(InstrKind::Label { from: vec![1] }),
+                    i(InstrKind::Label { from: vec![2] }),
                     i(InstrKind::LoadConstNil),
-                    i(InstrKind::JumpValue { to: 8, value_id: 6 }),
+                    i(InstrKind::JumpValue { to: 9, value_id: 7 }),
                     // After the branch:
-                    i(InstrKind::Label { from: vec![4, 7] }),
-                    i(InstrKind::Return { value_id: 8 }),
+                    i(InstrKind::Label { from: vec![5, 8] }),
+                    i(InstrKind::Return { value_id: 9 }),
                 ],
             }
         );
@@ -818,23 +845,24 @@ mod tests {
             ISeq {
                 num_locals: 1,
                 instructions: vec![
+                    i(InstrKind::Entry),
                     i(InstrKind::LoadConstInteger { value: 1 }),
                     i(InstrKind::Branch {
                         branch_type: BranchType::Truthy,
-                        cond_id: 0,
-                        then_id: 2,
-                        else_id: 5,
+                        cond_id: 1,
+                        then_id: 3,
+                        else_id: 6,
                     }),
                     // Then...
-                    i(InstrKind::Label { from: vec![1] }),
+                    i(InstrKind::Label { from: vec![2] }),
                     i(InstrKind::LoadConstInteger { value: 2 }),
-                    i(InstrKind::JumpValue { to: 7, value_id: 3 }),
+                    i(InstrKind::JumpValue { to: 8, value_id: 4 }),
                     // Else...
-                    i(InstrKind::Label { from: vec![1] }),
-                    i(InstrKind::JumpValue { to: 7, value_id: 0 }),
+                    i(InstrKind::Label { from: vec![2] }),
+                    i(InstrKind::JumpValue { to: 8, value_id: 1 }),
                     // After the branch:
-                    i(InstrKind::Label { from: vec![4, 6] }),
-                    i(InstrKind::Return { value_id: 7 }),
+                    i(InstrKind::Label { from: vec![5, 7] }),
+                    i(InstrKind::Return { value_id: 8 }),
                 ],
             }
         );
@@ -847,23 +875,24 @@ mod tests {
             ISeq {
                 num_locals: 1,
                 instructions: vec![
+                    i(InstrKind::Entry),
                     i(InstrKind::LoadConstInteger { value: 1 }),
                     i(InstrKind::Branch {
                         branch_type: BranchType::Truthy,
-                        cond_id: 0,
-                        then_id: 2,
-                        else_id: 4,
+                        cond_id: 1,
+                        then_id: 3,
+                        else_id: 5,
                     }),
                     // Then...
-                    i(InstrKind::Label { from: vec![1] }),
-                    i(InstrKind::JumpValue { to: 7, value_id: 0 }),
+                    i(InstrKind::Label { from: vec![2] }),
+                    i(InstrKind::JumpValue { to: 8, value_id: 1 }),
                     // Else...
-                    i(InstrKind::Label { from: vec![1] }),
+                    i(InstrKind::Label { from: vec![2] }),
                     i(InstrKind::LoadConstInteger { value: 2 }),
-                    i(InstrKind::JumpValue { to: 7, value_id: 5 }),
+                    i(InstrKind::JumpValue { to: 8, value_id: 6 }),
                     // After the branch:
-                    i(InstrKind::Label { from: vec![3, 6] }),
-                    i(InstrKind::Return { value_id: 7 }),
+                    i(InstrKind::Label { from: vec![4, 7] }),
+                    i(InstrKind::Return { value_id: 8 }),
                 ],
             }
         );
@@ -876,24 +905,25 @@ mod tests {
             ISeq {
                 num_locals: 1,
                 instructions: vec![
+                    i(InstrKind::Entry),
                     i(InstrKind::LoadConstInteger { value: 1 }),
                     i(InstrKind::Branch {
                         branch_type: BranchType::Truthy,
-                        cond_id: 0,
-                        then_id: 2,
-                        else_id: 5,
+                        cond_id: 1,
+                        then_id: 3,
+                        else_id: 6,
                     }),
                     // Then...
-                    i(InstrKind::Label { from: vec![1] }),
+                    i(InstrKind::Label { from: vec![2] }),
                     i(InstrKind::LoadConstInteger { value: 2 }),
-                    i(InstrKind::JumpValue { to: 8, value_id: 3 }),
+                    i(InstrKind::JumpValue { to: 9, value_id: 4 }),
                     // Else...
-                    i(InstrKind::Label { from: vec![1] }),
+                    i(InstrKind::Label { from: vec![2] }),
                     i(InstrKind::LoadConstInteger { value: 3 }),
-                    i(InstrKind::JumpValue { to: 8, value_id: 6 }),
+                    i(InstrKind::JumpValue { to: 9, value_id: 7 }),
                     // After the branch:
-                    i(InstrKind::Label { from: vec![4, 7] }),
-                    i(InstrKind::Return { value_id: 8 }),
+                    i(InstrKind::Label { from: vec![5, 8] }),
+                    i(InstrKind::Return { value_id: 9 }),
                 ],
             }
         );
@@ -906,23 +936,24 @@ mod tests {
             ISeq {
                 num_locals: 1,
                 instructions: vec![
-                    i(InstrKind::Jump { to: 1 }),
+                    i(InstrKind::Entry),
+                    i(InstrKind::Jump { to: 2 }),
                     // Condition part
-                    i(InstrKind::Label { from: vec![0, 6] }),
+                    i(InstrKind::Label { from: vec![1, 7] }),
                     i(InstrKind::LoadConstInteger { value: 1 }),
                     i(InstrKind::Branch {
                         branch_type: BranchType::Truthy,
-                        cond_id: 2,
-                        then_id: 4,
-                        else_id: 7,
+                        cond_id: 3,
+                        then_id: 5,
+                        else_id: 8,
                     }),
                     // Loop body
-                    i(InstrKind::Label { from: vec![3] }),
+                    i(InstrKind::Label { from: vec![4] }),
                     i(InstrKind::LoadConstInteger { value: 2 }),
-                    i(InstrKind::JumpValue { to: 1, value_id: 5 }),
+                    i(InstrKind::JumpValue { to: 2, value_id: 6 }),
                     // After the branch
-                    i(InstrKind::Label { from: vec![3] }),
-                    i(InstrKind::Return { value_id: 7 }),
+                    i(InstrKind::Label { from: vec![4] }),
+                    i(InstrKind::Return { value_id: 8 }),
                 ],
             }
         );
@@ -935,23 +966,24 @@ mod tests {
             ISeq {
                 num_locals: 1,
                 instructions: vec![
-                    i(InstrKind::Jump { to: 1 }),
+                    i(InstrKind::Entry),
+                    i(InstrKind::Jump { to: 2 }),
                     // Condition part
-                    i(InstrKind::Label { from: vec![0, 6] }),
+                    i(InstrKind::Label { from: vec![1, 7] }),
                     i(InstrKind::LoadConstInteger { value: 1 }),
                     i(InstrKind::Branch {
                         branch_type: BranchType::Truthy,
-                        cond_id: 2,
-                        then_id: 7,
-                        else_id: 4,
+                        cond_id: 3,
+                        then_id: 8,
+                        else_id: 5,
                     }),
                     // Loop body
-                    i(InstrKind::Label { from: vec![3] }),
+                    i(InstrKind::Label { from: vec![4] }),
                     i(InstrKind::LoadConstInteger { value: 2 }),
-                    i(InstrKind::JumpValue { to: 1, value_id: 5 }),
+                    i(InstrKind::JumpValue { to: 2, value_id: 6 }),
                     // After the branch
-                    i(InstrKind::Label { from: vec![3] }),
-                    i(InstrKind::Return { value_id: 7 }),
+                    i(InstrKind::Label { from: vec![4] }),
+                    i(InstrKind::Return { value_id: 8 }),
                 ],
             }
         );
