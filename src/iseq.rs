@@ -25,6 +25,7 @@ impl ISeq {
         self.instructions.push(Instr {
             kind: InstrKind::Error,
             range: DUMMY_RANGE,
+            live_after: Vec::new(),
         });
         (id, ReservedId { reserved_id: id })
     }
@@ -43,6 +44,13 @@ struct ReservedId {
 pub(crate) struct Instr {
     pub(crate) kind: InstrKind,
     pub(crate) range: CodeRange,
+    pub(crate) live_after: Vec<Var>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum Var {
+    Local(usize),
+    Expr(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -130,6 +138,7 @@ pub(crate) fn iseq_from_program(program: &Program) -> ISeq {
     iseq.push(Instr {
         kind: InstrKind::Entry,
         range: DUMMY_RANGE,
+        live_after: Vec::new(),
     });
     let result_id = compile_expr(&mut iseq, &program.body, &locals_map);
     iseq.push(Instr {
@@ -137,6 +146,7 @@ pub(crate) fn iseq_from_program(program: &Program) -> ISeq {
             value_id: result_id,
         },
         range: *program.body.range(),
+        live_after: Vec::new(),
     });
     iseq
 }
@@ -153,24 +163,29 @@ fn compile_expr(iseq: &mut ISeq, expr: &Expr, locals_map: &HashMap<EString, usiz
         Expr::Nil(expr) => iseq.push(Instr {
             kind: InstrKind::LoadConstNil,
             range: expr.range,
+            live_after: Vec::new(),
         }),
         Expr::False(expr) => iseq.push(Instr {
             kind: InstrKind::LoadConstFalse,
             range: expr.range,
+            live_after: Vec::new(),
         }),
         Expr::True(expr) => iseq.push(Instr {
             kind: InstrKind::LoadConstTrue,
             range: expr.range,
+            live_after: Vec::new(),
         }),
         Expr::Integer(expr) => iseq.push(Instr {
             kind: InstrKind::LoadConstInteger { value: expr.value },
             range: expr.range,
+            live_after: Vec::new(),
         }),
         Expr::String(expr) => {
             // TODO
             iseq.push(Instr {
                 kind: InstrKind::Error,
                 range: expr.range,
+                live_after: Vec::new(),
             })
         }
         Expr::Regexp(expr) => {
@@ -178,6 +193,7 @@ fn compile_expr(iseq: &mut ISeq, expr: &Expr, locals_map: &HashMap<EString, usiz
             iseq.push(Instr {
                 kind: InstrKind::Error,
                 range: expr.range,
+                live_after: Vec::new(),
             })
         }
         Expr::XString(expr) => {
@@ -185,6 +201,7 @@ fn compile_expr(iseq: &mut ISeq, expr: &Expr, locals_map: &HashMap<EString, usiz
             iseq.push(Instr {
                 kind: InstrKind::Error,
                 range: expr.range,
+                live_after: Vec::new(),
             })
         }
         Expr::LocalVariable(expr) => {
@@ -192,6 +209,7 @@ fn compile_expr(iseq: &mut ISeq, expr: &Expr, locals_map: &HashMap<EString, usiz
             iseq.push(Instr {
                 kind: InstrKind::ReadLocal { local_id },
                 range: expr.range,
+                live_after: Vec::new(),
             })
         }
         Expr::Const(expr) => match &expr.receiver {
@@ -203,6 +221,7 @@ fn compile_expr(iseq: &mut ISeq, expr: &Expr, locals_map: &HashMap<EString, usiz
                         receiver_id,
                     },
                     range: expr.range,
+                    live_after: Vec::new(),
                 })
             }
             ConstReceiver::None => iseq.push(Instr {
@@ -210,11 +229,13 @@ fn compile_expr(iseq: &mut ISeq, expr: &Expr, locals_map: &HashMap<EString, usiz
                     name: expr.name.clone(),
                 },
                 range: expr.range,
+                live_after: Vec::new(),
             }),
             ConstReceiver::Object => {
                 let klass_id = iseq.push(Instr {
                     kind: InstrKind::LoadObjectClass,
                     range: expr.range,
+                    live_after: Vec::new(),
                 });
                 iseq.push(Instr {
                     kind: InstrKind::ReadConstUnder {
@@ -222,24 +243,29 @@ fn compile_expr(iseq: &mut ISeq, expr: &Expr, locals_map: &HashMap<EString, usiz
                         receiver_id: klass_id,
                     },
                     range: expr.range,
+                    live_after: Vec::new(),
                 })
             }
         },
         Expr::Self_(expr) => iseq.push(Instr {
             kind: InstrKind::ReadLocal { local_id: 0 },
             range: expr.range,
+            live_after: Vec::new(),
         }),
         Expr::SourceEncoding(expr) => iseq.push(Instr {
             kind: InstrKind::LoadSourceEncoding,
             range: expr.range,
+            live_after: Vec::new(),
         }),
         Expr::SourceFile(expr) => iseq.push(Instr {
             kind: InstrKind::LoadSourceFile,
             range: expr.range,
+            live_after: Vec::new(),
         }),
         Expr::SourceLine(expr) => iseq.push(Instr {
             kind: InstrKind::LoadSourceLine,
             range: expr.range,
+            live_after: Vec::new(),
         }),
         Expr::Call(expr) => {
             if expr.optional {
@@ -262,12 +288,14 @@ fn compile_expr(iseq: &mut ISeq, expr: &Expr, locals_map: &HashMap<EString, usiz
                                 private: expr.private,
                             },
                             range: expr.range,
+                            live_after: Vec::new(),
                         })
                     },
                     |iseq| {
                         iseq.push(Instr {
                             kind: InstrKind::LoadConstNil,
                             range: expr.range,
+                            live_after: Vec::new(),
                         })
                     },
                     expr.range,
@@ -287,6 +315,7 @@ fn compile_expr(iseq: &mut ISeq, expr: &Expr, locals_map: &HashMap<EString, usiz
                         private: expr.private,
                     },
                     range: expr.range,
+                    live_after: Vec::new(),
                 })
             }
         }
@@ -297,11 +326,13 @@ fn compile_expr(iseq: &mut ISeq, expr: &Expr, locals_map: &HashMap<EString, usiz
                 iseq.push(Instr {
                     kind: InstrKind::WriteLocal { local_id, value_id },
                     range: expr.range,
+                    live_after: Vec::new(),
                 })
             }
             WriteTarget::Error(lhs) => iseq.push(Instr {
                 kind: InstrKind::Error,
                 range: lhs.range,
+                live_after: Vec::new(),
             }),
         },
         Expr::And(expr) => {
@@ -342,6 +373,7 @@ fn compile_expr(iseq: &mut ISeq, expr: &Expr, locals_map: &HashMap<EString, usiz
         Expr::Error(expr) => iseq.push(Instr {
             kind: InstrKind::Error,
             range: expr.range,
+            live_after: Vec::new(),
         }),
     }
 }
@@ -364,6 +396,7 @@ fn compile_loop(
             from: vec![branch_id],
         },
         range: *body.range(),
+        live_after: Vec::new(),
     });
     let body_id = compile_expr(iseq, body, locals_map);
     let body_jump_id = iseq.push(Instr {
@@ -372,6 +405,7 @@ fn compile_loop(
             value_id: body_id,
         },
         range: *body.range(),
+        live_after: Vec::new(),
     });
 
     let end_label_id = iseq.push(Instr {
@@ -379,6 +413,7 @@ fn compile_loop(
             from: vec![branch_id],
         },
         range: *body.range(),
+        live_after: Vec::new(),
     });
 
     iseq.commit(
@@ -386,6 +421,7 @@ fn compile_loop(
         Instr {
             kind: InstrKind::Jump { to: loop_label_id },
             range: *cond.range(),
+            live_after: Vec::new(),
         },
     );
     iseq.commit(
@@ -395,6 +431,7 @@ fn compile_loop(
                 from: vec![jump_into_loop_id, body_jump_id],
             },
             range: *cond.range(),
+            live_after: Vec::new(),
         },
     );
     let (then_id, else_id) = if flip {
@@ -412,6 +449,7 @@ fn compile_loop(
                 else_id,
             },
             range: *cond.range(),
+            live_after: Vec::new(),
         },
     );
 
@@ -436,6 +474,7 @@ where
             from: vec![branch_id],
         },
         range,
+        live_after: Vec::new(),
     });
     let then_id = gen_then(iseq);
     let (then_jump_id, then_jump_res) = iseq.reserve();
@@ -444,6 +483,7 @@ where
             from: vec![branch_id],
         },
         range,
+        live_after: Vec::new(),
     });
     let else_id = gen_else(iseq);
     let (else_jump_id, else_jump_res) = iseq.reserve();
@@ -452,6 +492,7 @@ where
             from: vec![then_jump_id, else_jump_id],
         },
         range,
+        live_after: Vec::new(),
     });
     iseq.commit(
         branch_res,
@@ -463,6 +504,7 @@ where
                 else_id: else_label_id,
             },
             range,
+            live_after: Vec::new(),
         },
     );
     iseq.commit(
@@ -473,6 +515,7 @@ where
                 value_id: then_id,
             },
             range,
+            live_after: Vec::new(),
         },
     );
     iseq.commit(
@@ -483,6 +526,7 @@ where
                 value_id: else_id,
             },
             range,
+            live_after: Vec::new(),
         },
     );
     end_label_id
@@ -516,6 +560,7 @@ mod tests {
         Instr {
             kind,
             range: DUMMY_RANGE,
+            live_after: Vec::new(),
         }
     }
 
