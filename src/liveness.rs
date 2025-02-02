@@ -20,19 +20,35 @@ pub(crate) fn liveness_analysis(iseq: &mut ISeq) {
                     );
                 }
                 InstrKind::Jump { to } => {
+                    let label_id = Var::Expr(to);
                     let [instr, target_instr] =
                         get_many_mut(&mut *iseq.instructions, [i, to]).unwrap();
                     for &var in &target_instr.live_in {
-                        add_live_in(&mut changed, &mut instr.live_in, var);
+                        if var == label_id {
+                            // label_id is a special value which we should
+                            // reinterpret as expr_id.
+                            // And for Jump, value for expr_id is constant nil
+                            // which means there is no liveness propagation here.
+                        } else {
+                            add_live_in(&mut changed, &mut instr.live_in, var);
+                        }
                     }
                 }
                 InstrKind::JumpValue { to, value_id } => {
+                    let label_id = Var::Expr(to);
                     let [instr, target_instr] =
                         get_many_mut(&mut *iseq.instructions, [i, to]).unwrap();
                     for &var in &target_instr.live_in {
-                        add_live_in(&mut changed, &mut instr.live_in, var);
+                        if var == label_id {
+                            // label_id is a special value which we should
+                            // reinterpret as expr_id.
+                            // And for JumpValue, the value for expr_id
+                            // is determined from the value for value_id.
+                            add_live_in(&mut changed, &mut instr.live_in, Var::Expr(value_id));
+                        } else {
+                            add_live_in(&mut changed, &mut instr.live_in, var);
+                        }
                     }
-                    add_live_in(&mut changed, &mut instr.live_in, Var::Expr(value_id));
                 }
                 InstrKind::Branch {
                     branch_type: _,
@@ -40,13 +56,23 @@ pub(crate) fn liveness_analysis(iseq: &mut ISeq) {
                     then_id,
                     else_id,
                 } => {
+                    let then_label_id = Var::Expr(then_id);
+                    let else_label_id = Var::Expr(else_id);
                     let [instr, then_instr, else_instr] =
                         get_many_mut(&mut *iseq.instructions, [i, then_id, else_id]).unwrap();
                     for &var in &then_instr.live_in {
-                        add_live_in(&mut changed, &mut instr.live_in, var);
+                        if var == then_label_id {
+                            // nothing
+                        } else {
+                            add_live_in(&mut changed, &mut instr.live_in, var);
+                        }
                     }
                     for &var in &else_instr.live_in {
-                        add_live_in(&mut changed, &mut instr.live_in, var);
+                        if var == else_label_id {
+                            // nothing
+                        } else {
+                            add_live_in(&mut changed, &mut instr.live_in, var);
+                        }
                     }
                     add_live_in(&mut changed, &mut instr.live_in, Var::Expr(cond_id));
                 }
@@ -55,7 +81,6 @@ pub(crate) fn liveness_analysis(iseq: &mut ISeq) {
                         get_many_mut(&mut *iseq.instructions, [i, i + 1]).unwrap();
                     match instr.kind {
                         InstrKind::Entry
-                        | InstrKind::Label { from: _ }
                         | InstrKind::LoadConstNil
                         | InstrKind::LoadConstTrue
                         | InstrKind::LoadConstFalse
@@ -151,6 +176,15 @@ pub(crate) fn liveness_analysis(iseq: &mut ISeq) {
                                 add_live_in(&mut changed, &mut instr.live_in, Var::Expr(arg_id));
                             }
                         }
+                        InstrKind::Label { from: _ } => {
+                            // Special case: label's live_in may contain reference to
+                            // the instruction itself (i.e. Var::Expr(i))
+                            // whose actually meaning is any of the branch/jump
+                            // instruction targeting the label.
+                            for &var in &next_instr.live_in {
+                                add_live_in(&mut changed, &mut instr.live_in, var);
+                            }
+                        }
 
                         InstrKind::Return { .. } => unreachable!(),
                         InstrKind::Jump { .. } => unreachable!(),
@@ -179,7 +213,7 @@ mod tests {
     use crate::{
         ast::DUMMY_RANGE,
         encoding::EStrRef,
-        iseq::{iseq_from_program, Instr},
+        iseq::{iseq_from_program, BranchType, Instr},
     };
 
     use super::*;
@@ -283,6 +317,37 @@ mod tests {
                     ),
                     i(InstrKind::LoadConstInteger { value: 42 }, &[]),
                     i(InstrKind::Return { value_id: 5 }, &[Var::Expr(5)]),
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn test_cond() {
+        assert_eq!(
+            iseq_from_src("1 ? 2 : 3"),
+            ISeq {
+                num_locals: 1,
+                instructions: vec![
+                    i(InstrKind::Entry, &[]),
+                    i(InstrKind::LoadConstInteger { value: 1 }, &[]),
+                    i(
+                        InstrKind::Branch {
+                            branch_type: BranchType::Truthy,
+                            cond_id: 1,
+                            then_id: 3,
+                            else_id: 6,
+                        },
+                        &[Var::Expr(1)]
+                    ),
+                    i(InstrKind::Label { from: vec![2] }, &[]),
+                    i(InstrKind::LoadConstInteger { value: 2 }, &[]),
+                    i(InstrKind::JumpValue { to: 9, value_id: 4 }, &[Var::Expr(4)]),
+                    i(InstrKind::Label { from: vec![2] }, &[]),
+                    i(InstrKind::LoadConstInteger { value: 3 }, &[]),
+                    i(InstrKind::JumpValue { to: 9, value_id: 7 }, &[Var::Expr(7)]),
+                    i(InstrKind::Label { from: vec![5, 8] }, &[Var::Expr(9)]),
+                    i(InstrKind::Return { value_id: 9 }, &[Var::Expr(9)]),
                 ],
             }
         );

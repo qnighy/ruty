@@ -12,7 +12,11 @@ use crate::{
     Diagnostic, EString,
 };
 
-pub fn typecheck_program(diag: &mut Vec<Diagnostic>, program: &Program) -> Type {
+pub fn typecheck_program(diag: &mut Vec<Diagnostic>, program: &Program) {
+    typecheck_program_with_type(diag, program);
+}
+
+fn typecheck_program_with_type(diag: &mut Vec<Diagnostic>, program: &Program) -> Type {
     let mut iseq = iseq_from_program(program);
     liveness_analysis(&mut iseq);
     typecheck_iseq(diag, &iseq)
@@ -49,18 +53,13 @@ fn typecheck_iseq(diag: &mut Vec<Diagnostic>, iseq: &ISeq) -> Type {
                         get_many_mut(&mut flow_types, [expr_id, expr_id + 1]).unwrap();
                     changed |= to_flow_type.push_mapped0(to_live_in, flow_type);
                 }
-                InstrKind::Label { from } => {
+                InstrKind::Label { from: _ } => {
                     let to_live_in = &iseq.instructions[expr_id + 1].live_in;
                     let [flow_type, to_flow_type] =
                         get_many_mut(&mut flow_types, [expr_id, expr_id + 1]).unwrap();
-                    changed |= to_flow_type.push_mapped(to_live_in, flow_type, expr_id, |term| {
-                        for &from in &from[..from.len() - 1] {
-                            if let Some(ty) = term.types.get(&Var::Expr(from)) {
-                                return *ty;
-                            }
-                        }
-                        term.types[&Var::Expr(from[from.len() - 1])]
-                    });
+                    // Label is specially allowed to reference the Label itself.
+                    // Propagation is handled in the corresponding jumps/branches.
+                    changed |= to_flow_type.push_mapped0(to_live_in, flow_type);
                 }
                 InstrKind::Return { value_id } => {
                     for flow_term in &flow_types[expr_id].union_of {
@@ -69,18 +68,22 @@ fn typecheck_iseq(diag: &mut Vec<Diagnostic>, iseq: &ISeq) -> Type {
                     }
                 }
                 InstrKind::Jump { to } => {
+                    // In Label liveness, the Label itself replaces its predecessor.
+                    let alt_expr_id = *to;
                     let to_live_in = &iseq.instructions[*to].live_in;
                     let [flow_type, to_flow_type] =
                         get_many_mut(&mut flow_types, [expr_id, *to]).unwrap();
                     changed |= to_flow_type
-                        .push_mapped(to_live_in, flow_type, expr_id, |_| TypeTerm::NilClass);
+                        .push_mapped(to_live_in, flow_type, alt_expr_id, |_| TypeTerm::NilClass);
                 }
                 InstrKind::JumpValue { to, value_id } => {
+                    // In Label liveness, the Label itself replaces its predecessor.
+                    let alt_expr_id = *to;
                     let to_live_in = &iseq.instructions[*to].live_in;
                     let [flow_type, to_flow_type] =
                         get_many_mut(&mut flow_types, [expr_id, *to]).unwrap();
                     changed |=
-                        to_flow_type.push_mapped(to_live_in, flow_type, expr_id, |from_term| {
+                        to_flow_type.push_mapped(to_live_in, flow_type, alt_expr_id, |from_term| {
                             from_term.types[&Var::Expr(*value_id)]
                         });
                 }
@@ -90,6 +93,9 @@ fn typecheck_iseq(diag: &mut Vec<Diagnostic>, iseq: &ISeq) -> Type {
                     then_id,
                     else_id,
                 } => {
+                    // In Label liveness, the Label itself replaces its predecessor.
+                    let alt_t_expr_id = *then_id;
+                    let alt_e_expr_id = *else_id;
                     let then_live_in = &iseq.instructions[*then_id].live_in;
                     let else_live_in = &iseq.instructions[*else_id].live_in;
                     let [flow_type, then_flow_type, else_flow_type] =
@@ -111,7 +117,7 @@ fn typecheck_iseq(diag: &mut Vec<Diagnostic>, iseq: &ISeq) -> Type {
                                     .map(|&var| {
                                         (
                                             var,
-                                            if var == Var::Expr(expr_id) {
+                                            if var == Var::Expr(alt_e_expr_id) {
                                                 TypeTerm::NilClass
                                             } else {
                                                 flow_term.types[&var]
@@ -128,7 +134,7 @@ fn typecheck_iseq(diag: &mut Vec<Diagnostic>, iseq: &ISeq) -> Type {
                                     .map(|&var| {
                                         (
                                             var,
-                                            if var == Var::Expr(expr_id) {
+                                            if var == Var::Expr(alt_t_expr_id) {
                                                 TypeTerm::NilClass
                                             } else {
                                                 flow_term.types[&var]
@@ -213,7 +219,6 @@ fn typecheck_iseq(diag: &mut Vec<Diagnostic>, iseq: &ISeq) -> Type {
                         }
                         InstrKind::WriteLocal { local_id, value_id } => {
                             for flow_term in &flow_type.union_of {
-                                let value_type = flow_term.types[&Var::Expr(*value_id)];
                                 changed |= to_flow_type.push(FlowTypeTerm {
                                     types: to_live_in
                                         .iter()
@@ -221,7 +226,9 @@ fn typecheck_iseq(diag: &mut Vec<Diagnostic>, iseq: &ISeq) -> Type {
                                             (
                                                 var,
                                                 if var == Var::Local(*local_id) {
-                                                    value_type
+                                                    flow_term.types[&Var::Expr(*value_id)]
+                                                } else if var == Var::Expr(expr_id) {
+                                                    flow_term.types[&Var::Expr(*value_id)]
                                                 } else {
                                                     flow_term.types[&var]
                                                 },
@@ -983,17 +990,20 @@ static INSTANCE_METHODS: LazyLock<HashMap<(Module, EString), MethodSignature>> =
 
 #[cfg(test)]
 mod tests {
-    use crate::{ast::pos_in, encoding::EStrRef, parse};
+    use crate::{encoding::EStrRef, parse};
 
     use super::*;
 
     fn typecheck_program_text(s: &str) -> (Type, Vec<Diagnostic>) {
         let mut diag = Vec::new();
         let program = parse(&mut diag, EStrRef::from(s), &[]);
-        let ty = typecheck_program(&mut diag, &program);
+        let ty = typecheck_program_with_type(&mut diag, &program);
         (ty, diag)
     }
 
+    fn nil_ty() -> Type {
+        TypeTerm::NilClass.into()
+    }
     fn integer_ty() -> Type {
         TypeTerm::Integer.into()
     }
@@ -1009,5 +1019,23 @@ mod tests {
     #[test]
     fn test_typecheck_assignment() {
         assert_eq!(typecheck_program_text("x = 42; x"), (integer_ty(), vec![]),);
+    }
+
+    #[test]
+    fn test_typecheck_unused_assignment() {
+        assert_eq!(typecheck_program_text("x = 42; 42"), (integer_ty(), vec![]),);
+    }
+
+    #[test]
+    fn test_typecheck_assignment_type() {
+        assert_eq!(typecheck_program_text("x = y = 42"), (integer_ty(), vec![]),);
+    }
+
+    #[test]
+    fn test_typecheck_cond() {
+        assert_eq!(
+            typecheck_program_text("x = gets; x ? 42 : nil"),
+            (integer_ty() | nil_ty(), vec![]),
+        );
     }
 }
