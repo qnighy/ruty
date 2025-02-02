@@ -47,7 +47,7 @@ pub(crate) struct Instr {
     pub(crate) live_in: Vec<Var>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum Var {
     Local(usize),
     Expr(usize),

@@ -53,8 +53,8 @@ pub(crate) fn liveness_analysis(iseq: &mut ISeq) {
                         get_many_mut(&mut *iseq.instructions, [i, i + 1]).unwrap();
                     let mut reads_buf = Vec::new();
                     let (reads, writes): (&[Var], &[Var]) = match instr.kind {
-                        InstrKind::Entry => todo!(),
-                        InstrKind::Label { ref from } => todo!(),
+                        InstrKind::Entry => (&[], &[]),
+                        InstrKind::Label { from: _ } => (&[], &[]),
                         InstrKind::LoadConstNil => (&[], &[]),
                         InstrKind::LoadConstTrue => (&[], &[]),
                         InstrKind::LoadConstFalse => (&[], &[]),
@@ -119,5 +119,62 @@ fn add_live_in(changed: &mut bool, live_in: &mut Vec<Var>, var: Var) {
     if !live_in.contains(&var) {
         live_in.push(var);
         *changed = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        ast::DUMMY_RANGE,
+        encoding::EStrRef,
+        iseq::{iseq_from_program, Instr},
+    };
+
+    use super::*;
+
+    #[allow(unused)]
+    use pretty_assertions::{assert_eq, assert_ne};
+
+    fn iseq_from_src(src: &str) -> ISeq {
+        let mut diag = Vec::new();
+        let program = crate::parse(&mut diag, EStrRef::from(src), &[]);
+        assert_eq!(&*diag, &[]);
+        let mut iseq = iseq_from_program(&program);
+        for instr in &mut iseq.instructions {
+            instr.range = DUMMY_RANGE;
+        }
+        liveness_analysis(&mut iseq);
+        iseq
+    }
+
+    fn i(kind: InstrKind, live_in: &[Var]) -> Instr {
+        Instr {
+            kind,
+            range: DUMMY_RANGE,
+            live_in: live_in.to_owned(),
+        }
+    }
+
+    #[test]
+    fn test_liveness_from_local_variable() {
+        assert_eq!(
+            iseq_from_src("foo = 42; foo"),
+            ISeq {
+                num_locals: 2,
+                instructions: vec![
+                    i(InstrKind::Entry, &[]),
+                    i(InstrKind::LoadConstInteger { value: 42 }, &[]),
+                    i(
+                        InstrKind::WriteLocal {
+                            local_id: 1,
+                            value_id: 1,
+                        },
+                        &[Var::Expr(1)]
+                    ),
+                    i(InstrKind::ReadLocal { local_id: 1 }, &[Var::Local(1)]),
+                    i(InstrKind::Return { value_id: 3 }, &[Var::Expr(3)]),
+                ],
+            }
+        );
     }
 }
