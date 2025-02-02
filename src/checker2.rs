@@ -270,8 +270,27 @@ fn typecheck_iseq(diag: &mut Vec<Diagnostic>, iseq: &ISeq) -> Type {
                             // TODO: privacy check
                             private: _,
                         } => {
+                            // TODO: integrate multiple errors from the union into one
                             for flow_term in &flow_type.union_of {
                                 let receiver_type = flow_term.types[&Var::Expr(*receiver_id)];
+                                if receiver_type == TypeTerm::Error {
+                                    changed |= to_flow_type.push(FlowTypeTerm {
+                                        types: to_live_in
+                                            .iter()
+                                            .map(|&var| {
+                                                (
+                                                    var,
+                                                    if var == Var::Expr(expr_id) {
+                                                        TypeTerm::Error
+                                                    } else {
+                                                        flow_term.types[&var]
+                                                    },
+                                                )
+                                            })
+                                            .collect(),
+                                    });
+                                    continue;
+                                }
                                 // TODO: cloning is inefficient
                                 let method_name = method_name.clone();
                                 let meth = Module::from_type_term(receiver_type)
@@ -294,10 +313,10 @@ fn typecheck_iseq(diag: &mut Vec<Diagnostic>, iseq: &ISeq) -> Type {
                                         continue;
                                     }
                                     let matched = arg_ids.iter().zip(&sig.param_types).all(
-                                        |(&arg_id, arg_type)| {
-                                            arg_type
-                                                .union_of
-                                                .contains(&flow_term.types[&Var::Expr(arg_id)])
+                                        |(&arg_id, param_type)| {
+                                            let arg_type = flow_term.types[&Var::Expr(arg_id)];
+                                            arg_type == TypeTerm::Error
+                                                || param_type.union_of.contains(&arg_type)
                                         },
                                     );
                                     if !matched {
@@ -343,8 +362,11 @@ fn typecheck_iseq(diag: &mut Vec<Diagnostic>, iseq: &ISeq) -> Type {
                         InstrKind::JumpValue { .. } => unreachable!(),
                         InstrKind::Branch { .. } => unreachable!(),
                         InstrKind::Error => {
-                            // Treat as no-op
-                            changed |= to_flow_type.push_mapped0(to_live_in, flow_type);
+                            // Treat as returning a value of Error type (a special internal type)
+                            changed |=
+                                to_flow_type.push_mapped(to_live_in, flow_type, expr_id, |_| {
+                                    TypeTerm::Error
+                                });
                         }
                     }
                 }
@@ -359,6 +381,7 @@ fn typecheck_iseq(diag: &mut Vec<Diagnostic>, iseq: &ISeq) -> Type {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum TypeTerm {
+    Error,
     NilClass,
     FalseClass,
     TrueClass,
@@ -515,6 +538,7 @@ enum Module {
 impl Module {
     fn from_type_term(term: TypeTerm) -> Module {
         match term {
+            TypeTerm::Error => Module::Object,
             TypeTerm::NilClass => Module::NilClass,
             TypeTerm::FalseClass => Module::FalseClass,
             TypeTerm::TrueClass => Module::TrueClass,
