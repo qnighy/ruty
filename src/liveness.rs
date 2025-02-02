@@ -10,6 +10,7 @@ pub(crate) fn liveness_analysis(iseq: &mut ISeq) {
         let mut changed = false;
 
         for i in (0..iseq.instructions.len()).rev() {
+            let expr_id = Var::Expr(i);
             match iseq.instructions[i].kind {
                 InstrKind::Return { value_id } => {
                     add_live_in(
@@ -50,63 +51,112 @@ pub(crate) fn liveness_analysis(iseq: &mut ISeq) {
                     add_live_in(&mut changed, &mut instr.live_in, Var::Expr(cond_id));
                 }
                 _ => {
-                    let expr_id = Var::Expr(i);
                     let [instr, next_instr] =
                         get_many_mut(&mut *iseq.instructions, [i, i + 1]).unwrap();
-                    let mut reads_buf = Vec::new();
-                    let (reads, writes): (&[Var], &[Var]) = match instr.kind {
-                        InstrKind::Entry => (&[], &[]),
-                        InstrKind::Label { from: _ } => (&[], &[]),
-                        InstrKind::LoadConstNil => (&[], &[]),
-                        InstrKind::LoadConstTrue => (&[], &[]),
-                        InstrKind::LoadConstFalse => (&[], &[]),
-                        InstrKind::LoadConstInteger { value: _ } => (&[], &[]),
-                        InstrKind::LoadConstString { value: _ } => (&[], &[]),
-                        InstrKind::LoadSourceEncoding => (&[], &[]),
-                        InstrKind::LoadSourceFile => (&[], &[]),
-                        InstrKind::LoadSourceLine => (&[], &[]),
-                        InstrKind::LoadObjectClass => (&[], &[]),
-                        InstrKind::ReadLocal { local_id } => (&[Var::Local(local_id)], &[]),
-                        InstrKind::WriteLocal { local_id, value_id } => {
-                            (&[Var::Expr(value_id)], &[Var::Local(local_id)])
+                    match instr.kind {
+                        InstrKind::Entry
+                        | InstrKind::Label { from: _ }
+                        | InstrKind::LoadConstNil
+                        | InstrKind::LoadConstTrue
+                        | InstrKind::LoadConstFalse
+                        | InstrKind::LoadConstInteger { value: _ }
+                        | InstrKind::LoadConstString { value: _ }
+                        | InstrKind::LoadSourceEncoding
+                        | InstrKind::LoadSourceFile
+                        | InstrKind::LoadSourceLine
+                        | InstrKind::LoadObjectClass
+                        | InstrKind::Error
+                        | InstrKind::ReadConst { name: _ } => {
+                            for &var in &next_instr.live_in {
+                                if var != expr_id {
+                                    add_live_in(&mut changed, &mut instr.live_in, var);
+                                }
+                            }
                         }
-                        InstrKind::ReadConst { name: _ } => (&[], &[]),
-                        InstrKind::WriteConst { name: _, value_id } => {
-                            (&[Var::Expr(value_id)], &[])
-                        }
-                        InstrKind::ReadConstUnder {
+                        InstrKind::WriteConst {
                             name: _,
-                            receiver_id,
-                        } => (&[Var::Expr(receiver_id)], &[]),
+                            value_id: input_expr_id,
+                        }
+                        | InstrKind::ReadConstUnder {
+                            name: _,
+                            receiver_id: input_expr_id,
+                        } => {
+                            for &var in &next_instr.live_in {
+                                if var != expr_id {
+                                    add_live_in(&mut changed, &mut instr.live_in, var);
+                                }
+                            }
+                            add_live_in(&mut changed, &mut instr.live_in, Var::Expr(input_expr_id));
+                        }
                         InstrKind::WriteConstUnder {
                             name: _,
-                            receiver_id,
-                            value_id,
-                        } => (&[Var::Expr(receiver_id), Var::Expr(value_id)], &[]),
+                            receiver_id: input_expr1_id,
+                            value_id: input_expr2_id,
+                        } => {
+                            for &var in &next_instr.live_in {
+                                if var != expr_id {
+                                    add_live_in(&mut changed, &mut instr.live_in, var);
+                                }
+                            }
+                            add_live_in(
+                                &mut changed,
+                                &mut instr.live_in,
+                                Var::Expr(input_expr1_id),
+                            );
+                            add_live_in(
+                                &mut changed,
+                                &mut instr.live_in,
+                                Var::Expr(input_expr2_id),
+                            );
+                        }
+                        InstrKind::ReadLocal { local_id } => {
+                            for &var in &next_instr.live_in {
+                                if var == expr_id {
+                                    add_live_in(
+                                        &mut changed,
+                                        &mut instr.live_in,
+                                        Var::Local(local_id),
+                                    );
+                                } else {
+                                    add_live_in(&mut changed, &mut instr.live_in, var);
+                                }
+                            }
+                        }
+                        InstrKind::WriteLocal { local_id, value_id } => {
+                            for &var in &next_instr.live_in {
+                                if var == expr_id || var == Var::Local(local_id) {
+                                    add_live_in(
+                                        &mut changed,
+                                        &mut instr.live_in,
+                                        Var::Expr(value_id),
+                                    );
+                                } else {
+                                    add_live_in(&mut changed, &mut instr.live_in, var);
+                                }
+                            }
+                        }
                         InstrKind::Call {
                             receiver_id,
                             method_name: _,
                             ref arg_ids,
                             private: _,
                         } => {
-                            reads_buf.push(Var::Expr(receiver_id));
-                            reads_buf.extend(arg_ids.iter().copied().map(Var::Expr));
-                            (&reads_buf, &[])
+                            for &var in &next_instr.live_in {
+                                if var != expr_id {
+                                    add_live_in(&mut changed, &mut instr.live_in, var);
+                                }
+                            }
+                            add_live_in(&mut changed, &mut instr.live_in, Var::Expr(receiver_id));
+                            for &arg_id in arg_ids {
+                                add_live_in(&mut changed, &mut instr.live_in, Var::Expr(arg_id));
+                            }
                         }
+
                         InstrKind::Return { .. } => unreachable!(),
                         InstrKind::Jump { .. } => unreachable!(),
                         InstrKind::JumpValue { .. } => unreachable!(),
                         InstrKind::Branch { .. } => unreachable!(),
-                        InstrKind::Error => (&[], &[]),
                     };
-                    for &var in &next_instr.live_in {
-                        if !writes.contains(&var) && var != expr_id {
-                            add_live_in(&mut changed, &mut instr.live_in, var);
-                        }
-                    }
-                    for &var in reads {
-                        add_live_in(&mut changed, &mut instr.live_in, var);
-                    }
                 }
             };
         }
@@ -175,6 +225,64 @@ mod tests {
                     ),
                     i(InstrKind::ReadLocal { local_id: 1 }, &[Var::Local(1)]),
                     i(InstrKind::Return { value_id: 3 }, &[Var::Expr(3)]),
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn test_used_and_unused_lv() {
+        assert_eq!(
+            iseq_from_src("foo = 42; bar = foo; bar"),
+            ISeq {
+                num_locals: 3,
+                instructions: vec![
+                    i(InstrKind::Entry, &[]),
+                    i(InstrKind::LoadConstInteger { value: 42 }, &[]),
+                    i(
+                        InstrKind::WriteLocal {
+                            local_id: 1,
+                            value_id: 1,
+                        },
+                        &[Var::Expr(1)]
+                    ),
+                    i(InstrKind::ReadLocal { local_id: 1 }, &[Var::Local(1)]),
+                    i(
+                        InstrKind::WriteLocal {
+                            local_id: 2,
+                            value_id: 3,
+                        },
+                        &[Var::Expr(3)]
+                    ),
+                    i(InstrKind::ReadLocal { local_id: 2 }, &[Var::Local(2)]),
+                    i(InstrKind::Return { value_id: 5 }, &[Var::Expr(5)]),
+                ],
+            }
+        );
+        assert_eq!(
+            iseq_from_src("foo = 42; bar = foo; 42"),
+            ISeq {
+                num_locals: 3,
+                instructions: vec![
+                    i(InstrKind::Entry, &[]),
+                    i(InstrKind::LoadConstInteger { value: 42 }, &[]),
+                    i(
+                        InstrKind::WriteLocal {
+                            local_id: 1,
+                            value_id: 1,
+                        },
+                        &[]
+                    ),
+                    i(InstrKind::ReadLocal { local_id: 1 }, &[]),
+                    i(
+                        InstrKind::WriteLocal {
+                            local_id: 2,
+                            value_id: 3,
+                        },
+                        &[]
+                    ),
+                    i(InstrKind::LoadConstInteger { value: 42 }, &[]),
+                    i(InstrKind::Return { value_id: 5 }, &[Var::Expr(5)]),
                 ],
             }
         );
