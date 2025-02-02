@@ -1,1 +1,3 @@
-x @ Integer = 42
+x = gets
+y = x ? 42 : nil
+y + 1

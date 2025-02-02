@@ -388,7 +388,7 @@ fn compile_loop(
     let (jump_into_loop_id, jump_into_loop_res) = iseq.reserve();
 
     let (loop_label_id, loop_label_res) = iseq.reserve();
-    let cond_id = compile_expr(iseq, cond, &HashMap::new());
+    let cond_id = compile_expr(iseq, cond, locals_map);
     let (branch_id, branch_res) = iseq.reserve();
 
     let body_label_id = iseq.push(Instr {

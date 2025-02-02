@@ -383,6 +383,8 @@ fn typecheck_iseq(diag: &mut Vec<Diagnostic>, iseq: &ISeq) -> Type {
             break;
         }
     }
+    // eprintln!("iseq = {:#?}", iseq);
+    // eprintln!("flow_type = {:#?}", flow_types);
     return_type
 }
 
@@ -1036,6 +1038,30 @@ mod tests {
         assert_eq!(
             typecheck_program_text("x = gets; x ? 42 : nil"),
             (integer_ty() | nil_ty(), vec![]),
+        );
+    }
+
+    #[test]
+    fn test_typecheck_or() {
+        assert_eq!(
+            typecheck_program_text("x = gets; x || 42.to_s"),
+            (string_ty(), vec![]),
+        );
+        assert_eq!(
+            typecheck_program_text("x = gets; x || 42"),
+            (string_ty() | integer_ty(), vec![]),
+        );
+    }
+
+    #[test]
+    fn test_typecheck_loop() {
+        assert_eq!(
+            typecheck_program_text("x = gets; x"),
+            (string_ty() | nil_ty(), vec![]),
+        );
+        assert_eq!(
+            typecheck_program_text("x = gets until x; x"),
+            (string_ty(), vec![]),
         );
     }
 }

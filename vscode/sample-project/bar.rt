@@ -1,0 +1,2 @@
+x = gets && 42 # until x
+p x + 0
