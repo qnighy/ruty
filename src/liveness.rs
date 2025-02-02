@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use crate::{
     iseq::{ISeq, InstrKind, Var},
     util::get_many_mut,
@@ -115,9 +117,9 @@ pub(crate) fn liveness_analysis(iseq: &mut ISeq) {
     }
 }
 
-fn add_live_in(changed: &mut bool, live_in: &mut Vec<Var>, var: Var) {
+fn add_live_in(changed: &mut bool, live_in: &mut BTreeSet<Var>, var: Var) {
     if !live_in.contains(&var) {
-        live_in.push(var);
+        live_in.insert(var);
         *changed = true;
     }
 }
@@ -151,7 +153,7 @@ mod tests {
         Instr {
             kind,
             range: DUMMY_RANGE,
-            live_in: live_in.to_owned(),
+            live_in: live_in.iter().copied().collect(),
         }
     }
 

@@ -428,7 +428,7 @@ impl FlowType {
         self.union_of.insert(term)
     }
 
-    fn push_mapped0(&mut self, live_out: &[Var], base_type: &FlowType) -> bool {
+    fn push_mapped0(&mut self, live_out: &BTreeSet<Var>, base_type: &FlowType) -> bool {
         let mut changed = false;
         for base_term in &base_type.union_of {
             changed |= self.push(FlowTypeTerm {
@@ -443,7 +443,7 @@ impl FlowType {
 
     fn push_mapped(
         &mut self,
-        live_out: &[Var],
+        live_out: &BTreeSet<Var>,
         base_type: &FlowType,
         expr_id: usize,
         mut expr_type: impl FnMut(&FlowTypeTerm) -> TypeTerm,
