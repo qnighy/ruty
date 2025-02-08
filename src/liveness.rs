@@ -224,8 +224,8 @@ mod tests {
     fn iseq_from_src(src: &str) -> ISeq {
         let mut diag = Vec::new();
         let program = crate::parse(&mut diag, EStrRef::from(src), &[]);
+        let mut iseq = iseq_from_program(&program, &mut diag);
         assert_eq!(&*diag, &[]);
-        let mut iseq = iseq_from_program(&program);
         for instr in &mut iseq.instructions {
             instr.range = DUMMY_RANGE;
         }

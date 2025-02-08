@@ -6,7 +6,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use crate::{
     ast::{CodeRange, ConstReceiver, Expr, Program, WriteTarget, DUMMY_RANGE},
-    EString,
+    Diagnostic, EString,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -126,7 +126,9 @@ pub(crate) enum BranchType {
     NotNil,
 }
 
-pub(crate) fn iseq_from_program(program: &Program) -> ISeq {
+// Receives `diag` to report TODOs. Probably we do not need this once
+// we have implemented all the features.
+pub(crate) fn iseq_from_program(program: &Program, diag: &mut Vec<Diagnostic>) -> ISeq {
     let mut iseq = ISeq {
         num_locals: program.locals.len() + 1,
         instructions: Vec::new(),
@@ -140,7 +142,7 @@ pub(crate) fn iseq_from_program(program: &Program) -> ISeq {
         range: DUMMY_RANGE,
         live_in: BTreeSet::new(),
     });
-    let result_id = compile_expr(&mut iseq, &program.body, &locals_map);
+    let result_id = compile_expr(&mut iseq, &program.body, &locals_map, diag);
     iseq.push(Instr {
         kind: InstrKind::Return {
             value_id: result_id,
@@ -151,12 +153,17 @@ pub(crate) fn iseq_from_program(program: &Program) -> ISeq {
     iseq
 }
 
-fn compile_expr(iseq: &mut ISeq, expr: &Expr, locals_map: &HashMap<EString, usize>) -> usize {
+fn compile_expr(
+    iseq: &mut ISeq,
+    expr: &Expr,
+    locals_map: &HashMap<EString, usize>,
+    diag: &mut Vec<Diagnostic>,
+) -> usize {
     match expr {
         Expr::Seq(expr) => {
             let mut last_id = usize::MAX;
             for stmt in &expr.statements {
-                last_id = compile_expr(iseq, &stmt.expr, locals_map);
+                last_id = compile_expr(iseq, &stmt.expr, locals_map, diag);
             }
             last_id
         }
@@ -182,6 +189,10 @@ fn compile_expr(iseq: &mut ISeq, expr: &Expr, locals_map: &HashMap<EString, usiz
         }),
         Expr::String(expr) => {
             // TODO
+            diag.push(Diagnostic {
+                range: expr.range,
+                message: "Iseq: String literal is not implemented yet".to_owned(),
+            });
             iseq.push(Instr {
                 kind: InstrKind::Error,
                 range: expr.range,
@@ -190,6 +201,10 @@ fn compile_expr(iseq: &mut ISeq, expr: &Expr, locals_map: &HashMap<EString, usiz
         }
         Expr::Regexp(expr) => {
             // TODO
+            diag.push(Diagnostic {
+                range: expr.range,
+                message: "Iseq: Regexp literal is not implemented yet".to_owned(),
+            });
             iseq.push(Instr {
                 kind: InstrKind::Error,
                 range: expr.range,
@@ -198,6 +213,10 @@ fn compile_expr(iseq: &mut ISeq, expr: &Expr, locals_map: &HashMap<EString, usiz
         }
         Expr::XString(expr) => {
             // TODO
+            diag.push(Diagnostic {
+                range: expr.range,
+                message: "Iseq: Backtick is not implemented yet".to_owned(),
+            });
             iseq.push(Instr {
                 kind: InstrKind::Error,
                 range: expr.range,
@@ -214,7 +233,7 @@ fn compile_expr(iseq: &mut ISeq, expr: &Expr, locals_map: &HashMap<EString, usiz
         }
         Expr::Const(expr) => match &expr.receiver {
             ConstReceiver::Expr(receiver) => {
-                let receiver_id = compile_expr(iseq, receiver, locals_map);
+                let receiver_id = compile_expr(iseq, receiver, locals_map, diag);
                 iseq.push(Instr {
                     kind: InstrKind::ReadConstUnder {
                         name: expr.name.clone(),
@@ -269,16 +288,16 @@ fn compile_expr(iseq: &mut ISeq, expr: &Expr, locals_map: &HashMap<EString, usiz
         }),
         Expr::Call(expr) => {
             if expr.optional {
-                let receiver_id = compile_expr(iseq, &expr.receiver, locals_map);
+                let receiver_id = compile_expr(iseq, &expr.receiver, locals_map, diag);
                 compile_branch(
                     iseq,
                     BranchType::NotNil,
                     receiver_id,
-                    |iseq| {
+                    |iseq, diag| {
                         let arg_ids = expr
                             .args
                             .iter()
-                            .map(|arg| compile_expr(iseq, arg, locals_map))
+                            .map(|arg| compile_expr(iseq, arg, locals_map, diag))
                             .collect();
                         iseq.push(Instr {
                             kind: InstrKind::Call {
@@ -291,7 +310,7 @@ fn compile_expr(iseq: &mut ISeq, expr: &Expr, locals_map: &HashMap<EString, usiz
                             live_in: BTreeSet::new(),
                         })
                     },
-                    |iseq| {
+                    |iseq, _diag| {
                         iseq.push(Instr {
                             kind: InstrKind::LoadConstNil,
                             range: expr.range,
@@ -299,13 +318,14 @@ fn compile_expr(iseq: &mut ISeq, expr: &Expr, locals_map: &HashMap<EString, usiz
                         })
                     },
                     expr.range,
+                    diag,
                 )
             } else {
-                let receiver_id = compile_expr(iseq, &expr.receiver, locals_map);
+                let receiver_id = compile_expr(iseq, &expr.receiver, locals_map, diag);
                 let arg_ids = expr
                     .args
                     .iter()
-                    .map(|arg| compile_expr(iseq, arg, locals_map))
+                    .map(|arg| compile_expr(iseq, arg, locals_map, diag))
                     .collect();
                 iseq.push(Instr {
                     kind: InstrKind::Call {
@@ -322,7 +342,7 @@ fn compile_expr(iseq: &mut ISeq, expr: &Expr, locals_map: &HashMap<EString, usiz
         Expr::Write(expr) => match &*expr.lhs {
             WriteTarget::LocalVariable(lhs) => {
                 let local_id = locals_map.get(&lhs.name).copied().unwrap_or(0);
-                let value_id = compile_expr(iseq, &expr.rhs, locals_map);
+                let value_id = compile_expr(iseq, &expr.rhs, locals_map, diag);
                 iseq.push(Instr {
                     kind: InstrKind::WriteLocal { local_id, value_id },
                     range: expr.range,
@@ -336,40 +356,43 @@ fn compile_expr(iseq: &mut ISeq, expr: &Expr, locals_map: &HashMap<EString, usiz
             }),
         },
         Expr::And(expr) => {
-            let lhs_id = compile_expr(iseq, &expr.lhs, locals_map);
+            let lhs_id = compile_expr(iseq, &expr.lhs, locals_map, diag);
             compile_branch(
                 iseq,
                 BranchType::Truthy,
                 lhs_id,
-                |iseq| compile_expr(iseq, &expr.rhs, locals_map),
-                |iseq| lhs_id,
+                |iseq, diag| compile_expr(iseq, &expr.rhs, locals_map, diag),
+                |_iseq, _diag| lhs_id,
                 expr.range,
+                diag,
             )
         }
         Expr::Or(expr) => {
-            let lhs_id = compile_expr(iseq, &expr.lhs, locals_map);
+            let lhs_id = compile_expr(iseq, &expr.lhs, locals_map, diag);
             compile_branch(
                 iseq,
                 BranchType::Truthy,
                 lhs_id,
-                |iseq| lhs_id,
-                |iseq| compile_expr(iseq, &expr.rhs, locals_map),
+                |_iseq, _diag| lhs_id,
+                |iseq, diag| compile_expr(iseq, &expr.rhs, locals_map, diag),
                 expr.range,
+                diag,
             )
         }
         Expr::If(expr) => {
-            let cond_id = compile_expr(iseq, &expr.cond, locals_map);
+            let cond_id = compile_expr(iseq, &expr.cond, locals_map, diag);
             compile_branch(
                 iseq,
                 BranchType::Truthy,
                 cond_id,
-                |iseq| compile_expr(iseq, &expr.then, locals_map),
-                |iseq| compile_expr(iseq, &expr.else_, locals_map),
+                |iseq, diag| compile_expr(iseq, &expr.then, locals_map, diag),
+                |iseq, diag| compile_expr(iseq, &expr.else_, locals_map, diag),
                 expr.range,
+                diag,
             )
         }
-        Expr::While(expr) => compile_loop(iseq, false, &expr.cond, &expr.body, locals_map),
-        Expr::Until(expr) => compile_loop(iseq, true, &expr.cond, &expr.body, locals_map),
+        Expr::While(expr) => compile_loop(iseq, false, &expr.cond, &expr.body, locals_map, diag),
+        Expr::Until(expr) => compile_loop(iseq, true, &expr.cond, &expr.body, locals_map, diag),
         Expr::Error(expr) => iseq.push(Instr {
             kind: InstrKind::Error,
             range: expr.range,
@@ -384,11 +407,12 @@ fn compile_loop(
     cond: &Expr,
     body: &Expr,
     locals_map: &HashMap<EString, usize>,
+    diag: &mut Vec<Diagnostic>,
 ) -> usize {
     let (jump_into_loop_id, jump_into_loop_res) = iseq.reserve();
 
     let (loop_label_id, loop_label_res) = iseq.reserve();
-    let cond_id = compile_expr(iseq, cond, locals_map);
+    let cond_id = compile_expr(iseq, cond, locals_map, diag);
     let (branch_id, branch_res) = iseq.reserve();
 
     let body_label_id = iseq.push(Instr {
@@ -398,7 +422,7 @@ fn compile_loop(
         range: *body.range(),
         live_in: BTreeSet::new(),
     });
-    let body_id = compile_expr(iseq, body, locals_map);
+    let body_id = compile_expr(iseq, body, locals_map, diag);
     let body_jump_id = iseq.push(Instr {
         kind: InstrKind::JumpValue {
             to: loop_label_id,
@@ -463,10 +487,11 @@ fn compile_branch<F1, F2>(
     gen_then: F1,
     gen_else: F2,
     range: CodeRange,
+    diag: &mut Vec<Diagnostic>,
 ) -> usize
 where
-    F1: FnOnce(&mut ISeq) -> usize,
-    F2: FnOnce(&mut ISeq) -> usize,
+    F1: FnOnce(&mut ISeq, &mut Vec<Diagnostic>) -> usize,
+    F2: FnOnce(&mut ISeq, &mut Vec<Diagnostic>) -> usize,
 {
     let (branch_id, branch_res) = iseq.reserve();
     let then_label_id = iseq.push(Instr {
@@ -476,7 +501,7 @@ where
         range,
         live_in: BTreeSet::new(),
     });
-    let then_id = gen_then(iseq);
+    let then_id = gen_then(iseq, diag);
     let (then_jump_id, then_jump_res) = iseq.reserve();
     let else_label_id = iseq.push(Instr {
         kind: InstrKind::Label {
@@ -485,7 +510,7 @@ where
         range,
         live_in: BTreeSet::new(),
     });
-    let else_id = gen_else(iseq);
+    let else_id = gen_else(iseq, diag);
     let (else_jump_id, else_jump_res) = iseq.reserve();
     let end_label_id = iseq.push(Instr {
         kind: InstrKind::Label {
@@ -549,7 +574,9 @@ mod tests {
         let mut diag = Vec::new();
         let program = crate::parse(&mut diag, EStrRef::from(src), &[]);
         assert_eq!(&*diag, &[]);
-        let mut iseq = iseq_from_program(&program);
+        let mut diag = Vec::<Diagnostic>::new();
+        let mut iseq = iseq_from_program(&program, &mut diag);
+        assert_eq!(&*diag, &[]);
         for instr in &mut iseq.instructions {
             instr.range = DUMMY_RANGE;
         }

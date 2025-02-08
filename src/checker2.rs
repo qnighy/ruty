@@ -17,7 +17,7 @@ pub fn typecheck_program(diag: &mut Vec<Diagnostic>, program: &Program) {
 }
 
 fn typecheck_program_with_type(diag: &mut Vec<Diagnostic>, program: &Program) -> Type {
-    let mut iseq = iseq_from_program(program);
+    let mut iseq = iseq_from_program(program, diag);
     liveness_analysis(&mut iseq);
     typecheck_iseq(diag, &iseq)
 }
