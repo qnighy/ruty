@@ -475,7 +475,10 @@ impl LexerState {
     /// and `rescue` to infix operators?
     fn prefer_modifier_if(&self) -> bool {
         match self {
-            LexerState::End | LexerState::WeakFirstArgument | LexerState::BeginOpt => true,
+            LexerState::End
+            | LexerState::FirstArgument
+            | LexerState::WeakFirstArgument
+            | LexerState::BeginOpt => true,
             _ => false,
         }
     }
@@ -1784,86 +1787,144 @@ mod tests {
         }
     }
 
+    const ALL_STATES: [LexerState; 10] = [
+        LexerState::Begin,
+        LexerState::ClassName,
+        LexerState::BeginOpt,
+        LexerState::BeginLabelable,
+        LexerState::FirstArgument,
+        LexerState::WeakFirstArgument,
+        LexerState::End,
+        LexerState::MethForDef,
+        LexerState::MethOrSymbolForDef,
+        LexerState::MethForCall,
+    ];
+
+    #[track_caller]
+    fn assert_lex<'a, S, F>(src: S, expected: F)
+    where
+        S: Into<EStrRef<'a>>,
+        F: FnOnce(EStrRef<'_>) -> Vec<Token>,
+    {
+        assert_lex_impl(src, expected, |_| true);
+    }
+
+    #[track_caller]
+    fn assert_lex_for<'a, S, F>(src: S, states: &[LexerState], expected: F)
+    where
+        S: Into<EStrRef<'a>>,
+        F: FnOnce(EStrRef<'_>) -> Vec<Token>,
+    {
+        assert_lex_impl(src, expected, |state| states.contains(&state));
+    }
+
+    #[track_caller]
+    fn assert_lex_except<'a, S, F>(src: S, states: &[LexerState], expected: F)
+    where
+        S: Into<EStrRef<'a>>,
+        F: FnOnce(EStrRef<'_>) -> Vec<Token>,
+    {
+        assert_lex_impl(src, expected, |state| !states.contains(&state));
+    }
+
+    #[track_caller]
+    fn assert_lex_impl<'a, S, F, FS>(src: S, expected: F, mut filter_state: FS)
+    where
+        S: Into<EStrRef<'a>>,
+        F: FnOnce(EStrRef<'_>) -> Vec<Token>,
+        FS: FnMut(LexerState) -> bool,
+    {
+        let src = <S as Into<EStrRef<'a>>>::into(src);
+        let expected = expected(src);
+        let mut difflist1 = Vec::<(LexerState, Vec<Token>)>::new();
+        let mut difflist2 = Vec::<(LexerState, Vec<Token>)>::new();
+        for &state in &ALL_STATES {
+            if !filter_state(state) {
+                continue;
+            }
+            let actual = lex_all_from(src, state);
+            if actual != expected {
+                difflist1.push((state, actual));
+                difflist2.push((state, expected.clone()));
+            }
+        }
+        assert_eq!(difflist1, difflist2);
+    }
+
     #[test]
     fn test_lex_eof_nul() {
-        let src = EStrRef::from("foo \0 bar");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),]
-        );
+        assert_lex("foo \0 bar", |src| {
+            vec![token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_eof_eot() {
-        let src = EStrRef::from("foo \x04 bar");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),]
-        );
+        // let src = EStrRef::from("foo \x04 bar");
+        // assert_eq!(
+        //     lex_all(src),
+        //     vec![token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),]
+        // );
+        assert_lex("foo \x04 bar", |src| {
+            vec![token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_eof_sub() {
-        let src = EStrRef::from("foo \x1A bar");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),]
-        );
+        // let src = EStrRef::from("foo \x1A bar");
+        // assert_eq!(
+        //     lex_all(src),
+        //     vec![token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),]
+        // );
+        assert_lex("foo \x1A bar", |src| {
+            vec![token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_eof_end_token_eof() {
-        let src = EStrRef::from("foo \n__END__");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("foo \n__END__", |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
                 token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lex_eof_end_token_lf() {
-        let src = EStrRef::from("foo \n__END__\n bar");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("foo \n__END__\n bar", |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
                 token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lex_eof_end_token_crlf() {
-        let src = EStrRef::from("foo \n__END__\r\n bar");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("foo \n__END__\r\n bar", |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
                 token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lex_eof() {
-        let src = EStrRef::from("foo \n__END__");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("foo \n__END__", |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
                 token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lex_non_eof_space_after_end_token() {
-        let src = EStrRef::from("foo \n__END__ \n bar");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("foo \n__END__ \n bar", |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
                 token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
@@ -1871,14 +1932,12 @@ mod tests {
                 token(TokenKind::Newline, pos_in(src, b"\n", 1), 0),
                 token(TokenKind::Identifier, pos_in(src, b"bar", 0), 1),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lex_non_eof_space_before_end_token() {
-        let src = EStrRef::from("foo \n __END__\n bar");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("foo \n __END__\n bar", |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
                 token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
@@ -1886,760 +1945,693 @@ mod tests {
                 token(TokenKind::Newline, pos_in(src, b"\n", 1), 1),
                 token(TokenKind::Identifier, pos_in(src, b"bar", 0), 1),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lex_non_eof_cr_after_end_token() {
-        let src = EStrRef::from("foo \n__END__\r bar");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("foo \n__END__\r bar", |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
                 token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
                 token(TokenKind::Identifier, pos_in(src, b"__END__", 0), 0),
                 token(TokenKind::Identifier, pos_in(src, b"bar", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lex_spaces() {
-        let src = EStrRef::from("foo bar\nbaz");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("foo bar\nbaz", |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
                 token(TokenKind::Identifier, pos_in(src, b"bar", 0), 0),
                 token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
                 token(TokenKind::Identifier, pos_in(src, b"baz", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lex_semicolon_simple() {
-        let src = EStrRef::from("foo;bar");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("foo;bar", |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
                 token(TokenKind::Semicolon, pos_in(src, b";", 0), 0),
                 token(TokenKind::Identifier, pos_in(src, b"bar", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lex_semicolon_lf() {
-        let src = EStrRef::from("foo\nbar");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("foo\nbar", |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
                 token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
                 token(TokenKind::Identifier, pos_in(src, b"bar", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lex_semicolon_crlf() {
-        let src = EStrRef::from("foo\r\nbar");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("foo\r\nbar", |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
                 token(TokenKind::Newline, pos_in(src, b"\r\n", 0), 0),
                 token(TokenKind::Identifier, pos_in(src, b"bar", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lex_semicolon_skip_lf_at_begin() {
-        let src = EStrRef::from("do\nbar");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("do\nbar", |src| {
             vec![
                 token(TokenKind::KeywordDo, pos_in(src, b"do", 0), 0),
                 token(TokenKind::Identifier, pos_in(src, b"bar", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lex_semicolon_skip_lf_before_dot() {
-        let src = EStrRef::from("foo\n  .bar");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("foo\n  .bar", |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
                 token(TokenKind::Dot, pos_in(src, b".", 0), 2),
                 token(TokenKind::Identifier, pos_in(src, b"bar", 0), 2),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lex_semicolon_lf_before_dotdot() {
-        let src = EStrRef::from("foo\n  ..bar");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("foo\n  ..bar", |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
                 token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
                 token(TokenKind::DotDot, pos_in(src, b"..", 0), 2),
                 token(TokenKind::Identifier, pos_in(src, b"bar", 0), 2),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lex_comments() {
-        let src = EStrRef::from("# comment2\nfoo bar # comment1\n# comment3\nbaz\n");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"bar", 0), 0),
-                token(TokenKind::Newline, pos_in(src, b"\n", 1), 0),
-                token(TokenKind::Identifier, pos_in(src, b"baz", 0), 0),
-                token(TokenKind::Newline, pos_in(src, b"\n", 3), 0),
-            ]
+        assert_lex_except(
+            "# comment2\nfoo bar # comment1\n# comment3\nbaz\n",
+            &[
+                LexerState::BeginOpt,
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
+                    token(TokenKind::Identifier, pos_in(src, b"bar", 0), 0),
+                    token(TokenKind::Newline, pos_in(src, b"\n", 1), 0),
+                    token(TokenKind::Identifier, pos_in(src, b"baz", 0), 0),
+                    token(TokenKind::Newline, pos_in(src, b"\n", 3), 0),
+                ]
+            },
         );
     }
 
     #[test]
     fn test_lex_keyword_encoding() {
-        let src = EStrRef::from("__ENCODING__");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("__ENCODING__", |src| {
             vec![token(
                 TokenKind::KeywordCapitalDoubleUnderscoreEncoding,
                 pos_in(src, b"__ENCODING__", 0),
-                0
-            ),]
-        );
+                0,
+            )]
+        });
     }
 
     #[test]
     fn test_lex_keyword_line() {
-        let src = EStrRef::from("__LINE__");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("__LINE__", |src| {
             vec![token(
                 TokenKind::KeywordCapitalDoubleUnderscoreLine,
                 pos_in(src, b"__LINE__", 0),
-                0
-            ),]
-        );
+                0,
+            )]
+        });
     }
 
     #[test]
     fn test_lex_keyword_file() {
-        let src = EStrRef::from("__FILE__");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("__FILE__", |src| {
             vec![token(
                 TokenKind::KeywordCapitalDoubleUnderscoreFile,
                 pos_in(src, b"__FILE__", 0),
-                0
-            ),]
-        );
+                0,
+            )]
+        });
     }
 
     #[test]
     fn test_lex_keyword_cap_begin() {
-        let src = EStrRef::from("BEGIN");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("BEGIN", |src| {
             vec![token(
                 TokenKind::KeywordCapitalBegin,
                 pos_in(src, b"BEGIN", 0),
-                0
-            ),]
-        );
+                0,
+            )]
+        });
     }
 
     #[test]
     fn test_lex_keyword_cap_end() {
-        let src = EStrRef::from("END");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("END", |src| {
             vec![token(
                 TokenKind::KeywordCapitalEnd,
                 pos_in(src, b"END", 0),
-                0
-            ),]
-        );
+                0,
+            )]
+        });
     }
 
     #[test]
     fn test_lex_keyword_alias() {
-        let src = EStrRef::from("alias");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordAlias, pos_in(src, b"alias", 0), 0),]
-        );
+        assert_lex("alias", |src| {
+            vec![token(TokenKind::KeywordAlias, pos_in(src, b"alias", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_and() {
-        let src = EStrRef::from("and");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordAnd, pos_in(src, b"and", 0), 0),]
-        );
+        assert_lex("and", |src| {
+            vec![token(TokenKind::KeywordAnd, pos_in(src, b"and", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_begin() {
-        let src = EStrRef::from("begin");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordBegin, pos_in(src, b"begin", 0), 0),]
-        );
+        assert_lex("begin", |src| {
+            vec![token(TokenKind::KeywordBegin, pos_in(src, b"begin", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_break() {
-        let src = EStrRef::from("break");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordBreak, pos_in(src, b"break", 0), 0),]
-        );
+        assert_lex("break", |src| {
+            vec![token(TokenKind::KeywordBreak, pos_in(src, b"break", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_case() {
-        let src = EStrRef::from("case");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordCase, pos_in(src, b"case", 0), 0),]
-        );
+        assert_lex("case", |src| {
+            vec![token(TokenKind::KeywordCase, pos_in(src, b"case", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_class() {
-        let src = EStrRef::from("class");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordClass, pos_in(src, b"class", 0), 0),]
-        );
+        assert_lex("class", |src| {
+            vec![token(TokenKind::KeywordClass, pos_in(src, b"class", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_def() {
-        let src = EStrRef::from("def");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordDef, pos_in(src, b"def", 0), 0),]
-        );
+        assert_lex("def", |src| {
+            vec![token(TokenKind::KeywordDef, pos_in(src, b"def", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_defined_q() {
-        let src = EStrRef::from("defined?");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("defined?", |src| {
             vec![token(
                 TokenKind::KeywordDefinedQ,
                 pos_in(src, b"defined?", 0),
-                0
-            ),]
-        );
+                0,
+            )]
+        });
     }
 
     #[test]
     fn test_lex_keyword_do() {
-        let src = EStrRef::from("do");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordDo, pos_in(src, b"do", 0), 0),]
-        );
+        assert_lex("do", |src| {
+            vec![token(TokenKind::KeywordDo, pos_in(src, b"do", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_else() {
-        let src = EStrRef::from("else");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordElse, pos_in(src, b"else", 0), 0),]
-        );
+        assert_lex("else", |src| {
+            vec![token(TokenKind::KeywordElse, pos_in(src, b"else", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_elsif() {
-        let src = EStrRef::from("elsif");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordElsif, pos_in(src, b"elsif", 0), 0),]
-        );
+        assert_lex("elsif", |src| {
+            vec![token(TokenKind::KeywordElsif, pos_in(src, b"elsif", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_end() {
-        let src = EStrRef::from("end");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordEnd, pos_in(src, b"end", 0), 0),]
-        );
+        assert_lex("end", |src| {
+            vec![token(TokenKind::KeywordEnd, pos_in(src, b"end", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_ensure() {
-        let src = EStrRef::from("ensure");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("ensure", |src| {
             vec![token(
                 TokenKind::KeywordEnsure,
                 pos_in(src, b"ensure", 0),
-                0
-            ),]
-        );
+                0,
+            )]
+        });
     }
 
     #[test]
     fn test_lex_keyword_false() {
-        let src = EStrRef::from("false");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordFalse, pos_in(src, b"false", 0), 0),]
-        );
+        assert_lex("false", |src| {
+            vec![token(TokenKind::KeywordFalse, pos_in(src, b"false", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_for() {
-        let src = EStrRef::from("for");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordFor, pos_in(src, b"for", 0), 0),]
-        );
+        assert_lex("for", |src| {
+            vec![token(TokenKind::KeywordFor, pos_in(src, b"for", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_if_prefix() {
-        let src = EStrRef::from("if");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordIf, pos_in(src, b"if", 0), 0),]
+        assert_lex_except(
+            "if",
+            &[
+                LexerState::BeginOpt,
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+            ],
+            |src| vec![token(TokenKind::KeywordIf, pos_in(src, b"if", 0), 0)],
         );
     }
 
     #[test]
     fn test_lex_keyword_if_infix() {
-        let src = EStrRef::from("nil if");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::KeywordNil, pos_in(src, b"nil", 0), 0),
-                token(TokenKind::KeywordIfInfix, pos_in(src, b"if", 0), 0),
-            ]
+        assert_lex_for(
+            "if",
+            &[
+                LexerState::BeginOpt,
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+            ],
+            |src| vec![token(TokenKind::KeywordIfInfix, pos_in(src, b"if", 0), 0)],
         );
     }
 
     #[test]
     fn test_lex_keyword_in() {
-        let src = EStrRef::from("in");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordIn, pos_in(src, b"in", 0), 0),]
-        );
+        assert_lex("in", |src| {
+            vec![token(TokenKind::KeywordIn, pos_in(src, b"in", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_module() {
-        let src = EStrRef::from("module");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("module", |src| {
             vec![token(
                 TokenKind::KeywordModule,
                 pos_in(src, b"module", 0),
-                0
-            ),]
-        );
+                0,
+            )]
+        });
     }
 
     #[test]
     fn test_lex_keyword_next() {
-        let src = EStrRef::from("next");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordNext, pos_in(src, b"next", 0), 0),]
-        );
+        assert_lex("next", |src| {
+            vec![token(TokenKind::KeywordNext, pos_in(src, b"next", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_nil() {
-        let src = EStrRef::from("nil");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordNil, pos_in(src, b"nil", 0), 0),]
-        );
+        assert_lex("nil", |src| {
+            vec![token(TokenKind::KeywordNil, pos_in(src, b"nil", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_not() {
-        let src = EStrRef::from("not");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordNot, pos_in(src, b"not", 0), 0),]
-        );
+        assert_lex("not", |src| {
+            vec![token(TokenKind::KeywordNot, pos_in(src, b"not", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_or() {
-        let src = EStrRef::from("or");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordOr, pos_in(src, b"or", 0), 0),]
-        );
+        assert_lex("or", |src| {
+            vec![token(TokenKind::KeywordOr, pos_in(src, b"or", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_redo() {
-        let src = EStrRef::from("redo");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordRedo, pos_in(src, b"redo", 0), 0),]
-        );
+        assert_lex("redo", |src| {
+            vec![token(TokenKind::KeywordRedo, pos_in(src, b"redo", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_rescue() {
-        let src = EStrRef::from("rescue");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("rescue", |src| {
             vec![token(
                 TokenKind::KeywordRescue,
                 pos_in(src, b"rescue", 0),
-                0
-            ),]
-        );
+                0,
+            )]
+        });
     }
 
     #[test]
     fn test_lex_keyword_retry() {
-        let src = EStrRef::from("retry");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordRetry, pos_in(src, b"retry", 0), 0),]
-        );
+        assert_lex("retry", |src| {
+            vec![token(TokenKind::KeywordRetry, pos_in(src, b"retry", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_return() {
-        let src = EStrRef::from("return");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("return", |src| {
             vec![token(
                 TokenKind::KeywordReturn,
                 pos_in(src, b"return", 0),
-                0
-            ),]
-        );
+                0,
+            )]
+        });
     }
 
     #[test]
     fn test_lex_keyword_self() {
-        let src = EStrRef::from("self");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordSelf, pos_in(src, b"self", 0), 0),]
-        );
+        assert_lex("self", |src| {
+            vec![token(TokenKind::KeywordSelf, pos_in(src, b"self", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_super() {
-        let src = EStrRef::from("super");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordSuper, pos_in(src, b"super", 0), 0),]
-        );
+        assert_lex("super", |src| {
+            vec![token(TokenKind::KeywordSuper, pos_in(src, b"super", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_then() {
-        let src = EStrRef::from("then");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordThen, pos_in(src, b"then", 0), 0),]
-        );
+        assert_lex("then", |src| {
+            vec![token(TokenKind::KeywordThen, pos_in(src, b"then", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_true() {
-        let src = EStrRef::from("true");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordTrue, pos_in(src, b"true", 0), 0),]
-        );
+        assert_lex("true", |src| {
+            vec![token(TokenKind::KeywordTrue, pos_in(src, b"true", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_undef() {
-        let src = EStrRef::from("undef");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordUndef, pos_in(src, b"undef", 0), 0),]
-        );
+        assert_lex("undef", |src| {
+            vec![token(TokenKind::KeywordUndef, pos_in(src, b"undef", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_unless_prefix() {
-        let src = EStrRef::from("unless");
-        assert_eq!(
-            lex_all(src),
-            vec![token(
-                TokenKind::KeywordUnless,
-                pos_in(src, b"unless", 0),
-                0
-            ),]
+        assert_lex_except(
+            "unless",
+            &[
+                LexerState::BeginOpt,
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+            ],
+            |src| {
+                vec![token(
+                    TokenKind::KeywordUnless,
+                    pos_in(src, b"unless", 0),
+                    0,
+                )]
+            },
         );
     }
 
     #[test]
     fn test_lex_keyword_unless_infix() {
-        let src = EStrRef::from("nil unless");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::KeywordNil, pos_in(src, b"nil", 0), 0),
-                token(TokenKind::KeywordUnlessInfix, pos_in(src, b"unless", 0), 0),
-            ]
+        assert_lex_for(
+            "unless",
+            &[
+                LexerState::BeginOpt,
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+            ],
+            |src| {
+                vec![token(
+                    TokenKind::KeywordUnlessInfix,
+                    pos_in(src, b"unless", 0),
+                    0,
+                )]
+            },
         );
     }
 
     #[test]
     fn test_lex_keyword_until_prefix() {
-        let src = EStrRef::from("until");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordUntil, pos_in(src, b"until", 0), 0),]
+        assert_lex_except(
+            "until",
+            &[
+                LexerState::BeginOpt,
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+            ],
+            |src| vec![token(TokenKind::KeywordUntil, pos_in(src, b"until", 0), 0)],
         );
     }
 
     #[test]
     fn test_lex_keyword_until_infix() {
-        let src = EStrRef::from("nil until");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::KeywordNil, pos_in(src, b"nil", 0), 0),
-                token(TokenKind::KeywordUntilInfix, pos_in(src, b"until", 0), 0),
-            ]
+        assert_lex_for(
+            "until",
+            &[
+                LexerState::BeginOpt,
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+            ],
+            |src| {
+                vec![token(
+                    TokenKind::KeywordUntilInfix,
+                    pos_in(src, b"until", 0),
+                    0,
+                )]
+            },
         );
     }
 
     #[test]
     fn test_lex_keyword_when() {
-        let src = EStrRef::from("when");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordWhen, pos_in(src, b"when", 0), 0),]
-        );
+        assert_lex("when", |src| {
+            vec![token(TokenKind::KeywordWhen, pos_in(src, b"when", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_keyword_while_prefix() {
-        let src = EStrRef::from("while");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordWhile, pos_in(src, b"while", 0), 0),]
+        assert_lex_except(
+            "while",
+            &[
+                LexerState::BeginOpt,
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+            ],
+            |src| vec![token(TokenKind::KeywordWhile, pos_in(src, b"while", 0), 0)],
         );
     }
 
     #[test]
     fn test_lex_keyword_while_infix() {
-        let src = EStrRef::from("nil while");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::KeywordNil, pos_in(src, b"nil", 0), 0),
-                token(TokenKind::KeywordWhileInfix, pos_in(src, b"while", 0), 0),
-            ]
+        assert_lex_for(
+            "while",
+            &[
+                LexerState::BeginOpt,
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+            ],
+            |src| {
+                vec![token(
+                    TokenKind::KeywordWhileInfix,
+                    pos_in(src, b"while", 0),
+                    0,
+                )]
+            },
         );
     }
 
     #[test]
     fn test_lex_keyword_yield() {
-        let src = EStrRef::from("yield");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::KeywordYield, pos_in(src, b"yield", 0), 0),]
-        );
+        assert_lex("yield", |src| {
+            vec![token(TokenKind::KeywordYield, pos_in(src, b"yield", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lex_ident() {
-        let src = EStrRef::from("foo bar123 あ");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("foo bar123 あ", |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
                 token(TokenKind::Identifier, pos_in(src, b"bar123", 0), 0),
                 token(TokenKind::Identifier, pos_in(src, b"\xE3\x81\x82", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lex_const() {
-        let src = EStrRef::from("Foo Bar123 Ω");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("Foo Bar123 Ω", |src| {
             vec![
                 token(TokenKind::Const, pos_in(src, b"Foo", 0), 0),
                 token(TokenKind::Const, pos_in(src, b"Bar123", 0), 0),
                 token(TokenKind::Const, pos_in(src, b"\xCE\xA9", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lex_method_name_normal_ctx() {
-        let src = EStrRef::from("foo! bar123? Baz!");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("foo! bar123? Baz!", |src| {
             vec![
                 token(TokenKind::MethodName, pos_in(src, b"foo!", 0), 0),
                 token(TokenKind::MethodName, pos_in(src, b"bar123?", 0), 0),
                 token(TokenKind::MethodName, pos_in(src, b"Baz!", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lex_static_symbol() {
-        let src = EStrRef::from(":foo :bar123 :Baz");
-        assert_eq!(
-            lex_all(src),
+        assert_lex(":foo :bar123 :Baz", |src| {
             vec![
                 token(TokenKind::Symbol, pos_in(src, b":foo", 0), 0),
                 token(TokenKind::Symbol, pos_in(src, b":bar123", 0), 0),
                 token(TokenKind::Symbol, pos_in(src, b":Baz", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lex_ivar_name() {
-        let src = EStrRef::from("@foo @bar123 @Baz");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("@foo @bar123 @Baz", |src| {
             vec![
                 token(TokenKind::IvarName, pos_in(src, b"@foo", 0), 0),
                 token(TokenKind::IvarName, pos_in(src, b"@bar123", 0), 0),
                 token(TokenKind::IvarName, pos_in(src, b"@Baz", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lex_cvar_name() {
-        let src = EStrRef::from("@@foo @@bar123 @@Baz");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("@@foo @@bar123 @@Baz", |src| {
             vec![
                 token(TokenKind::CvarName, pos_in(src, b"@@foo", 0), 0),
                 token(TokenKind::CvarName, pos_in(src, b"@@bar123", 0), 0),
                 token(TokenKind::CvarName, pos_in(src, b"@@Baz", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lex_gvar_name() {
-        let src = EStrRef::from("$foo $bar123 $Baz");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("$foo $bar123 $Baz", |src| {
             vec![
                 token(TokenKind::GvarName, pos_in(src, b"$foo", 0), 0),
                 token(TokenKind::GvarName, pos_in(src, b"$bar123", 0), 0),
                 token(TokenKind::GvarName, pos_in(src, b"$Baz", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lex_integer() {
-        let src = EStrRef::from("123 456");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("123 456", |src| {
             vec![
                 token(TokenKind::Integer, pos_in(src, b"123", 0), 0),
                 token(TokenKind::Integer, pos_in(src, b"456", 0), 0),
             ]
-        );
-    }
-
-    #[test]
-    fn test_char_literal() {
-        let src = EStrRef::from("?a");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::CharLiteral, pos_in(src, b"?a", 0), 0),]
-        );
+        });
     }
 
     #[test]
     fn test_quote_string_tokens_simple() {
-        let src = EStrRef::from("' foo '");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("' foo '", |src| {
             vec![
                 token(TokenKind::StringBegin, pos_in(src, b"'", 0), 0),
                 token(TokenKind::StringContent, pos_in(src, " foo ", 0), 0),
                 token(TokenKind::StringEnd, pos_in(src, b"'", 1), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_quote_string_tokens_escaped() {
-        let src = EStrRef::from("'\\''");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("'\\''", |src| {
             vec![
                 token(TokenKind::StringBegin, pos_in(src, b"'", 0), 0),
                 token(TokenKind::StringContent, pos_in(src, "\\'", 0), 0),
                 token(TokenKind::StringEnd, pos_in(src, b"'", 2), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_quote_string_tokens_backslashes() {
-        let src = EStrRef::from("'\\\\'");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("'\\\\'", |src| {
             vec![
                 token(TokenKind::StringBegin, pos_in(src, b"'", 0), 0),
                 token(TokenKind::StringContent, pos_in(src, "\\\\", 0), 0),
                 token(TokenKind::StringEnd, pos_in(src, b"'", 1), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_double_quote_string_tokens_simple() {
-        let src = EStrRef::from("\" foo \"");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("\" foo \"", |src| {
             vec![
                 token(TokenKind::StringBegin, pos_in(src, b"\"", 0), 0),
                 token(TokenKind::StringContent, pos_in(src, " foo ", 0), 0),
                 token(TokenKind::StringEnd, pos_in(src, b"\"", 1), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_double_quote_string_tokens_dynamic() {
-        let src = EStrRef::from("\" foo #{bar}");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("\" foo #{bar}", |src| {
             vec![
                 token(TokenKind::StringBegin, pos_in(src, b"\"", 0), 0),
                 token(TokenKind::StringContent, pos_in(src, " foo ", 0), 0),
@@ -2647,49 +2639,73 @@ mod tests {
                 token(TokenKind::Identifier, pos_in(src, b"bar", 0), 0),
                 token(TokenKind::RBrace, pos_in(src, b"}", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_backtick_string_tokens() {
-        let src = EStrRef::from("` foo `");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::StringBegin, pos_in(src, b"`", 0), 0),
-                token(TokenKind::StringContent, pos_in(src, " foo ", 0), 0),
-                token(TokenKind::StringEnd, pos_in(src, b"`", 1), 0),
-            ]
+        assert_lex_except(
+            "` foo `",
+            &[
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::StringBegin, pos_in(src, b"`", 0), 0),
+                    token(TokenKind::StringContent, pos_in(src, " foo ", 0), 0),
+                    token(TokenKind::StringEnd, pos_in(src, b"`", 1), 0),
+                ]
+            },
+        );
+    }
+
+    #[test]
+    fn test_backtick_op_name() {
+        assert_lex_for(
+            "`",
+            &[
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::MethodName, pos_in(src, b"`", 0), 0)],
         );
     }
 
     #[test]
     fn test_regexp_string_tokens() {
-        let src = EStrRef::from("/ foo /");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::StringBegin, pos_in(src, b"/", 0), 0),
-                token(TokenKind::StringContent, pos_in(src, " foo ", 0), 0),
-                token(TokenKind::StringEnd, pos_in(src, b"/", 1), 0),
-            ]
+        assert_lex_except(
+            "/ foo /",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::StringBegin, pos_in(src, b"/", 0), 0),
+                    token(TokenKind::StringContent, pos_in(src, " foo ", 0), 0),
+                    token(TokenKind::StringEnd, pos_in(src, b"/", 1), 0),
+                ]
+            },
         );
     }
 
     #[test]
     fn test_op_assign_exponential() {
-        let src = EStrRef::from("**=");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::OpAssign, pos_in(src, b"**=", 0), 0),]
-        );
+        assert_lex("**=", |src| {
+            vec![token(TokenKind::OpAssign, pos_in(src, b"**=", 0), 0)]
+        });
     }
 
     #[test]
     fn test_op_assign_multiplicative() {
-        let src = EStrRef::from("*= x /= y %=");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("*= x /= y %=", |src| {
             vec![
                 token(TokenKind::OpAssign, pos_in(src, b"*=", 0), 0),
                 token(TokenKind::Identifier, pos_in(src, b"x", 0), 0),
@@ -2697,820 +2713,1066 @@ mod tests {
                 token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
                 token(TokenKind::OpAssign, pos_in(src, b"%=", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_op_assign_additive() {
-        let src = EStrRef::from("+= -=");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("+= -=", |src| {
             vec![
                 token(TokenKind::OpAssign, pos_in(src, b"+=", 0), 0),
                 token(TokenKind::OpAssign, pos_in(src, b"-=", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_op_assign_shift() {
-        let src = EStrRef::from("<<= >>=");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("<<= >>=", |src| {
             vec![
                 token(TokenKind::OpAssign, pos_in(src, b"<<=", 0), 0),
                 token(TokenKind::OpAssign, pos_in(src, b">>=", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_op_assign_bitwise_and() {
-        let src = EStrRef::from("&=");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::OpAssign, pos_in(src, b"&=", 0), 0),]
-        );
+        assert_lex("&=", |src| {
+            vec![token(TokenKind::OpAssign, pos_in(src, b"&=", 0), 0)]
+        });
     }
 
     #[test]
     fn test_op_assign_bitwise_or() {
-        let src = EStrRef::from("|= ^=");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("|= ^=", |src| {
             vec![
                 token(TokenKind::OpAssign, pos_in(src, b"|=", 0), 0),
                 token(TokenKind::OpAssign, pos_in(src, b"^=", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_op_assign_logical_op() {
-        let src = EStrRef::from("&&= ||=");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("&&= ||=", |src| {
             vec![
                 token(TokenKind::OpAssign, pos_in(src, b"&&=", 0), 0),
                 token(TokenKind::OpAssign, pos_in(src, b"||=", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_excl() {
-        let src = EStrRef::from("!");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::Excl, pos_in(src, b"!", 0), 0),]
-        );
+        assert_lex("!", |src| {
+            vec![token(TokenKind::Excl, pos_in(src, b"!", 0), 0)]
+        });
     }
 
     #[test]
     fn test_excl_eq() {
-        let src = EStrRef::from("!=");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::ExclEq, pos_in(src, b"!=", 0), 0),]
-        );
+        assert_lex("!=", |src| {
+            vec![token(TokenKind::ExclEq, pos_in(src, b"!=", 0), 0)]
+        });
     }
 
     #[test]
     fn test_excl_tilde() {
-        let src = EStrRef::from("!~");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::ExclTilde, pos_in(src, b"!~", 0), 0),]
-        );
+        assert_lex("!~", |src| {
+            vec![token(TokenKind::ExclTilde, pos_in(src, b"!~", 0), 0)]
+        });
     }
 
     #[test]
     fn test_percent() {
-        let src = EStrRef::from("%");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::Percent, pos_in(src, b"%", 0), 0),]
+        assert_lex("%", |src| {
+            vec![token(TokenKind::Percent, pos_in(src, b"%", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_amp_infix_spaced() {
+        assert_lex_for(
+            " & ",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::Amp, pos_in(src, b"&", 0), 1)],
         );
     }
 
     #[test]
-    fn test_amp_at_begin() {
-        let src = EStrRef::from("&");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::AmpPrefix, pos_in(src, b"&", 0), 0),]
+    fn test_amp_prefix_spaced() {
+        assert_lex_except(
+            " & ",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::AmpPrefix, pos_in(src, b"&", 0), 1)],
         );
     }
 
     #[test]
-    fn test_amp_infix() {
-        let src = EStrRef::from("x & y");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::Identifier, pos_in(src, b"x", 0), 0),
-                token(TokenKind::Amp, pos_in(src, b"&", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
+    fn test_amp_infix_left_spaced() {
+        assert_lex_for(
+            " &",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::Amp, pos_in(src, b"&", 0), 1)],
         );
     }
 
     #[test]
-    fn test_amp_spaced_after_meth() {
-        let src = EStrRef::from("meth! & y");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::Amp, pos_in(src, b"&", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
+    fn test_amp_prefix_left_spaced() {
+        assert_lex_except(
+            " &",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::AmpPrefix, pos_in(src, b"&", 0), 1)],
         );
     }
 
     #[test]
-    fn test_amp_left_spaced_after_meth() {
-        let src = EStrRef::from("meth! &y");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::AmpPrefix, pos_in(src, b"&", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
+    fn test_amp_infix_nospaced() {
+        assert_lex_for(
+            "&",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::Amp, pos_in(src, b"&", 0), 0)],
         );
     }
 
     #[test]
-    fn test_amp_nospaced_after_meth() {
-        let src = EStrRef::from("meth!&y");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::Amp, pos_in(src, b"&", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
+    fn test_amp_prefix_nospaced() {
+        assert_lex_except(
+            "&",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::AmpPrefix, pos_in(src, b"&", 0), 0)],
         );
     }
 
     #[test]
     fn test_amp_amp() {
-        let src = EStrRef::from("&&");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::AmpAmp, pos_in(src, b"&&", 0), 0),]
-        );
+        assert_lex("&&", |src| {
+            vec![token(TokenKind::AmpAmp, pos_in(src, b"&&", 0), 0)]
+        });
     }
 
     #[test]
     fn test_amp_dot() {
-        let src = EStrRef::from("&.");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::AmpDot, pos_in(src, b"&.", 0), 0),]
-        );
+        assert_lex("&.", |src| {
+            vec![token(TokenKind::AmpDot, pos_in(src, b"&.", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lparen_at_begin() {
-        let src = EStrRef::from("(");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::LParen, pos_in(src, b"(", 0), 0),]
-        );
+        assert_lex("(", |src| {
+            vec![token(TokenKind::LParen, pos_in(src, b"(", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lparen_spaced_after_ident() {
-        let src = EStrRef::from("x ( y");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("x ( y", |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"x", 0), 0),
                 token(TokenKind::LParenRestricted, pos_in(src, b"(", 0), 0),
                 token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lparen_left_spaced_after_ident() {
-        let src = EStrRef::from("x (y");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("x (y", |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"x", 0), 0),
                 token(TokenKind::LParenRestricted, pos_in(src, b"(", 0), 0),
                 token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lparen_nospaced_after_ident() {
-        let src = EStrRef::from("x(y");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("x(y", |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"x", 0), 0),
                 token(TokenKind::LParen, pos_in(src, b"(", 0), 0),
                 token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lparen_spaced_after_meth() {
-        let src = EStrRef::from("meth! ( y");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("meth! ( y", |src| {
             vec![
                 token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
                 token(TokenKind::LParenRestricted, pos_in(src, b"(", 0), 0),
                 token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lparen_left_spaced_after_meth() {
-        let src = EStrRef::from("meth! (y");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("meth! (y", |src| {
             vec![
                 token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
                 token(TokenKind::LParenRestricted, pos_in(src, b"(", 0), 0),
                 token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_lparen_nospaced_after_meth() {
-        let src = EStrRef::from("meth!(y");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("meth!(y", |src| {
             vec![
                 token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
                 token(TokenKind::LParen, pos_in(src, b"(", 0), 0),
                 token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_rparen() {
-        let src = EStrRef::from(")");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::RParen, pos_in(src, b")", 0), 0),]
+        assert_lex(")", |src| {
+            vec![token(TokenKind::RParen, pos_in(src, b")", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_star_infix_spaced() {
+        assert_lex_for(
+            " * ",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::Star, pos_in(src, b"*", 0), 1)],
         );
     }
 
     #[test]
-    fn test_star_at_begin() {
-        let src = EStrRef::from("*");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::StarPrefix, pos_in(src, b"*", 0), 0),]
+    fn test_star_prefix_spaced() {
+        assert_lex_except(
+            " * ",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::StarPrefix, pos_in(src, b"*", 0), 1)],
         );
     }
 
     #[test]
-    fn test_star_spaced() {
-        let src = EStrRef::from("meth! * y");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::Star, pos_in(src, b"*", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
+    fn test_star_infix_left_spaced() {
+        assert_lex_for(
+            " *",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::Star, pos_in(src, b"*", 0), 1)],
         );
     }
 
     #[test]
-    fn test_star_left_spaced() {
-        let src = EStrRef::from("meth! *y");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::StarPrefix, pos_in(src, b"*", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
+    fn test_star_prefix_left_spaced() {
+        assert_lex_except(
+            " *",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::StarPrefix, pos_in(src, b"*", 0), 1)],
         );
     }
 
     #[test]
-    fn test_star_nospaced() {
-        let src = EStrRef::from("meth!*y");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::Star, pos_in(src, b"*", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
+    fn test_star_infix_nospaced() {
+        assert_lex_for(
+            "*",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::Star, pos_in(src, b"*", 0), 0)],
         );
     }
 
     #[test]
-    fn test_star_star_at_begin() {
-        let src = EStrRef::from("**");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::StarStarPrefix, pos_in(src, b"**", 0), 0),]
+    fn test_star_prefix_nospaced() {
+        assert_lex_except(
+            "*",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::StarPrefix, pos_in(src, b"*", 0), 0)],
         );
     }
 
     #[test]
-    fn test_star_star_spaced() {
-        let src = EStrRef::from("meth! ** y");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::StarStar, pos_in(src, b"**", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
+    fn test_star_star_infix_spaced() {
+        assert_lex_for(
+            " ** ",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::StarStar, pos_in(src, b"**", 0), 1)],
         );
     }
 
     #[test]
-    fn test_star_star_left_spaced() {
-        let src = EStrRef::from("meth! **y");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::StarStarPrefix, pos_in(src, b"**", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
+    fn test_star_star_prefix_spaced() {
+        assert_lex_except(
+            " ** ",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::StarStarPrefix, pos_in(src, b"**", 0), 1)],
         );
     }
 
     #[test]
-    fn test_star_star_nospaced() {
-        let src = EStrRef::from("meth!**y");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::StarStar, pos_in(src, b"**", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
+    fn test_star_star_infix_left_spaced() {
+        assert_lex_for(
+            " **",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::StarStar, pos_in(src, b"**", 0), 1)],
         );
     }
 
     #[test]
-    fn test_plus_at_begin() {
-        let src = EStrRef::from("+");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::PlusPrefix, pos_in(src, b"+", 0), 0),]
+    fn test_star_star_prefix_left_spaced() {
+        assert_lex_except(
+            " **",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::StarStarPrefix, pos_in(src, b"**", 0), 1)],
         );
     }
 
     #[test]
-    fn test_plus_spaced() {
-        let src = EStrRef::from("meth! + y");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::Plus, pos_in(src, b"+", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
+    fn test_star_star_infix_nospaced() {
+        assert_lex_for(
+            "**",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::StarStar, pos_in(src, b"**", 0), 0)],
         );
     }
 
     #[test]
-    fn test_plus_left_spaced() {
-        let src = EStrRef::from("meth! +y");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::PlusPrefix, pos_in(src, b"+", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
+    fn test_star_star_prefix_nospaced() {
+        assert_lex_except(
+            "**",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::StarStarPrefix, pos_in(src, b"**", 0), 0)],
         );
     }
 
     #[test]
-    fn test_plus_nospaced() {
-        let src = EStrRef::from("meth!+y");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::Plus, pos_in(src, b"+", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
+    fn test_plus_infix_spaced() {
+        assert_lex_for(
+            " + ",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::Plus, pos_in(src, b"+", 0), 1)],
+        );
+    }
+
+    #[test]
+    fn test_plus_prefix_spaced() {
+        assert_lex_except(
+            " + ",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::PlusPrefix, pos_in(src, b"+", 0), 1)],
+        );
+    }
+
+    #[test]
+    fn test_plus_infix_left_spaced() {
+        assert_lex_for(
+            " +",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::Plus, pos_in(src, b"+", 0), 1)],
+        );
+    }
+
+    #[test]
+    fn test_plus_prefix_left_spaced() {
+        assert_lex_except(
+            " +",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::PlusPrefix, pos_in(src, b"+", 0), 1)],
+        );
+    }
+
+    #[test]
+    fn test_plus_infix_nospaced() {
+        assert_lex_for(
+            "+",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::Plus, pos_in(src, b"+", 0), 0)],
+        );
+    }
+
+    #[test]
+    fn test_plus_prefix_nospaced() {
+        assert_lex_except(
+            "+",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::PlusPrefix, pos_in(src, b"+", 0), 0)],
         );
     }
 
     #[test]
     fn test_comma() {
-        let src = EStrRef::from(",");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::Comma, pos_in(src, b",", 0), 0),]
+        assert_lex(",", |src| {
+            vec![token(TokenKind::Comma, pos_in(src, b",", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_minus_infix_spaced() {
+        assert_lex_for(
+            " - ",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::Minus, pos_in(src, b"-", 0), 1)],
         );
     }
 
     #[test]
-    fn test_minus_at_begin() {
-        let src = EStrRef::from("-");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::MinusPrefix, pos_in(src, b"-", 0), 0),]
+    fn test_minus_prefix_spaced() {
+        assert_lex_except(
+            " - ",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::MinusPrefix, pos_in(src, b"-", 0), 1)],
         );
     }
 
     #[test]
-    fn test_minus_spaced() {
-        let src = EStrRef::from("meth! - y");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::Minus, pos_in(src, b"-", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
+    fn test_minus_infix_left_spaced() {
+        assert_lex_for(
+            " -",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::Minus, pos_in(src, b"-", 0), 1)],
         );
     }
 
     #[test]
-    fn test_minus_left_spaced() {
-        let src = EStrRef::from("meth! -y");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::MinusPrefix, pos_in(src, b"-", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
+    fn test_minus_prefix_left_spaced() {
+        assert_lex_except(
+            " -",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::MinusPrefix, pos_in(src, b"-", 0), 1)],
         );
     }
 
     #[test]
-    fn test_minus_nospaced() {
-        let src = EStrRef::from("meth!-y");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::Minus, pos_in(src, b"-", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
+    fn test_minus_infix_nospaced() {
+        assert_lex_for(
+            "-",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::Minus, pos_in(src, b"-", 0), 0)],
+        );
+    }
+
+    #[test]
+    fn test_minus_prefix_nospaced() {
+        assert_lex_except(
+            "-",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::MinusPrefix, pos_in(src, b"-", 0), 0)],
         );
     }
 
     #[test]
     fn test_arrow() {
-        let src = EStrRef::from("->");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::Arrow, pos_in(src, b"->", 0), 0),]
-        );
+        assert_lex("->", |src| {
+            vec![token(TokenKind::Arrow, pos_in(src, b"->", 0), 0)]
+        });
     }
 
     #[test]
     fn test_dot() {
-        let src = EStrRef::from(".");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::Dot, pos_in(src, b".", 0), 0),]
-        );
+        assert_lex(".", |src| {
+            vec![token(TokenKind::Dot, pos_in(src, b".", 0), 0)]
+        });
     }
 
     #[test]
     fn test_dot_dot() {
-        let src = EStrRef::from("..");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::DotDot, pos_in(src, b"..", 0), 0),]
-        );
+        assert_lex("..", |src| {
+            vec![token(TokenKind::DotDot, pos_in(src, b"..", 0), 0)]
+        });
     }
 
     #[test]
     fn test_dot_dot_dot() {
-        let src = EStrRef::from("...");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::DotDotDot, pos_in(src, b"...", 0), 0),]
-        );
+        assert_lex("...", |src| {
+            vec![token(TokenKind::DotDotDot, pos_in(src, b"...", 0), 0)]
+        });
     }
 
     #[test]
     fn test_slash() {
-        let src = EStrRef::from("x /");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("x /", |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"x", 0), 0),
                 token(TokenKind::Slash, pos_in(src, b"/", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_colon() {
-        let src = EStrRef::from(":");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::Colon, pos_in(src, b":", 0), 0),]
+        assert_lex(":", |src| {
+            vec![token(TokenKind::Colon, pos_in(src, b":", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_colon_colon_infix_spaced() {
+        assert_lex_for(
+            " :: ",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::ColonColon, pos_in(src, b"::", 0), 1)],
         );
     }
 
     #[test]
-    fn test_colon_colon_at_begin() {
-        let src = EStrRef::from("::");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::ColonColonPrefix, pos_in(src, b"::", 0), 0),]
+    fn test_colon_colon_prefix_spaced() {
+        assert_lex_except(
+            " :: ",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::ColonColonPrefix, pos_in(src, b"::", 0), 1)],
         );
     }
 
     #[test]
-    fn test_colon_colon_spaced() {
-        let src = EStrRef::from("meth! :: Foo");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::ColonColonPrefix, pos_in(src, b"::", 0), 0),
-                token(TokenKind::Const, pos_in(src, b"Foo", 0), 0),
-            ]
+    fn test_colon_colon_infix_left_spaced() {
+        assert_lex_for(
+            " ::",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::ColonColon, pos_in(src, b"::", 0), 1)],
         );
     }
 
     #[test]
-    fn test_colon_colon_left_spaced() {
-        let src = EStrRef::from("meth! ::Foo");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::ColonColonPrefix, pos_in(src, b"::", 0), 0),
-                token(TokenKind::Const, pos_in(src, b"Foo", 0), 0),
-            ]
+    fn test_colon_colon_prefix_left_spaced() {
+        assert_lex_except(
+            " ::",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::ColonColonPrefix, pos_in(src, b"::", 0), 1)],
         );
     }
 
     #[test]
-    fn test_colon_colon_nospaced() {
-        let src = EStrRef::from("meth!::Foo");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::ColonColon, pos_in(src, b"::", 0), 0),
-                token(TokenKind::Const, pos_in(src, b"Foo", 0), 0),
-            ]
+    fn test_colon_colon_infix_nospaced() {
+        assert_lex_for(
+            "::",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::ColonColon, pos_in(src, b"::", 0), 0)],
+        );
+    }
+
+    #[test]
+    fn test_colon_colon_prefix_nospaced() {
+        assert_lex_except(
+            "::",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::ColonColonPrefix, pos_in(src, b"::", 0), 0)],
         );
     }
 
     #[test]
     fn test_lt() {
-        let src = EStrRef::from("<");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::Lt, pos_in(src, b"<", 0), 0),]
-        );
+        assert_lex("<", |src| {
+            vec![token(TokenKind::Lt, pos_in(src, b"<", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lt_lt() {
-        let src = EStrRef::from("<<");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::LtLt, pos_in(src, b"<<", 0), 0),]
-        );
+        assert_lex("<<", |src| {
+            vec![token(TokenKind::LtLt, pos_in(src, b"<<", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lt_eq() {
-        let src = EStrRef::from("<=");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::LtEq, pos_in(src, b"<=", 0), 0),]
-        );
+        assert_lex("<=", |src| {
+            vec![token(TokenKind::LtEq, pos_in(src, b"<=", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lt_eq_gt() {
-        let src = EStrRef::from("<=>");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::LtEqGt, pos_in(src, b"<=>", 0), 0),]
-        );
+        assert_lex("<=>", |src| {
+            vec![token(TokenKind::LtEqGt, pos_in(src, b"<=>", 0), 0)]
+        });
     }
 
     #[test]
     fn test_eq() {
-        let src = EStrRef::from("=");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::Eq, pos_in(src, b"=", 0), 0),]
-        );
+        assert_lex("=", |src| {
+            vec![token(TokenKind::Eq, pos_in(src, b"=", 0), 0)]
+        });
     }
 
     #[test]
     fn test_eq_eq() {
-        let src = EStrRef::from("==");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::EqEq, pos_in(src, b"==", 0), 0),]
-        );
+        assert_lex("==", |src| {
+            vec![token(TokenKind::EqEq, pos_in(src, b"==", 0), 0)]
+        });
     }
 
     #[test]
     fn test_eq_eq_eq() {
-        let src = EStrRef::from("===");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::EqEqEq, pos_in(src, b"===", 0), 0),]
-        );
+        assert_lex("===", |src| {
+            vec![token(TokenKind::EqEqEq, pos_in(src, b"===", 0), 0)]
+        });
     }
 
     #[test]
     fn test_fat_arrow() {
-        let src = EStrRef::from("=>");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::FatArrow, pos_in(src, b"=>", 0), 0),]
-        );
+        assert_lex("=>", |src| {
+            vec![token(TokenKind::FatArrow, pos_in(src, b"=>", 0), 0)]
+        });
     }
 
     #[test]
     fn test_eq_match() {
-        let src = EStrRef::from("=~");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::EqMatch, pos_in(src, b"=~", 0), 0),]
-        );
+        assert_lex("=~", |src| {
+            vec![token(TokenKind::EqMatch, pos_in(src, b"=~", 0), 0)]
+        });
     }
 
     #[test]
     fn test_gt() {
-        let src = EStrRef::from(">");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::Gt, pos_in(src, b">", 0), 0),]
-        );
+        assert_lex(">", |src| {
+            vec![token(TokenKind::Gt, pos_in(src, b">", 0), 0)]
+        });
     }
 
     #[test]
     fn test_gt_eq() {
-        let src = EStrRef::from(">=");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::GtEq, pos_in(src, b">=", 0), 0),]
-        );
+        assert_lex(">=", |src| {
+            vec![token(TokenKind::GtEq, pos_in(src, b">=", 0), 0)]
+        });
     }
 
     #[test]
     fn test_gt_gt() {
-        let src = EStrRef::from(">>");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::GtGt, pos_in(src, b">>", 0), 0),]
+        assert_lex(">>", |src| {
+            vec![token(TokenKind::GtGt, pos_in(src, b">>", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_question_simple() {
+        assert_lex("?", |src| {
+            vec![token(TokenKind::Question, pos_in(src, b"?", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_question_separate() {
+        assert_lex_for(
+            "?a",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::Question, pos_in(src, b"?", 0), 0),
+                    token(TokenKind::Identifier, pos_in(src, b"a", 0), 0),
+                ]
+            },
         );
     }
 
     #[test]
-    fn test_question() {
-        let src = EStrRef::from("?");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::Question, pos_in(src, b"?", 0), 0),]
+    fn test_char_literal() {
+        assert_lex_except(
+            "?a",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::CharLiteral, pos_in(src, b"?a", 0), 0)],
         );
     }
 
     #[test]
     fn test_at() {
-        let src = EStrRef::from("@");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::At, pos_in(src, b"@", 0), 0),]
+        assert_lex("@", |src| {
+            vec![token(TokenKind::At, pos_in(src, b"@", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lbracket_infix_spaced() {
+        assert_lex_for(
+            " [ ",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::LBracket, pos_in(src, b"[", 0), 1)],
         );
     }
 
     #[test]
-    fn test_lbracket_at_begin() {
-        let src = EStrRef::from("[");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::LBracketPrefix, pos_in(src, b"[", 0), 0),]
+    fn test_lbracket_prefix_spaced() {
+        assert_lex_except(
+            " [ ",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::LBracketPrefix, pos_in(src, b"[", 0), 1)],
         );
     }
 
     #[test]
-    fn test_lbracket_spaced() {
-        let src = EStrRef::from("meth! [ y");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::LBracketPrefix, pos_in(src, b"[", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
+    fn test_lbracket_infix_left_spaced() {
+        assert_lex_for(
+            " [",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::LBracket, pos_in(src, b"[", 0), 1)],
         );
     }
 
     #[test]
-    fn test_lbracket_left_spaced() {
-        let src = EStrRef::from("meth! [y");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::LBracketPrefix, pos_in(src, b"[", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
+    fn test_lbracket_prefix_left_spaced() {
+        assert_lex_except(
+            " [",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::LBracketPrefix, pos_in(src, b"[", 0), 1)],
         );
     }
 
     #[test]
-    fn test_lbracket_nospaced() {
-        let src = EStrRef::from("meth![y");
-        assert_eq!(
-            lex_all(src),
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::LBracket, pos_in(src, b"[", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
+    fn test_lbracket_infix_nospaced() {
+        assert_lex_for(
+            "[",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::LBracket, pos_in(src, b"[", 0), 0)],
+        );
+    }
+
+    #[test]
+    fn test_lbracket_prefix_nospaced() {
+        assert_lex_except(
+            "[",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::LBracketPrefix, pos_in(src, b"[", 0), 0)],
         );
     }
 
     #[test]
     fn test_rbracket() {
-        let src = EStrRef::from("]");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::RBracket, pos_in(src, b"]", 0), 0),]
-        );
+        assert_lex("]", |src| {
+            vec![token(TokenKind::RBracket, pos_in(src, b"]", 0), 0)]
+        });
     }
 
     #[test]
     fn test_caret() {
-        let src = EStrRef::from("^");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::Caret, pos_in(src, b"^", 0), 0),]
-        );
+        assert_lex("^", |src| {
+            vec![token(TokenKind::Caret, pos_in(src, b"^", 0), 0)]
+        });
     }
 
     #[test]
     fn test_lbrace() {
-        let src = EStrRef::from("{");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::LBrace, pos_in(src, b"{", 0), 0),]
-        );
+        assert_lex("{", |src| {
+            vec![token(TokenKind::LBrace, pos_in(src, b"{", 0), 0)]
+        });
     }
 
     #[test]
     fn test_vert() {
-        let src = EStrRef::from("|");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::Vert, pos_in(src, b"|", 0), 0),]
-        );
+        assert_lex("|", |src| {
+            vec![token(TokenKind::Vert, pos_in(src, b"|", 0), 0)]
+        });
     }
 
     #[test]
     fn test_vert_vert() {
-        let src = EStrRef::from("x ||");
-        assert_eq!(
-            lex_all(src),
+        assert_lex("x ||", |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"x", 0), 0),
                 token(TokenKind::VertVert, pos_in(src, b"||", 0), 0),
             ]
-        );
+        });
     }
 
     #[test]
     fn test_rbrace() {
-        let src = EStrRef::from("}");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::RBrace, pos_in(src, b"}", 0), 0),]
-        );
+        assert_lex("}", |src| {
+            vec![token(TokenKind::RBrace, pos_in(src, b"}", 0), 0)]
+        });
     }
 
     #[test]
     fn test_tilde() {
-        let src = EStrRef::from("~");
-        assert_eq!(
-            lex_all(src),
-            vec![token(TokenKind::Tilde, pos_in(src, b"~", 0), 0),]
-        );
+        assert_lex("~", |src| {
+            vec![token(TokenKind::Tilde, pos_in(src, b"~", 0), 0)]
+        });
     }
 }
