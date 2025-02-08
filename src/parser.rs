@@ -2700,11 +2700,11 @@ mod tests {
             Expr::Nil(_) => 0,
             Expr::False(_) => 0,
             Expr::True(_) => 0,
-            Expr::Integer(expr) => 0,
-            Expr::String(expr) => 0,
-            Expr::Regexp(expr) => 0,
-            Expr::XString(expr) => 0,
-            Expr::LocalVariable(expr) => 0,
+            Expr::Integer(_) => 0,
+            Expr::String(_) => 0,
+            Expr::Regexp(_) => 0,
+            Expr::XString(_) => 0,
+            Expr::LocalVariable(_) => 0,
             Expr::Const(expr) => match expr.receiver {
                 ConstReceiver::None => 0,
                 ConstReceiver::Expr(_) => 1,
@@ -2864,7 +2864,7 @@ mod tests {
     fn fmt_write_target(f: &mut fmt::Formatter<'_>, expr: &WriteTarget) -> fmt::Result {
         match expr {
             WriteTarget::LocalVariable(expr) => fmt_name(f, &expr.name)?,
-            WriteTarget::Error(error_write_target) => write!(f, "<error>")?,
+            WriteTarget::Error(_) => write!(f, "<error>")?,
         }
         Ok(())
     }
