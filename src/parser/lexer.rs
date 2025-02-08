@@ -617,7 +617,7 @@ impl<'a> Lexer<'a> {
                     return Token {
                         kind: TokenKind::Newline,
                         range: CodeRange {
-                            start: self.pos - 1,
+                            start: self.pos - 2,
                             end: self.pos,
                         },
                         indent: orig_indent,
@@ -1892,6 +1892,16 @@ mod tests {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
                 token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
+                token(TokenKind::Identifier, pos_in(src, b"bar", 0), 0),
+            ]
+        );
+
+        let src = EStrRef::from("foo\r\nbar");
+        assert_eq!(
+            lex_all(src),
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
+                token(TokenKind::Newline, pos_in(src, b"\r\n", 0), 0),
                 token(TokenKind::Identifier, pos_in(src, b"bar", 0), 0),
             ]
         );
