@@ -464,8 +464,8 @@ impl LexerState {
             LexerState::FirstArgument => false,
             LexerState::WeakFirstArgument => false,
             LexerState::End => false,
-            LexerState::MethForDef => false,
-            LexerState::MethOrSymbolForDef => false,
+            LexerState::MethForDef => true,
+            LexerState::MethOrSymbolForDef => true,
             LexerState::MethForCall => true,
             LexerState::StringLike(_) => unreachable!(),
         }
@@ -1436,7 +1436,7 @@ impl<'a> Lexer<'a> {
                     self.pos += 1;
                     self.reset_indent();
                 }
-                b'\t' | b'\x0B' | b'\x0C' | b'\r' | b'\x13' | b' ' => {
+                b'\t' | b'\x0B' | b'\x0C' | b'\r' | b' ' => {
                     self.pos += 1;
                     self.count_indent();
                 }
@@ -1474,7 +1474,7 @@ impl<'a> Lexer<'a> {
 
         loop {
             match self.peek_byte() {
-                b'\t' | b'\x0B' | b'\x0C' | b'\r' | b'\x13' | b' ' => {
+                b'\t' | b'\x0B' | b'\x0C' | b'\r' | b' ' => {
                     self.pos += 1;
                     self.count_indent();
                 }
@@ -1961,81 +1961,130 @@ mod tests {
     }
 
     #[test]
-    fn test_lex_spaces() {
-        assert_lex("foo bar\nbaz", |src| {
-            vec![
-                token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"bar", 0), 0),
-                token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"baz", 0), 0),
-            ]
+    fn test_lex_spaces_space() {
+        assert_lex(" 1", |src| {
+            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 1)]
         });
     }
 
     #[test]
-    fn test_lex_semicolon_simple() {
-        assert_lex("foo;bar", |src| {
-            vec![
-                token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
-                token(TokenKind::Semicolon, pos_in(src, b";", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"bar", 0), 0),
-            ]
+    fn test_lex_spaces_tab() {
+        assert_lex("\t1", |src| {
+            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 1)]
         });
+    }
+
+    #[test]
+    fn test_lex_spaces_vtab() {
+        assert_lex("\x0B1", |src| {
+            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 1)]
+        });
+    }
+
+    #[test]
+    fn test_lex_spaces_ff() {
+        assert_lex("\x0C1", |src| {
+            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 1)]
+        });
+    }
+
+    #[test]
+    fn test_lex_spaces_cr() {
+        assert_lex("\r1", |src| {
+            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 1)]
+        });
+    }
+
+    #[test]
+    fn test_lex_spaces_multiple() {
+        assert_lex("  1", |src| {
+            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 2)]
+        });
+    }
+
+    #[test]
+    fn test_lex_spaces_lf() {
+        assert_lex_except(
+            "\n1",
+            &[
+                LexerState::BeginOpt,
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+            ],
+            |src| vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 0)],
+        );
     }
 
     #[test]
     fn test_lex_semicolon_lf() {
-        assert_lex("foo\nbar", |src| {
-            vec![
-                token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
-                token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"bar", 0), 0),
-            ]
-        });
+        assert_lex_for(
+            "\n",
+            &[
+                LexerState::BeginOpt,
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+            ],
+            |src| vec![token(TokenKind::Newline, pos_in(src, b"\n", 0), 0)],
+        );
     }
 
     #[test]
     fn test_lex_semicolon_crlf() {
-        assert_lex("foo\r\nbar", |src| {
-            vec![
-                token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
-                token(TokenKind::Newline, pos_in(src, b"\r\n", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"bar", 0), 0),
-            ]
-        });
+        // TODO: fix indentation
+        assert_lex_for(
+            "\r\n",
+            &[
+                LexerState::BeginOpt,
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+            ],
+            |src| vec![token(TokenKind::Newline, pos_in(src, b"\r\n", 0), 1)],
+        );
     }
 
     #[test]
-    fn test_lex_semicolon_skip_lf_at_begin() {
-        assert_lex("do\nbar", |src| {
-            vec![
-                token(TokenKind::KeywordDo, pos_in(src, b"do", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"bar", 0), 0),
-            ]
-        });
+    fn test_lex_skip_lf_before_dot() {
+        assert_lex_for(
+            "\n  .bar",
+            &[
+                LexerState::BeginOpt,
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::Dot, pos_in(src, b".", 0), 2),
+                    token(TokenKind::Identifier, pos_in(src, b"bar", 0), 2),
+                ]
+            },
+        );
     }
 
     #[test]
-    fn test_lex_semicolon_skip_lf_before_dot() {
-        assert_lex("foo\n  .bar", |src| {
-            vec![
-                token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
-                token(TokenKind::Dot, pos_in(src, b".", 0), 2),
-                token(TokenKind::Identifier, pos_in(src, b"bar", 0), 2),
-            ]
-        });
-    }
-
-    #[test]
-    fn test_lex_semicolon_lf_before_dotdot() {
-        assert_lex("foo\n  ..bar", |src| {
-            vec![
-                token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
-                token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
-                token(TokenKind::DotDot, pos_in(src, b"..", 0), 2),
-                token(TokenKind::Identifier, pos_in(src, b"bar", 0), 2),
-            ]
-        });
+    fn test_lex_lf_before_dot_dot() {
+        assert_lex_for(
+            "\n  ..bar",
+            &[
+                LexerState::BeginOpt,
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
+                    token(TokenKind::DotDot, pos_in(src, b"..", 0), 2),
+                    token(TokenKind::Identifier, pos_in(src, b"bar", 0), 2),
+                ]
+            },
+        );
     }
 
     #[test]
@@ -2499,89 +2548,125 @@ mod tests {
     }
 
     #[test]
-    fn test_lex_ident() {
-        assert_lex("foo bar123 あ", |src| {
-            vec![
-                token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"bar123", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"\xE3\x81\x82", 0), 0),
-            ]
+    fn test_lex_ident_simple() {
+        assert_lex("foo123", |src| {
+            vec![token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0)]
         });
     }
 
     #[test]
-    fn test_lex_const() {
-        assert_lex("Foo Bar123 Ω", |src| {
-            vec![
-                token(TokenKind::Const, pos_in(src, b"Foo", 0), 0),
-                token(TokenKind::Const, pos_in(src, b"Bar123", 0), 0),
-                token(TokenKind::Const, pos_in(src, b"\xCE\xA9", 0), 0),
-            ]
+    fn test_lex_ident_non_ascii() {
+        assert_lex("あ", |src| {
+            vec![token(
+                TokenKind::Identifier,
+                pos_in(src, b"\xE3\x81\x82", 0),
+                0,
+            )]
         });
     }
 
     #[test]
-    fn test_lex_method_name_normal_ctx() {
-        assert_lex("foo! bar123? Baz!", |src| {
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"foo!", 0), 0),
-                token(TokenKind::MethodName, pos_in(src, b"bar123?", 0), 0),
-                token(TokenKind::MethodName, pos_in(src, b"Baz!", 0), 0),
-            ]
+    fn test_lex_const_simple() {
+        assert_lex("Foo123", |src| {
+            vec![token(TokenKind::Const, pos_in(src, b"Foo123", 0), 0)]
         });
     }
 
     #[test]
-    fn test_lex_static_symbol() {
-        assert_lex(":foo :bar123 :Baz", |src| {
-            vec![
-                token(TokenKind::Symbol, pos_in(src, b":foo", 0), 0),
-                token(TokenKind::Symbol, pos_in(src, b":bar123", 0), 0),
-                token(TokenKind::Symbol, pos_in(src, b":Baz", 0), 0),
-            ]
+    fn test_lex_const_non_ascii() {
+        assert_lex("Ω", |src| {
+            vec![token(TokenKind::Const, pos_in(src, b"\xCE\xA9", 0), 0)]
         });
     }
 
     #[test]
-    fn test_lex_ivar_name() {
-        assert_lex("@foo @bar123 @Baz", |src| {
-            vec![
-                token(TokenKind::IvarName, pos_in(src, b"@foo", 0), 0),
-                token(TokenKind::IvarName, pos_in(src, b"@bar123", 0), 0),
-                token(TokenKind::IvarName, pos_in(src, b"@Baz", 0), 0),
-            ]
+    fn test_lex_ident_bang_simple() {
+        assert_lex("foo123!", |src| {
+            vec![token(TokenKind::MethodName, pos_in(src, b"foo123!", 0), 0)]
         });
     }
 
     #[test]
-    fn test_lex_cvar_name() {
-        assert_lex("@@foo @@bar123 @@Baz", |src| {
-            vec![
-                token(TokenKind::CvarName, pos_in(src, b"@@foo", 0), 0),
-                token(TokenKind::CvarName, pos_in(src, b"@@bar123", 0), 0),
-                token(TokenKind::CvarName, pos_in(src, b"@@Baz", 0), 0),
-            ]
+    fn test_lex_ident_q_simple() {
+        assert_lex("foo123?", |src| {
+            vec![token(TokenKind::MethodName, pos_in(src, b"foo123?", 0), 0)]
         });
     }
 
     #[test]
-    fn test_lex_gvar_name() {
-        assert_lex("$foo $bar123 $Baz", |src| {
-            vec![
-                token(TokenKind::GvarName, pos_in(src, b"$foo", 0), 0),
-                token(TokenKind::GvarName, pos_in(src, b"$bar123", 0), 0),
-                token(TokenKind::GvarName, pos_in(src, b"$Baz", 0), 0),
-            ]
+    fn test_lex_ident_bang_capital() {
+        assert_lex("Foo123!", |src| {
+            vec![token(TokenKind::MethodName, pos_in(src, b"Foo123!", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_ident_q_capital() {
+        assert_lex("Foo123?", |src| {
+            vec![token(TokenKind::MethodName, pos_in(src, b"Foo123?", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_ident_like() {
+        assert_lex(":foo123", |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":foo123", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_const_like() {
+        assert_lex(":Baz", |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":Baz", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_ivar_name_simple() {
+        assert_lex("@foo123", |src| {
+            vec![token(TokenKind::IvarName, pos_in(src, b"@foo123", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_ivar_name_cap() {
+        assert_lex("@Baz", |src| {
+            vec![token(TokenKind::IvarName, pos_in(src, b"@Baz", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_cvar_name_simple() {
+        assert_lex("@@foo123", |src| {
+            vec![token(TokenKind::CvarName, pos_in(src, b"@@foo123", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_cvar_name_cap() {
+        assert_lex("@@Baz", |src| {
+            vec![token(TokenKind::CvarName, pos_in(src, b"@@Baz", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_gvar_name_simple() {
+        assert_lex("$foo123", |src| {
+            vec![token(TokenKind::GvarName, pos_in(src, b"$foo123", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_gvar_name_cap() {
+        assert_lex("$Baz", |src| {
+            vec![token(TokenKind::GvarName, pos_in(src, b"$Baz", 0), 0)]
         });
     }
 
     #[test]
     fn test_lex_integer() {
-        assert_lex("123 456", |src| {
-            vec![
-                token(TokenKind::Integer, pos_in(src, b"123", 0), 0),
-                token(TokenKind::Integer, pos_in(src, b"456", 0), 0),
-            ]
+        assert_lex("123", |src| {
+            vec![token(TokenKind::Integer, pos_in(src, b"123", 0), 0)]
         });
     }
 
@@ -2697,42 +2782,125 @@ mod tests {
     }
 
     #[test]
-    fn test_op_assign_exponential() {
+    fn test_op_assign_pow() {
         assert_lex("**=", |src| {
             vec![token(TokenKind::OpAssign, pos_in(src, b"**=", 0), 0)]
         });
     }
 
     #[test]
-    fn test_op_assign_multiplicative() {
-        assert_lex("*= x /= y %=", |src| {
-            vec![
-                token(TokenKind::OpAssign, pos_in(src, b"*=", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"x", 0), 0),
-                token(TokenKind::OpAssign, pos_in(src, b"/=", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-                token(TokenKind::OpAssign, pos_in(src, b"%=", 0), 0),
-            ]
+    fn test_op_assign_mult() {
+        assert_lex("*=", |src| {
+            vec![token(TokenKind::OpAssign, pos_in(src, b"*=", 0), 0)]
         });
     }
 
     #[test]
-    fn test_op_assign_additive() {
-        assert_lex("+= -=", |src| {
-            vec![
-                token(TokenKind::OpAssign, pos_in(src, b"+=", 0), 0),
-                token(TokenKind::OpAssign, pos_in(src, b"-=", 0), 0),
-            ]
+    fn test_op_assign_div_left_spaced() {
+        assert_lex_for(
+            " /=",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::OpAssign, pos_in(src, b"/=", 0), 1)],
+        );
+    }
+
+    #[test]
+    fn test_regexp_begin_op_assign_like_left_spaced() {
+        assert_lex_except(
+            " /=",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::StringBegin, pos_in(src, b"/", 0), 1),
+                    token(TokenKind::StringContent, pos_in(src, b"=", 0), 1),
+                ]
+            },
+        );
+    }
+
+    #[test]
+    fn test_op_assign_div_nospaced() {
+        assert_lex_for(
+            "/=",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::OpAssign, pos_in(src, b"/=", 0), 0)],
+        );
+    }
+
+    #[test]
+    fn test_regexp_begin_op_assign_like_nospaced() {
+        assert_lex_except(
+            "/=",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::StringBegin, pos_in(src, b"/", 0), 0),
+                    token(TokenKind::StringContent, pos_in(src, b"=", 0), 0),
+                ]
+            },
+        );
+    }
+
+    #[test]
+    fn test_op_assign_mod() {
+        assert_lex("%=", |src| {
+            vec![token(TokenKind::OpAssign, pos_in(src, b"%=", 0), 0)]
         });
     }
 
     #[test]
-    fn test_op_assign_shift() {
-        assert_lex("<<= >>=", |src| {
-            vec![
-                token(TokenKind::OpAssign, pos_in(src, b"<<=", 0), 0),
-                token(TokenKind::OpAssign, pos_in(src, b">>=", 0), 0),
-            ]
+    fn test_op_assign_add() {
+        assert_lex("+=", |src| {
+            vec![token(TokenKind::OpAssign, pos_in(src, b"+=", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_op_assign_sub() {
+        assert_lex("-=", |src| {
+            vec![token(TokenKind::OpAssign, pos_in(src, b"-=", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_op_assign_lshift() {
+        assert_lex("<<=", |src| {
+            vec![token(TokenKind::OpAssign, pos_in(src, b"<<=", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_op_assign_rshift() {
+        assert_lex(">>=", |src| {
+            vec![token(TokenKind::OpAssign, pos_in(src, b">>=", 0), 0)]
         });
     }
 
@@ -2745,21 +2913,29 @@ mod tests {
 
     #[test]
     fn test_op_assign_bitwise_or() {
-        assert_lex("|= ^=", |src| {
-            vec![
-                token(TokenKind::OpAssign, pos_in(src, b"|=", 0), 0),
-                token(TokenKind::OpAssign, pos_in(src, b"^=", 0), 0),
-            ]
+        assert_lex("|=", |src| {
+            vec![token(TokenKind::OpAssign, pos_in(src, b"|=", 0), 0)]
         });
     }
 
     #[test]
-    fn test_op_assign_logical_op() {
-        assert_lex("&&= ||=", |src| {
-            vec![
-                token(TokenKind::OpAssign, pos_in(src, b"&&=", 0), 0),
-                token(TokenKind::OpAssign, pos_in(src, b"||=", 0), 0),
-            ]
+    fn test_op_assign_bitwise_xor() {
+        assert_lex("^=", |src| {
+            vec![token(TokenKind::OpAssign, pos_in(src, b"^=", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_op_assign_logical_and() {
+        assert_lex("&&=", |src| {
+            vec![token(TokenKind::OpAssign, pos_in(src, b"&&=", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_op_assign_logical_or() {
+        assert_lex("||=", |src| {
+            vec![token(TokenKind::OpAssign, pos_in(src, b"||=", 0), 0)]
         });
     }
 
@@ -2900,75 +3076,45 @@ mod tests {
     }
 
     #[test]
-    fn test_lparen_at_begin() {
+    fn test_lparen_spaced() {
+        assert_lex_except(
+            " ( ",
+            &[LexerState::FirstArgument, LexerState::WeakFirstArgument],
+            |src| vec![token(TokenKind::LParen, pos_in(src, b"(", 0), 1)],
+        );
+    }
+
+    #[test]
+    fn test_lparen_noarg_spaced() {
+        assert_lex_for(
+            " ( ",
+            &[LexerState::FirstArgument, LexerState::WeakFirstArgument],
+            |src| vec![token(TokenKind::LParenRestricted, pos_in(src, b"(", 0), 1)],
+        );
+    }
+
+    #[test]
+    fn test_lparen_left_spaced() {
+        assert_lex_except(
+            " (",
+            &[LexerState::FirstArgument, LexerState::WeakFirstArgument],
+            |src| vec![token(TokenKind::LParen, pos_in(src, b"(", 0), 1)],
+        );
+    }
+
+    #[test]
+    fn test_lparen_noarg_left_spaced() {
+        assert_lex_for(
+            " (",
+            &[LexerState::FirstArgument, LexerState::WeakFirstArgument],
+            |src| vec![token(TokenKind::LParenRestricted, pos_in(src, b"(", 0), 1)],
+        );
+    }
+
+    #[test]
+    fn test_lparen_nospaced() {
         assert_lex("(", |src| {
             vec![token(TokenKind::LParen, pos_in(src, b"(", 0), 0)]
-        });
-    }
-
-    #[test]
-    fn test_lparen_spaced_after_ident() {
-        assert_lex("x ( y", |src| {
-            vec![
-                token(TokenKind::Identifier, pos_in(src, b"x", 0), 0),
-                token(TokenKind::LParenRestricted, pos_in(src, b"(", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
-        });
-    }
-
-    #[test]
-    fn test_lparen_left_spaced_after_ident() {
-        assert_lex("x (y", |src| {
-            vec![
-                token(TokenKind::Identifier, pos_in(src, b"x", 0), 0),
-                token(TokenKind::LParenRestricted, pos_in(src, b"(", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
-        });
-    }
-
-    #[test]
-    fn test_lparen_nospaced_after_ident() {
-        assert_lex("x(y", |src| {
-            vec![
-                token(TokenKind::Identifier, pos_in(src, b"x", 0), 0),
-                token(TokenKind::LParen, pos_in(src, b"(", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
-        });
-    }
-
-    #[test]
-    fn test_lparen_spaced_after_meth() {
-        assert_lex("meth! ( y", |src| {
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::LParenRestricted, pos_in(src, b"(", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
-        });
-    }
-
-    #[test]
-    fn test_lparen_left_spaced_after_meth() {
-        assert_lex("meth! (y", |src| {
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::LParenRestricted, pos_in(src, b"(", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
-        });
-    }
-
-    #[test]
-    fn test_lparen_nospaced_after_meth() {
-        assert_lex("meth!(y", |src| {
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"meth!", 0), 0),
-                token(TokenKind::LParen, pos_in(src, b"(", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
-            ]
         });
     }
 
@@ -3391,13 +3537,100 @@ mod tests {
     }
 
     #[test]
-    fn test_slash() {
-        assert_lex("x /", |src| {
-            vec![
-                token(TokenKind::Identifier, pos_in(src, b"x", 0), 0),
-                token(TokenKind::Slash, pos_in(src, b"/", 0), 0),
-            ]
-        });
+    fn test_slash_spaced() {
+        assert_lex_for(
+            " / ",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::Slash, pos_in(src, b"/", 0), 1)],
+        );
+    }
+
+    #[test]
+    fn test_regexp_begin_spaced() {
+        assert_lex_except(
+            " / ",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::StringBegin, pos_in(src, b"/", 0), 1),
+                    token(TokenKind::StringContent, pos_in(src, " ", 1), 1),
+                ]
+            },
+        );
+    }
+
+    #[test]
+    fn test_slash_left_spaced() {
+        assert_lex_for(
+            " /",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::Slash, pos_in(src, b"/", 0), 1)],
+        );
+    }
+
+    #[test]
+    fn test_regexp_begin_left_spaced() {
+        assert_lex_except(
+            " /",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::StringBegin, pos_in(src, b"/", 0), 1)],
+        );
+    }
+
+    #[test]
+    fn test_slash_nospaced() {
+        assert_lex_for(
+            "/",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::Slash, pos_in(src, b"/", 0), 0)],
+        );
+    }
+
+    #[test]
+    fn test_regexp_begin_nospaced() {
+        assert_lex_except(
+            "/",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::StringBegin, pos_in(src, b"/", 0), 0)],
+        );
     }
 
     #[test]
@@ -3497,6 +3730,13 @@ mod tests {
             ],
             |src| vec![token(TokenKind::ColonColonPrefix, pos_in(src, b"::", 0), 0)],
         );
+    }
+
+    #[test]
+    fn test_lex_semicolon() {
+        assert_lex(";", |src| {
+            vec![token(TokenKind::Semicolon, pos_in(src, b";", 0), 0)]
+        });
     }
 
     #[test]
@@ -3754,12 +3994,37 @@ mod tests {
 
     #[test]
     fn test_vert_vert() {
-        assert_lex("x ||", |src| {
-            vec![
-                token(TokenKind::Identifier, pos_in(src, b"x", 0), 0),
-                token(TokenKind::VertVert, pos_in(src, b"||", 0), 0),
-            ]
-        });
+        assert_lex_for(
+            "||",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::VertVert, pos_in(src, b"||", 0), 0)],
+        );
+    }
+
+    #[test]
+    fn test_split_vert_vert() {
+        assert_lex_except(
+            "||",
+            &[
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::Vert, pos_in(src, b"|", 0), 0),
+                    token(TokenKind::Vert, pos_in(src, b"|", 1), 0),
+                ]
+            },
+        );
     }
 
     #[test]
