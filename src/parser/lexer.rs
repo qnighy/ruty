@@ -2873,12 +2873,16 @@ mod tests {
     }
 
     #[test]
-    fn test_lparen() {
+    fn test_lparen_at_begin() {
         let src = EStrRef::from("(");
         assert_eq!(
             lex_all(src),
             vec![token(TokenKind::LParen, pos_in(src, b"(", 0), 0),]
         );
+    }
+
+    #[test]
+    fn test_lparen_spaced_after_ident() {
         let src = EStrRef::from("x ( y");
         assert_eq!(
             lex_all(src),
@@ -2888,6 +2892,10 @@ mod tests {
                 token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
             ]
         );
+    }
+
+    #[test]
+    fn test_lparen_left_spaced_after_ident() {
         let src = EStrRef::from("x (y");
         assert_eq!(
             lex_all(src),
@@ -2897,6 +2905,10 @@ mod tests {
                 token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
             ]
         );
+    }
+
+    #[test]
+    fn test_lparen_nospaced_after_ident() {
         let src = EStrRef::from("x(y");
         assert_eq!(
             lex_all(src),
@@ -2906,6 +2918,10 @@ mod tests {
                 token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
             ]
         );
+    }
+
+    #[test]
+    fn test_lparen_spaced_after_meth() {
         let src = EStrRef::from("meth! ( y");
         assert_eq!(
             lex_all(src),
@@ -2915,6 +2931,10 @@ mod tests {
                 token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
             ]
         );
+    }
+
+    #[test]
+    fn test_lparen_left_spaced_after_meth() {
         let src = EStrRef::from("meth! (y");
         assert_eq!(
             lex_all(src),
@@ -2924,6 +2944,10 @@ mod tests {
                 token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
             ]
         );
+    }
+
+    #[test]
+    fn test_lparen_nospaced_after_meth() {
         let src = EStrRef::from("meth!(y");
         assert_eq!(
             lex_all(src),
@@ -2945,12 +2969,16 @@ mod tests {
     }
 
     #[test]
-    fn test_star() {
+    fn test_star_at_begin() {
         let src = EStrRef::from("*");
         assert_eq!(
             lex_all(src),
             vec![token(TokenKind::StarPrefix, pos_in(src, b"*", 0), 0),]
         );
+    }
+
+    #[test]
+    fn test_star_spaced() {
         let src = EStrRef::from("meth! * y");
         assert_eq!(
             lex_all(src),
@@ -2960,6 +2988,10 @@ mod tests {
                 token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
             ]
         );
+    }
+
+    #[test]
+    fn test_star_left_spaced() {
         let src = EStrRef::from("meth! *y");
         assert_eq!(
             lex_all(src),
@@ -2969,6 +3001,10 @@ mod tests {
                 token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
             ]
         );
+    }
+
+    #[test]
+    fn test_star_nospaced() {
         let src = EStrRef::from("meth!*y");
         assert_eq!(
             lex_all(src),
@@ -2981,12 +3017,16 @@ mod tests {
     }
 
     #[test]
-    fn test_star_star() {
+    fn test_star_star_at_begin() {
         let src = EStrRef::from("**");
         assert_eq!(
             lex_all(src),
             vec![token(TokenKind::StarStarPrefix, pos_in(src, b"**", 0), 0),]
         );
+    }
+
+    #[test]
+    fn test_star_star_spaced() {
         let src = EStrRef::from("meth! ** y");
         assert_eq!(
             lex_all(src),
@@ -2996,6 +3036,10 @@ mod tests {
                 token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
             ]
         );
+    }
+
+    #[test]
+    fn test_star_star_left_spaced() {
         let src = EStrRef::from("meth! **y");
         assert_eq!(
             lex_all(src),
@@ -3005,6 +3049,10 @@ mod tests {
                 token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
             ]
         );
+    }
+
+    #[test]
+    fn test_star_star_nospaced() {
         let src = EStrRef::from("meth!**y");
         assert_eq!(
             lex_all(src),
@@ -3017,12 +3065,16 @@ mod tests {
     }
 
     #[test]
-    fn test_plus() {
+    fn test_plus_at_begin() {
         let src = EStrRef::from("+");
         assert_eq!(
             lex_all(src),
             vec![token(TokenKind::PlusPrefix, pos_in(src, b"+", 0), 0),]
         );
+    }
+
+    #[test]
+    fn test_plus_spaced() {
         let src = EStrRef::from("meth! + y");
         assert_eq!(
             lex_all(src),
@@ -3032,6 +3084,10 @@ mod tests {
                 token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
             ]
         );
+    }
+
+    #[test]
+    fn test_plus_left_spaced() {
         let src = EStrRef::from("meth! +y");
         assert_eq!(
             lex_all(src),
@@ -3041,6 +3097,10 @@ mod tests {
                 token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
             ]
         );
+    }
+
+    #[test]
+    fn test_plus_nospaced() {
         let src = EStrRef::from("meth!+y");
         assert_eq!(
             lex_all(src),
@@ -3062,12 +3122,16 @@ mod tests {
     }
 
     #[test]
-    fn test_minus() {
+    fn test_minus_at_begin() {
         let src = EStrRef::from("-");
         assert_eq!(
             lex_all(src),
             vec![token(TokenKind::MinusPrefix, pos_in(src, b"-", 0), 0),]
         );
+    }
+
+    #[test]
+    fn test_minus_spaced() {
         let src = EStrRef::from("meth! - y");
         assert_eq!(
             lex_all(src),
@@ -3077,6 +3141,10 @@ mod tests {
                 token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
             ]
         );
+    }
+
+    #[test]
+    fn test_minus_left_spaced() {
         let src = EStrRef::from("meth! -y");
         assert_eq!(
             lex_all(src),
@@ -3086,6 +3154,10 @@ mod tests {
                 token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
             ]
         );
+    }
+
+    #[test]
+    fn test_minus_nospaced() {
         let src = EStrRef::from("meth!-y");
         assert_eq!(
             lex_all(src),
@@ -3155,12 +3227,16 @@ mod tests {
     }
 
     #[test]
-    fn test_colon_colon() {
+    fn test_colon_colon_at_begin() {
         let src = EStrRef::from("::");
         assert_eq!(
             lex_all(src),
             vec![token(TokenKind::ColonColonPrefix, pos_in(src, b"::", 0), 0),]
         );
+    }
+
+    #[test]
+    fn test_colon_colon_spaced() {
         let src = EStrRef::from("meth! :: Foo");
         assert_eq!(
             lex_all(src),
@@ -3170,6 +3246,10 @@ mod tests {
                 token(TokenKind::Const, pos_in(src, b"Foo", 0), 0),
             ]
         );
+    }
+
+    #[test]
+    fn test_colon_colon_left_spaced() {
         let src = EStrRef::from("meth! ::Foo");
         assert_eq!(
             lex_all(src),
@@ -3179,6 +3259,10 @@ mod tests {
                 token(TokenKind::Const, pos_in(src, b"Foo", 0), 0),
             ]
         );
+    }
+
+    #[test]
+    fn test_colon_colon_nospaced() {
         let src = EStrRef::from("meth!::Foo");
         assert_eq!(
             lex_all(src),
@@ -3317,12 +3401,16 @@ mod tests {
     }
 
     #[test]
-    fn test_lbracket() {
+    fn test_lbracket_at_begin() {
         let src = EStrRef::from("[");
         assert_eq!(
             lex_all(src),
             vec![token(TokenKind::LBracketPrefix, pos_in(src, b"[", 0), 0),]
         );
+    }
+
+    #[test]
+    fn test_lbracket_spaced() {
         let src = EStrRef::from("meth! [ y");
         assert_eq!(
             lex_all(src),
@@ -3332,6 +3420,10 @@ mod tests {
                 token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
             ]
         );
+    }
+
+    #[test]
+    fn test_lbracket_left_spaced() {
         let src = EStrRef::from("meth! [y");
         assert_eq!(
             lex_all(src),
@@ -3341,6 +3433,10 @@ mod tests {
                 token(TokenKind::Identifier, pos_in(src, b"y", 0), 0),
             ]
         );
+    }
+
+    #[test]
+    fn test_lbracket_nospaced() {
         let src = EStrRef::from("meth![y");
         assert_eq!(
             lex_all(src),
