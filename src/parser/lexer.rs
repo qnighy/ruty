@@ -465,19 +465,6 @@ pub(super) enum LexerState {
 }
 
 impl LexerState {
-    /// Generic IS_BEG condition
-    // TODO: refactor it into several semantic methods
-    fn begin_strict(&self) -> bool {
-        match self {
-            LexerState::Begin
-            | LexerState::ClassName
-            | LexerState::BeginOpt
-            | LexerState::BeginLabelable
-            | LexerState::FirstArgument => true,
-            _ => false,
-        }
-    }
-
     /// Should we fold lines if `\n` is found?
     fn fold_newline(&self) -> bool {
         match self {
@@ -563,6 +550,34 @@ impl LexerState {
         match self {
             LexerState::MethForDef | LexerState::MethOrSymbolForDef => true,
             _ => false,
+        }
+    }
+
+    /// Should we split `||`?
+    fn split_vert_vert(&self) -> bool {
+        match self {
+            LexerState::Begin
+            | LexerState::ClassName
+            | LexerState::BeginOpt
+            | LexerState::BeginLabelable => true,
+            _ => false,
+        }
+    }
+
+    /// If true, `?` cannot be a part of a character literal.
+    fn force_single_question_mark(&self) -> bool {
+        match self {
+            LexerState::Begin => false,
+            LexerState::ClassName => false,
+            LexerState::BeginOpt => false,
+            LexerState::BeginLabelable => false,
+            LexerState::FirstArgument => false,
+            LexerState::WeakFirstArgument => true,
+            LexerState::End => true,
+            LexerState::MethForDef => false,
+            LexerState::MethOrSymbolForDef => false,
+            LexerState::MethForCall => false,
+            LexerState::StringLike(_) => unreachable!(),
         }
     }
 }
@@ -922,14 +937,6 @@ impl<'a> Lexer<'a> {
             b'-' => {
                 self.pos += 1;
                 match self.peek_byte() {
-                    b'0'..=b'9'
-                        if state.begin_strict() && self.peek_byte_at(1).is_ascii_digit() =>
-                    {
-                        while self.peek_byte().is_ascii_digit() {
-                            self.pos += 1;
-                        }
-                        TokenKind::Integer
-                    }
                     b'@' if state.extended_method_name() => {
                         self.pos += 1;
                         TokenKind::MethodName
@@ -1105,7 +1112,7 @@ impl<'a> Lexer<'a> {
             }
             b'?' => {
                 self.pos += 1;
-                if !state.begin_strict() {
+                if state.force_single_question_mark() {
                     TokenKind::Question
                 } else {
                     match self.peek_byte() {
@@ -1254,7 +1261,7 @@ impl<'a> Lexer<'a> {
                                 self.pos += 1;
                                 TokenKind::OpAssign
                             }
-                            _ if state.begin_strict() => {
+                            _ if state.split_vert_vert() => {
                                 self.pos -= 1;
                                 TokenKind::Vert
                             }
@@ -4226,13 +4233,7 @@ mod tests {
     fn test_question_separate() {
         assert_lex_for(
             "?a",
-            &[
-                LexerState::WeakFirstArgument,
-                LexerState::End,
-                LexerState::MethForDef,
-                LexerState::MethOrSymbolForDef,
-                LexerState::MethForCall,
-            ],
+            &[LexerState::WeakFirstArgument, LexerState::End],
             |src| {
                 vec![
                     token(TokenKind::Question, pos_in(src, b"?", 0), 0),
@@ -4246,13 +4247,7 @@ mod tests {
     fn test_char_literal() {
         assert_lex_except(
             "?a",
-            &[
-                LexerState::WeakFirstArgument,
-                LexerState::End,
-                LexerState::MethForDef,
-                LexerState::MethOrSymbolForDef,
-                LexerState::MethForCall,
-            ],
+            &[LexerState::WeakFirstArgument, LexerState::End],
             |src| vec![token(TokenKind::CharLiteral, pos_in(src, b"?a", 0), 0)],
         );
     }
@@ -4495,6 +4490,7 @@ mod tests {
         assert_lex_for(
             "||",
             &[
+                LexerState::FirstArgument,
                 LexerState::WeakFirstArgument,
                 LexerState::End,
                 LexerState::MethForDef,
@@ -4510,6 +4506,7 @@ mod tests {
         assert_lex_except(
             "||",
             &[
+                LexerState::FirstArgument,
                 LexerState::WeakFirstArgument,
                 LexerState::End,
                 LexerState::MethForDef,
