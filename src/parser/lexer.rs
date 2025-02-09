@@ -362,24 +362,37 @@ pub(super) enum LexerState {
     ///   - Identifier or `!`/`?`-suffixed identifier at a "Begin"-like position, except known local variables
     ///   - Method name following `.`, `&.`, or `::`, including suffixed ones, keyword-like ones, const-like ones and, op-like ones.
     ///
-    /// Effects are equivalent to [LexerState::BeginLabelable] except:
+    /// Effects are equivalent to [LexerState::End] except:
     ///
-    /// - `\n` is a real token like in [LexerState::End].
-    /// - For `..` and `...` token types, it is treated like [LexerState::End].
-    /// - if the next token is `{`, it is treated as a block start.
-    /// - For prefix `(` token, it becomes a special token that restricts
-    ///   what can be inside.
-    /// - For ambiguous tokens to be treated as prefix operators, if imposes
-    ///   additional requirements which did not exist in [LexerState::BeginLabelable]:
-    ///   - Should be preceded by whitespace and not followed by whitespace:
-    ///     - `+`, `-`
-    ///     - `*`, `**`, `&`
-    ///   - Should be preceded by whitespace and not followed by `=`:
-    ///     - `/`, `%`
-    ///   - Should be preceded by whitespace:
-    ///     - `::`
-    ///     - `(`, `[`
-    ///     - `<<` as part of heredoc
+    /// - It accepts labels like [LexerState::BeginLabelable] does.
+    /// - `?` can be a part of a character literal.
+    /// - `:` always becomes a symbol, making `1 ? f:x` a syntax error.
+    ///   Compare it with `1 ? 2:x`, which is valid.
+    /// - Special prefix conditions:
+    ///   - Group A
+    ///     - `+` starts a unary plus when preceded by whitespace
+    ///       and not followed by whitespace.
+    ///     - `-` starts a unary minus when preceded by whitespace
+    ///       and not followed by whitespace.
+    ///     - `*` starts an argument splat when preceded by whitespace
+    ///       and not followed by whitespace.
+    ///     - `**` starts an keyword argument splat when preceded by whitespace
+    ///       and not followed by whitespace.
+    ///     - `&` starts a block argument when preceded by whitespace
+    ///       and not followed by whitespace.
+    ///   - Group B
+    ///     - `/` starts a regexp literal when preceded by whitespace
+    ///       and not followed by whitespace or `=`.
+    ///     - `%` starts a percent literal when preceded by whitespace
+    ///       and not followed by whitespace or `=`.
+    ///   - Group C
+    ///     - `::` starts an absolute constant reference
+    ///       when preceded by whitespace.
+    ///     - `(` is a grouping token when preceded by whitespace.
+    ///       Note that this is slightly different from the ordinary `(`
+    ///       token found during [LexerState::Begin].
+    ///     - `[` is a part of array literal when preceded by whitespace.
+    ///     - `<<` can be a part of heredoc when preceded by whitespace.
     FirstArgument,
     /// Expects a suffix or an infix, but still there is a room for ambiguity.
     /// Variant of [LexerState::End].
