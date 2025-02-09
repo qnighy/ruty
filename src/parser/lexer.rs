@@ -6,6 +6,8 @@ use crate::{
     Diagnostic,
 };
 
+const TAB_WIDTH: usize = 8;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Token {
     pub(super) kind: TokenKind,
@@ -612,17 +614,17 @@ pub(super) struct Lexer<'a> {
     input: EStrRef<'a>,
     pos: usize,
     indent: usize,
-    at_line_start: bool,
 }
 
 impl<'a> Lexer<'a> {
     pub(super) fn new(input: EStrRef<'a>) -> Self {
-        Self {
+        let mut this = Self {
             input,
             pos: 0,
             indent: 0,
-            at_line_start: true,
-        }
+        };
+        this.reset_indent();
+        this
     }
 
     pub(super) fn input(&self) -> EStrRef<'a> {
@@ -652,10 +654,10 @@ impl<'a> Lexer<'a> {
             }
             b'\n' => {
                 let orig_indent = self.indent;
-                self.reset_indent();
                 if self.pos >= 1 && self.bytes()[self.pos - 1] == b'\r' {
                     // Include the preceding CR to form CRLF
                     self.pos += 1;
+                    self.reset_indent();
                     return Token {
                         kind: TokenKind::Newline,
                         range: CodeRange {
@@ -666,6 +668,7 @@ impl<'a> Lexer<'a> {
                     };
                 }
                 self.pos += 1;
+                self.reset_indent();
                 return Token {
                     kind: TokenKind::Newline,
                     range: CodeRange {
@@ -1469,27 +1472,24 @@ impl<'a> Lexer<'a> {
                 }
                 b'\t' | b'\x0B' | b'\x0C' | b'\r' | b' ' => {
                     self.pos += 1;
-                    self.count_indent();
                 }
                 b'\\' => {
-                    self.freeze_indent();
                     if self.peek_byte_at(1) == b'\n' {
                         self.pos += 2;
                         self.reset_indent();
                     } else if self.peek_byte_at(1) == b'\r' && self.peek_byte_at(2) == b'\n' {
                         self.pos += 3;
+                        self.reset_indent();
                     } else {
                         break;
                     }
                 }
                 b'#' => {
-                    self.freeze_indent();
                     self.skip_line();
                     // Do not eat the next LF (even if it exists)
                     // The LF, if any, should be processed in the next iteration
                 }
                 _ => {
-                    self.freeze_indent();
                     break;
                 }
             }
@@ -1498,7 +1498,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn does_force_fold(&mut self) -> bool {
-        let rollback = (self.pos, self.indent, self.at_line_start);
+        let rollback = (self.pos, self.indent);
         // Skip the current LF byte
         self.pos += 1;
         self.reset_indent();
@@ -1507,7 +1507,6 @@ impl<'a> Lexer<'a> {
             match self.peek_byte() {
                 b'\t' | b'\x0B' | b'\x0C' | b'\r' | b' ' => {
                     self.pos += 1;
-                    self.count_indent();
                 }
                 b'#' => {
                     self.reset_indent();
@@ -1537,24 +1536,27 @@ impl<'a> Lexer<'a> {
         if !force_fold {
             // Rollback when not force-folding as we want to re-scan the current LF byte
             // as a Newline token.
-            (self.pos, self.indent, self.at_line_start) = rollback;
+            (self.pos, self.indent) = rollback;
         }
         force_fold
     }
 
     fn reset_indent(&mut self) {
-        self.indent = 0;
-        self.at_line_start = true;
-    }
-
-    fn count_indent(&mut self) {
-        if self.at_line_start {
-            self.indent += 1;
+        let mut pos = self.pos;
+        while pos > 0 && self.bytes()[pos - 1] != b'\n' {
+            pos -= 1;
         }
-    }
+        let mut indent = 0;
+        while pos < self.bytes().len() {
+            match self.bytes()[pos] {
+                b'\t' => indent += TAB_WIDTH - indent % TAB_WIDTH,
+                b' ' => indent += 1,
+                _ => break,
+            }
+            pos += 1;
+        }
 
-    fn freeze_indent(&mut self) {
-        self.at_line_start = false;
+        self.indent = indent;
     }
 
     // Stops before the next LF or EOF.
@@ -1992,28 +1994,42 @@ mod tests {
     #[test]
     fn test_lex_spaces_tab() {
         assert_lex("\t1", |src| {
-            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 1)]
+            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 8)]
+        });
+    }
+
+    #[test]
+    fn test_lex_spaces_tab_and_space() {
+        assert_lex("\t 1", |src| {
+            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 9)]
+        });
+    }
+
+    #[test]
+    fn test_lex_spaces_space_and_tab() {
+        assert_lex(" \t1", |src| {
+            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 8)]
         });
     }
 
     #[test]
     fn test_lex_spaces_vtab() {
         assert_lex("\x0B1", |src| {
-            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 1)]
+            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 0)]
         });
     }
 
     #[test]
     fn test_lex_spaces_ff() {
         assert_lex("\x0C1", |src| {
-            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 1)]
+            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 0)]
         });
     }
 
     #[test]
     fn test_lex_spaces_cr() {
         assert_lex("\r1", |src| {
-            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 1)]
+            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 0)]
         });
     }
 
@@ -2054,7 +2070,6 @@ mod tests {
 
     #[test]
     fn test_lex_semicolon_crlf() {
-        // TODO: fix indentation
         assert_lex_for(
             "\r\n",
             &[
@@ -2063,7 +2078,7 @@ mod tests {
                 LexerState::WeakFirstArgument,
                 LexerState::End,
             ],
-            |src| vec![token(TokenKind::Newline, pos_in(src, b"\r\n", 0), 1)],
+            |src| vec![token(TokenKind::Newline, pos_in(src, b"\r\n", 0), 0)],
         );
     }
 
