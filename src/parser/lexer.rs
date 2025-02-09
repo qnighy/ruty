@@ -1645,6 +1645,14 @@ mod tests {
         loop {
             let token = lexer.lex(&mut diag, state);
             if token.kind == TokenKind::EOF {
+                if token.range
+                    != (CodeRange {
+                        start: input.len(),
+                        end: input.len(),
+                    })
+                {
+                    tokens.push(token);
+                }
                 break;
             }
             state = next_state_for_testing(&token, input.as_bytes(), state);
@@ -1858,110 +1866,88 @@ mod tests {
 
     #[test]
     fn test_lex_eof_nul() {
-        assert_lex("foo \0 bar", |src| {
-            vec![token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0)]
+        assert_lex("\0", |src| {
+            vec![token(TokenKind::EOF, pos_in(src, b"\0", 0), 0)]
         });
     }
 
     #[test]
     fn test_lex_eof_eot() {
-        // let src = EStrRef::from("foo \x04 bar");
-        // assert_eq!(
-        //     lex_all(src),
-        //     vec![token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),]
-        // );
-        assert_lex("foo \x04 bar", |src| {
-            vec![token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0)]
+        assert_lex("\x04", |src| {
+            vec![token(TokenKind::EOF, pos_in(src, b"\x04", 0), 0)]
         });
     }
 
     #[test]
     fn test_lex_eof_sub() {
-        // let src = EStrRef::from("foo \x1A bar");
-        // assert_eq!(
-        //     lex_all(src),
-        //     vec![token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),]
-        // );
-        assert_lex("foo \x1A bar", |src| {
-            vec![token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0)]
+        assert_lex("\x1A", |src| {
+            vec![token(TokenKind::EOF, pos_in(src, b"\x1A", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_eof_end_token_first_line() {
+        assert_lex("__END__", |src| {
+            vec![token(TokenKind::EOF, pos_in(src, b"__END__", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_eof_end_token_second_line() {
+        assert_lex("foo\n__END__", |src| {
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
+                token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
+                token(TokenKind::EOF, pos_in(src, b"__END__", 0), 0),
+            ]
         });
     }
 
     #[test]
     fn test_lex_eof_end_token_eof() {
-        assert_lex("foo \n__END__", |src| {
-            vec![
-                token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
-                token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
-            ]
+        assert_lex("__END__", |src| {
+            vec![token(TokenKind::EOF, pos_in(src, b"__END__", 0), 0)]
         });
     }
 
     #[test]
     fn test_lex_eof_end_token_lf() {
-        assert_lex("foo \n__END__\n bar", |src| {
-            vec![
-                token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
-                token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
-            ]
+        assert_lex("__END__\n", |src| {
+            vec![token(TokenKind::EOF, pos_in(src, b"__END__", 0), 0)]
         });
     }
 
     #[test]
     fn test_lex_eof_end_token_crlf() {
-        assert_lex("foo \n__END__\r\n bar", |src| {
-            vec![
-                token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
-                token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
-            ]
-        });
-    }
-
-    #[test]
-    fn test_lex_eof() {
-        assert_lex("foo \n__END__", |src| {
-            vec![
-                token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
-                token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
-            ]
+        assert_lex("__END__\r\n", |src| {
+            vec![token(TokenKind::EOF, pos_in(src, b"__END__", 0), 0)]
         });
     }
 
     #[test]
     fn test_lex_non_eof_space_after_end_token() {
-        assert_lex("foo \n__END__ \n bar", |src| {
+        assert_lex("__END__ \n", |src| {
             vec![
-                token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
-                token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
                 token(TokenKind::Identifier, pos_in(src, b"__END__", 0), 0),
-                token(TokenKind::Newline, pos_in(src, b"\n", 1), 0),
-                token(TokenKind::Identifier, pos_in(src, b"bar", 0), 1),
+                token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
             ]
         });
     }
 
     #[test]
     fn test_lex_non_eof_space_before_end_token() {
-        assert_lex("foo \n __END__\n bar", |src| {
+        assert_lex(" __END__\n", |src| {
             vec![
-                token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
-                token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
                 token(TokenKind::Identifier, pos_in(src, b"__END__", 0), 1),
-                token(TokenKind::Newline, pos_in(src, b"\n", 1), 1),
-                token(TokenKind::Identifier, pos_in(src, b"bar", 0), 1),
+                token(TokenKind::Newline, pos_in(src, b"\n", 0), 1),
             ]
         });
     }
 
     #[test]
     fn test_lex_non_eof_cr_after_end_token() {
-        assert_lex("foo \n__END__\r bar", |src| {
-            vec![
-                token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
-                token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"__END__", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"bar", 0), 0),
-            ]
+        assert_lex("__END__\r", |src| {
+            vec![token(TokenKind::Identifier, pos_in(src, b"__END__", 0), 0)]
         });
     }
 
