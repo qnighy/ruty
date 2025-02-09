@@ -15,247 +15,258 @@ pub(super) struct Token {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum TokenKind {
-    /// `__ENCODING__`
+    /// `__ENCODING__`, namely `keyword__ENCODING__`
     KeywordCapitalDoubleUnderscoreEncoding,
-    /// `__LINE__`
+    /// `__LINE__`, namely `keyword__LINE__`
     KeywordCapitalDoubleUnderscoreLine,
-    /// `__FILE__`
+    /// `__FILE__`, namely `keyword__FILE__`
     KeywordCapitalDoubleUnderscoreFile,
-    /// `BEGIN`
+    /// `BEGIN`, namely `keyword_BEGIN`
     KeywordCapitalBegin,
-    /// `END`
+    /// `END`, namely `keyword_END`
     KeywordCapitalEnd,
-    /// `alias`
+    /// `alias`, namely `keyword_alias`
     KeywordAlias,
-    /// `and`
+    /// `and`, namely `keyword_and`
     KeywordAnd,
-    /// `begin`
+    /// `begin`, namely `keyword_begin`
     KeywordBegin,
-    /// `break`
+    /// `break`, namely `keyword_break`
     KeywordBreak,
-    /// `case`
+    /// `case`, namely `keyword_case`
     KeywordCase,
-    /// `class`
+    /// `class`, namely `keyword_class`
     KeywordClass,
-    /// `def`
+    /// `def`, namely `keyword_def`
     KeywordDef,
-    /// `defined?`
+    /// `defined?`, namely `keyword_defined`
     KeywordDefinedQ,
-    /// `do`
+    /// `do`, namely `keyword_do`, `keyword_do_cond`, `keyword_do_block`, and `keyword_do_LAMBDA`
     KeywordDo,
-    /// `else`
+    /// `else`, namely `keyword_else`
     KeywordElse,
-    /// `elsif`
+    /// `elsif`, namely `keyword_elsif`
     KeywordElsif,
-    /// `end`
+    /// `end`, namely `keyword_end`
     KeywordEnd,
-    /// `ensure`
+    /// `ensure`, namely `keyword_ensure`
     KeywordEnsure,
-    /// `false`
+    /// `false`, namely `keyword_false`
     KeywordFalse,
-    /// `for`
+    /// `for`, namely `keyword_for`
     KeywordFor,
-    /// `if`
+    /// `if`, namely `keyword_if`
     KeywordIf,
-    /// `if` postfix
+    /// `if` postfix, namely `modifier_if`
     KeywordIfInfix,
-    /// `in`
+    /// `in`, namely `keyword_in`
     KeywordIn,
-    /// `module`
+    /// `module`, namely `keyword_module`
     KeywordModule,
-    /// `next`
+    /// `next`, namely `keyword_next`
     KeywordNext,
-    /// `nil`
+    /// `nil`, namely `keyword_nil`
     KeywordNil,
-    /// `not`
+    /// `not`, namely `keyword_not`
     KeywordNot,
-    /// `or`
+    /// `or`, namely `keyword_or`
     KeywordOr,
-    /// `redo`
+    /// `redo`, namely `keyword_redo`
     KeywordRedo,
-    /// `rescue`
+    /// `rescue`, namely `keyword_rescue`
     KeywordRescue,
-    /// `retry`
+    /// `retry`, namely `keyword_retry`
     KeywordRetry,
-    /// `return`
+    /// `return`, namely `keyword_return`
     KeywordReturn,
-    /// `self`
+    /// `self`, namely `keyword_self`
     KeywordSelf,
-    /// `super`
+    /// `super`, namely `keyword_super`
     KeywordSuper,
-    /// `then`
+    /// `then`, namely `keyword_then`
     KeywordThen,
-    /// `true`
+    /// `true`, namely `keyword_true`
     KeywordTrue,
-    /// `undef`
+    /// `undef`, namely `keyword_undef`
     KeywordUndef,
-    /// `unless`
+    /// `unless`, namely `keyword_unless`
     KeywordUnless,
-    /// `unless` postfix
+    /// `unless` postfix, namely `modifier_unless`
     KeywordUnlessInfix,
-    /// `until`
+    /// `until`, namely `keyword_until`
     KeywordUntil,
-    /// `until` postfix
+    /// `until` postfix, namely `modifier_until`
     KeywordUntilInfix,
-    /// `when`
+    /// `when`, namely `keyword_when`
     KeywordWhen,
-    /// `while`
+    /// `while`, namely `keyword_while`
     KeywordWhile,
-    /// `while` postfix
+    /// `while` postfix, namely `modifier_while`
     KeywordWhileInfix,
-    /// `yield`
+    /// `yield`, namely `keyword_yield`
     KeywordYield,
 
-    /// `foo` etc.
+    /// `foo` etc., namely `tIDENTIFIER`
     Identifier,
-    /// `Foo` etc.
+    /// `Foo` etc., namely `tCONSTANT`
     Const,
-    /// `foo!` etc.
+    /// `foo!` etc., namely `tFID`
     MethodName,
-    /// `foo:` etc.
+    /// `foo:` etc., namely `tLABEL`
     Label,
-    /// `:foo` etc.
+    /// `:foo` etc., namely `tSYMBOL` followed by the symbol content
     Symbol,
-    /// `@foo` etc.
+    /// `@foo` etc., namely `tIVAR`
     IvarName,
-    /// `@@foo` etc.
+    /// `@@foo` etc., namely `tCVAR`
     CvarName,
-    /// `$foo` etc.
+    /// `$foo` etc., namely `tGVAR`, `tNTH_REF`, and `tBACK_REF`
     GvarName,
 
     // TODO: merge Integer/Float/Rational/Imaginary into Numeric
-    /// `123` etc.
+    /// `123` etc., namely `tINTEGER`
     Integer,
-    /// `123.0` etc.
+    /// `123.0` etc., namely `tFLOAT`
     Float,
-    /// `123r` etc.
+    /// `123r` etc., namely `tRATIONAL`
     Rational,
-    /// `123i` etc.
+    /// `123i` etc., namely `tIMAGINARY`
     Imaginary,
-    /// `?a` etc.
+    /// `?a` etc., namely `tCHAR`
     CharLiteral,
 
-    /// `"`, `'`, `:"`, `/` etc. in expr context.
+    /// `"`, `'`, `:"`, `/` etc. in expr context. Namely:
+    ///
+    /// - `tSTRING_BEG`
+    /// - `tXSTRING_BEG`
+    /// - `tREGEXP_BEG`
     StringBegin,
-    /// `"` etc. in String-like context.
+    /// `"` etc. in String-like context. Namely:
+    ///
+    /// - `tSTRING_END`
+    /// - `tREGEXP_END`
     StringEnd,
-    /// `":` etc. in String-like context.
+    /// `":` etc. in String-like context. Namely:
+    ///
+    /// - `tLABEL_END`
     StringEndColon,
-    /// `foo` as in `"foo"`
+    /// `foo` as in `"foo"`, namely `tSTRING_CONTENT`
     StringContent,
-    /// `#{`
+    /// `#{`, namely `tSTRING_DBEG`
     StringInterpolationBegin,
-    /// `#@foo` etc.
+    /// `#@foo` etc., namely `tSTRING_DVAR` followed by the variable name
     StringVarInterpolation,
 
-    /// `+=` etc.
+    /// `+=` etc., namely `tOP_ASGN`
     OpAssign,
 
-    /// `!`
+    /// `!`, namely `'!'`
     Excl,
-    /// `!=`
+    /// `!=`, namely `tNEQ`
     ExclEq,
-    /// `!~`
+    /// `!~`, namely `tNMATCH`
     ExclTilde,
-    /// `%`
+    /// `%`, namely `'%'`
     Percent,
-    /// `&`
+    /// `&`, namely `'&'`
     Amp,
-    /// `&`, block argument only
+    /// `&` but block argument only, namely `tAMPER`
     AmpPrefix,
-    /// `&&`
+    /// `&&`, namely `tANDOP`
     AmpAmp,
-    /// `&.`
+    /// `&.`, namely `tANDDOT`
     AmpDot,
-    /// `(`
+    /// `(`, namely `'('` and `tLPAREN`
     LParen,
-    /// `(` with restricted syntactic rule (e.g. cannot be an argument list delimiter)
+    /// `(` with restricted syntactic rule (e.g. cannot be an argument list delimiter),
+    /// namely `tLPAREN_ARG`
     LParenRestricted,
-    /// `)`
+    /// `)`, namely `')'`
     RParen,
-    /// `*`
+    /// `*`, namely `'*'`
     Star,
-    /// `*`, argument splat only
+    /// `*` but argument splat only, namely `tSTAR`
     StarPrefix,
-    /// `**`
+    /// `**`, namely `tPOW`
     StarStar,
-    /// `**`, keyword argument splat only
+    /// `**` but keyword argument splat only, namely `tDSTAR`
     StarStarPrefix,
-    /// `+`
+    /// `+`, namely `'+'`
     Plus,
-    /// `+`, unary operator only
+    /// `+` but unary operator only, namely `tUPLUS`
     PlusPrefix,
-    /// `,`
+    /// `,`, namely `','`
     Comma,
-    /// `-`
+    /// `-`, namely `'-'`
     Minus,
-    /// `-`, unary operator only
+    /// `-` but unary operator only, namely `tUMINUS` and `tUMINUS_NUM`
     MinusPrefix,
-    /// `->`
+    /// `->`, namely `tLAMBDA`
     Arrow,
-    /// `.`
+    /// `.`, namely `'.'`
     Dot,
-    /// `..`
+    /// `..`, namely `tDOT2` and `tBDOT2`
     DotDot,
-    /// `...`
+    /// `...`, namely `tDOT3` and `tBDOT3`
     DotDotDot,
-    /// `/`
+    /// `/`, namely `'/'`
     Slash,
-    /// `:`
+    /// `:`, namely `':'`
     Colon,
-    /// `::`
+    /// `::`, namely `tCOLON2`
     ColonColon,
-    /// `::`, prefix only
+    /// `::` but prefix only, namely `tCOLON3`
     ColonColonPrefix,
     /// `;`, but in most cases Newline is used instead.
+    /// Namely `';'`
     Semicolon,
-    /// EOL in certain contexts.
+    /// EOL in certain contexts, namely `'\n'`
     Newline,
-    /// `<`
+    /// `<`, namely `'<'`
     Lt,
-    /// `<<`
+    /// `<<`, namely `tLSHFT`
     LtLt,
-    /// `<=`
+    /// `<=`, namely `tLEQ`
     LtEq,
-    /// `<=>`
+    /// `<=>`, namely `tCMP`
     LtEqGt,
-    /// `=`
+    /// `=`, namely `'='`
     Eq,
-    /// `==`
+    /// `==`, namely `tEQ`
     EqEq,
-    /// `===`
+    /// `===`, namely `tEQQ`
     EqEqEq,
-    /// `=>`
+    /// `=>`, namely `tASSOC`
     FatArrow,
-    /// `=~`
+    /// `=~`, namely `tMATCH`
     EqMatch,
-    /// `>`
+    /// `>`, namely `'>'`
     Gt,
-    /// `>=`
+    /// `>=`, namely `tGEQ`
     GtEq,
-    /// `>>`
+    /// `>>`, namely `tRSHFT`
     GtGt,
-    /// `?`
+    /// `?`, namely `'?'`
     Question,
-    /// `@`
+    /// `@` (Ruty-specific)
     At,
-    /// `[`
+    /// `[`, namely `'['`
     LBracket,
-    /// `[`, prefix only
+    /// `[` but prefix only, namely `tLBRACK`
     LBracketPrefix,
-    /// `]`
+    /// `]`, namely `']'`
     RBracket,
-    /// `^`
+    /// `^`, namely `'^'`
     Caret,
-    /// `{`
+    /// `{`, namely '{', `tLBRACE`, and `tLBRACE_ARG`
     LBrace,
-    /// `|`
+    /// `|`, namely `'|'`
     Vert,
-    /// `||`
+    /// `||`, namely `tOROP`
     VertVert,
-    /// `}`
+    /// `}`, namely `'}'`
     RBrace,
-    /// `~`
+    /// `~`, namely `'~'`
     Tilde,
     /// End of file, which is one of:
     ///
