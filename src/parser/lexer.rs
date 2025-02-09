@@ -1625,15 +1625,20 @@ static KEYWORDS: LazyLock<HashMap<&'static [u8], TokenKind>> = LazyLock::new(|| 
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::pos_in;
+    use crate::{ast::pos_in, Encoding};
 
     use super::*;
 
-    fn lex_all(input: EStrRef<'_>) -> Vec<Token> {
-        lex_all_from(input, LexerState::default())
+    fn lex_all_from(input: EStrRef<'_>, state: LexerState) -> Vec<Token> {
+        let (tokens, diag) = lex_all_with_diag_from(input, state);
+        assert_eq!(diag, Vec::new());
+        tokens
     }
 
-    fn lex_all_from(input: EStrRef<'_>, mut state: LexerState) -> Vec<Token> {
+    fn lex_all_with_diag_from(
+        input: EStrRef<'_>,
+        mut state: LexerState,
+    ) -> (Vec<Token>, Vec<Diagnostic>) {
         let mut diag = Vec::<Diagnostic>::new();
         let mut lexer = Lexer::new(input);
         let mut tokens = Vec::new();
@@ -1645,7 +1650,7 @@ mod tests {
             state = next_state_for_testing(&token, input.as_bytes(), state);
             tokens.push(token);
         }
-        tokens
+        (tokens, diag)
     }
 
     fn next_state_for_testing(tok: &Token, bytes: &[u8], prev: LexerState) -> LexerState {
@@ -2566,6 +2571,19 @@ mod tests {
     }
 
     #[test]
+    fn test_lex_ident_invalid_non_ascii() {
+        let src = EStrRef::from_bytes(b"\xE3\x81", Encoding::UTF_8);
+        let (_, diag) = lex_all_with_diag_from(src, LexerState::Begin);
+        assert_eq!(
+            diag,
+            vec![Diagnostic {
+                range: pos_in(src, b"\xE3\x81", 0),
+                message: "The identifier contains invalid characters".to_owned(),
+            }]
+        );
+    }
+
+    #[test]
     fn test_lex_const_simple() {
         assert_lex("Foo123", |src| {
             vec![token(TokenKind::Const, pos_in(src, b"Foo123", 0), 0)]
@@ -2580,16 +2598,22 @@ mod tests {
     }
 
     #[test]
-    fn test_lex_ident_bang_simple() {
-        assert_lex("foo123!", |src| {
-            vec![token(TokenKind::MethodName, pos_in(src, b"foo123!", 0), 0)]
-        });
+    fn test_lex_const_invalid_non_ascii() {
+        let src = EStrRef::from_bytes(b"\xCE\xA9\xE3\x81", Encoding::UTF_8);
+        let (_, diag) = lex_all_with_diag_from(src, LexerState::Begin);
+        assert_eq!(
+            diag,
+            vec![Diagnostic {
+                range: pos_in(src, b"\xCE\xA9\xE3\x81", 0),
+                message: "The identifier contains invalid characters".to_owned(),
+            }]
+        );
     }
 
     #[test]
-    fn test_lex_ident_q_simple() {
-        assert_lex("foo123?", |src| {
-            vec![token(TokenKind::MethodName, pos_in(src, b"foo123?", 0), 0)]
+    fn test_lex_ident_bang_simple() {
+        assert_lex("foo123!", |src| {
+            vec![token(TokenKind::MethodName, pos_in(src, b"foo123!", 0), 0)]
         });
     }
 
@@ -2601,10 +2625,120 @@ mod tests {
     }
 
     #[test]
+    fn test_lex_ident_bang_eq() {
+        assert_lex("foo123!=", |src| {
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
+                token(TokenKind::ExclEq, pos_in(src, b"!=", 0), 0),
+            ]
+        });
+    }
+
+    #[test]
+    fn test_lex_ident_q_simple() {
+        assert_lex("foo123?", |src| {
+            vec![token(TokenKind::MethodName, pos_in(src, b"foo123?", 0), 0)]
+        });
+    }
+
+    #[test]
     fn test_lex_ident_q_capital() {
         assert_lex("Foo123?", |src| {
             vec![token(TokenKind::MethodName, pos_in(src, b"Foo123?", 0), 0)]
         });
+    }
+
+    #[test]
+    fn test_lex_ident_q_eq() {
+        assert_lex("foo123?=", |src| {
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
+                token(TokenKind::Question, pos_in(src, b"?", 0), 0),
+                token(TokenKind::Eq, pos_in(src, b"=", 0), 0),
+            ]
+        });
+    }
+
+    #[test]
+    fn test_lex_ident_eq_join() {
+        assert_lex_for(
+            "foo123=",
+            &[LexerState::MethForDef, LexerState::MethOrSymbolForDef],
+            |src| vec![token(TokenKind::MethodName, pos_in(src, b"foo123=", 0), 0)],
+        );
+    }
+
+    #[test]
+    fn test_lex_ident_eq_separate() {
+        assert_lex_except(
+            "foo123=",
+            &[LexerState::MethForDef, LexerState::MethOrSymbolForDef],
+            |src| {
+                vec![
+                    token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
+                    token(TokenKind::Eq, pos_in(src, b"=", 0), 0),
+                ]
+            },
+        );
+    }
+
+    #[test]
+    fn test_lex_ident_eq_tilde() {
+        assert_lex("foo123=~", |src| {
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
+                token(TokenKind::EqMatch, pos_in(src, b"=~", 0), 0),
+            ]
+        });
+    }
+
+    #[test]
+    fn test_lex_ident_eq_gt() {
+        assert_lex("foo123=>", |src| {
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
+                token(TokenKind::FatArrow, pos_in(src, b"=>", 0), 0),
+            ]
+        });
+    }
+
+    #[test]
+    fn test_lex_ident_eq_eq() {
+        assert_lex("foo123==", |src| {
+            vec![
+                token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
+                token(TokenKind::EqEq, pos_in(src, b"==", 0), 0),
+            ]
+        });
+    }
+
+    #[test]
+    fn test_lex_ident_eq_eq_gt_join() {
+        assert_lex_for(
+            "foo123==>",
+            &[LexerState::MethForDef, LexerState::MethOrSymbolForDef],
+            |src| {
+                vec![
+                    token(TokenKind::MethodName, pos_in(src, b"foo123=", 0), 0),
+                    token(TokenKind::FatArrow, pos_in(src, b"=>", 0), 0),
+                ]
+            },
+        );
+    }
+
+    #[test]
+    fn test_lex_ident_eq_eq_gt_separate() {
+        assert_lex_except(
+            "foo123==>",
+            &[LexerState::MethForDef, LexerState::MethOrSymbolForDef],
+            |src| {
+                vec![
+                    token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
+                    token(TokenKind::EqEq, pos_in(src, b"==", 0), 0),
+                    token(TokenKind::Gt, pos_in(src, b">", 0), 0),
+                ]
+            },
+        );
     }
 
     #[test]
@@ -2636,6 +2770,43 @@ mod tests {
     }
 
     #[test]
+    fn test_lex_ivar_name_non_ascii() {
+        assert_lex("@あ", |src| {
+            vec![token(
+                TokenKind::IvarName,
+                pos_in(src, b"@\xE3\x81\x82", 0),
+                0,
+            )]
+        });
+    }
+
+    #[test]
+    fn test_lex_ivar_name_invalid_non_ascii() {
+        let src = EStrRef::from_bytes(b"@\xE3\x81", Encoding::UTF_8);
+        let (_, diag) = lex_all_with_diag_from(src, LexerState::Begin);
+        assert_eq!(
+            diag,
+            vec![Diagnostic {
+                range: pos_in(src, b"@\xE3\x81", 0),
+                message: "The instance variable name contains invalid characters".to_owned(),
+            }]
+        );
+    }
+
+    #[test]
+    fn test_lex_ivar_name_invalid_digit() {
+        let src = EStrRef::from("@123");
+        let (_, diag) = lex_all_with_diag_from(src, LexerState::Begin);
+        assert_eq!(
+            diag,
+            vec![Diagnostic {
+                range: pos_in(src, b"@123", 0),
+                message: "Invalid instance variable name".to_owned(),
+            }]
+        );
+    }
+
+    #[test]
     fn test_lex_cvar_name_simple() {
         assert_lex("@@foo123", |src| {
             vec![token(TokenKind::CvarName, pos_in(src, b"@@foo123", 0), 0)]
@@ -2650,6 +2821,43 @@ mod tests {
     }
 
     #[test]
+    fn test_lex_cvar_name_non_ascii() {
+        assert_lex("@@あ", |src| {
+            vec![token(
+                TokenKind::CvarName,
+                pos_in(src, b"@@\xE3\x81\x82", 0),
+                0,
+            )]
+        });
+    }
+
+    #[test]
+    fn test_lex_cvar_name_invalid_non_ascii() {
+        let src = EStrRef::from_bytes(b"@@\xE3\x81", Encoding::UTF_8);
+        let (_, diag) = lex_all_with_diag_from(src, LexerState::Begin);
+        assert_eq!(
+            diag,
+            vec![Diagnostic {
+                range: pos_in(src, b"@@\xE3\x81", 0),
+                message: "The class variable name contains invalid characters".to_owned(),
+            }]
+        );
+    }
+
+    #[test]
+    fn test_lex_cvar_name_invalid_digit() {
+        let src = EStrRef::from("@@123");
+        let (_, diag) = lex_all_with_diag_from(src, LexerState::Begin);
+        assert_eq!(
+            diag,
+            vec![Diagnostic {
+                range: pos_in(src, b"@@123", 0),
+                message: "Invalid class variable name".to_owned(),
+            }]
+        );
+    }
+
+    #[test]
     fn test_lex_gvar_name_simple() {
         assert_lex("$foo123", |src| {
             vec![token(TokenKind::GvarName, pos_in(src, b"$foo123", 0), 0)]
@@ -2661,6 +2869,30 @@ mod tests {
         assert_lex("$Baz", |src| {
             vec![token(TokenKind::GvarName, pos_in(src, b"$Baz", 0), 0)]
         });
+    }
+
+    #[test]
+    fn test_lex_gvar_non_ascii() {
+        assert_lex("$あ", |src| {
+            vec![token(
+                TokenKind::GvarName,
+                pos_in(src, b"$\xE3\x81\x82", 0),
+                0,
+            )]
+        });
+    }
+
+    #[test]
+    fn test_lex_gvar_invalid_non_ascii() {
+        let src = EStrRef::from_bytes(b"$\xE3\x81", Encoding::UTF_8);
+        let (_, diag) = lex_all_with_diag_from(src, LexerState::Begin);
+        assert_eq!(
+            diag,
+            vec![Diagnostic {
+                range: pos_in(src, b"$\xE3\x81", 0),
+                message: "The global variable name contains invalid characters".to_owned(),
+            }]
+        );
     }
 
     #[test]
@@ -2944,6 +3176,42 @@ mod tests {
         assert_lex("!", |src| {
             vec![token(TokenKind::Excl, pos_in(src, b"!", 0), 0)]
         });
+    }
+
+    #[test]
+    fn test_excl_at_join() {
+        assert_lex_for(
+            "!@foo",
+            &[
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::MethodName, pos_in(src, b"!@", 0), 0),
+                    token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
+                ]
+            },
+        );
+    }
+
+    #[test]
+    fn test_excl_at_separate() {
+        assert_lex_except(
+            "!@foo",
+            &[
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::Excl, pos_in(src, b"!", 0), 0),
+                    token(TokenKind::IvarName, pos_in(src, b"@foo", 0), 0),
+                ]
+            },
+        );
     }
 
     #[test]
@@ -3408,6 +3676,63 @@ mod tests {
     }
 
     #[test]
+    fn test_plus_at_join() {
+        assert_lex_for(
+            "+@foo",
+            &[
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::MethodName, pos_in(src, b"+@", 0), 0),
+                    token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
+                ]
+            },
+        );
+    }
+
+    #[test]
+    fn test_plus_at_separate_infix() {
+        assert_lex_for(
+            "+@foo",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::Plus, pos_in(src, b"+", 0), 0),
+                    token(TokenKind::IvarName, pos_in(src, b"@foo", 0), 0),
+                ]
+            },
+        );
+    }
+
+    #[test]
+    fn test_plus_at_separate_prefix() {
+        assert_lex_except(
+            "+@foo",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::PlusPrefix, pos_in(src, b"+", 0), 0),
+                    token(TokenKind::IvarName, pos_in(src, b"@foo", 0), 0),
+                ]
+            },
+        );
+    }
+
+    #[test]
     fn test_comma() {
         assert_lex(",", |src| {
             vec![token(TokenKind::Comma, pos_in(src, b",", 0), 0)]
@@ -3505,6 +3830,63 @@ mod tests {
                 LexerState::MethForCall,
             ],
             |src| vec![token(TokenKind::MinusPrefix, pos_in(src, b"-", 0), 0)],
+        );
+    }
+
+    #[test]
+    fn test_minus_at_join() {
+        assert_lex_for(
+            "-@foo",
+            &[
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::MethodName, pos_in(src, b"-@", 0), 0),
+                    token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
+                ]
+            },
+        );
+    }
+
+    #[test]
+    fn test_minus_at_separate_infix() {
+        assert_lex_for(
+            "-@foo",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::Minus, pos_in(src, b"-", 0), 0),
+                    token(TokenKind::IvarName, pos_in(src, b"@foo", 0), 0),
+                ]
+            },
+        );
+    }
+
+    #[test]
+    fn test_minus_at_separate_prefix() {
+        assert_lex_except(
+            "-@foo",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::MinusPrefix, pos_in(src, b"-", 0), 0),
+                    token(TokenKind::IvarName, pos_in(src, b"@foo", 0), 0),
+                ]
+            },
         );
     }
 
@@ -3965,6 +4347,112 @@ mod tests {
     }
 
     #[test]
+    fn test_aref_join() {
+        assert_lex_for(
+            "[]",
+            &[
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::MethodName, pos_in(src, b"[]", 0), 0)],
+        );
+    }
+
+    #[test]
+    fn test_aref_separate_infix() {
+        assert_lex_for(
+            "[]",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::LBracket, pos_in(src, b"[", 0), 0),
+                    token(TokenKind::RBracket, pos_in(src, b"]", 0), 0),
+                ]
+            },
+        );
+    }
+
+    #[test]
+    fn test_aref_separate_prefix() {
+        assert_lex_except(
+            "[]",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::LBracketPrefix, pos_in(src, b"[", 0), 0),
+                    token(TokenKind::RBracket, pos_in(src, b"]", 0), 0),
+                ]
+            },
+        );
+    }
+
+    #[test]
+    fn test_aset_join() {
+        assert_lex_for(
+            "[]=",
+            &[
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::MethodName, pos_in(src, b"[]=", 0), 0)],
+        );
+    }
+
+    #[test]
+    fn test_aset_separate_infix() {
+        assert_lex_for(
+            "[]=",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::LBracket, pos_in(src, b"[", 0), 0),
+                    token(TokenKind::RBracket, pos_in(src, b"]", 0), 0),
+                    token(TokenKind::Eq, pos_in(src, b"=", 0), 0),
+                ]
+            },
+        );
+    }
+
+    #[test]
+    fn test_aset_separate_prefix() {
+        assert_lex_except(
+            "[]=",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::LBracketPrefix, pos_in(src, b"[", 0), 0),
+                    token(TokenKind::RBracket, pos_in(src, b"]", 0), 0),
+                    token(TokenKind::Eq, pos_in(src, b"=", 0), 0),
+                ]
+            },
+        );
+    }
+
+    #[test]
     fn test_rbracket() {
         assert_lex("]", |src| {
             vec![token(TokenKind::RBracket, pos_in(src, b"]", 0), 0)]
@@ -4039,5 +4527,41 @@ mod tests {
         assert_lex("~", |src| {
             vec![token(TokenKind::Tilde, pos_in(src, b"~", 0), 0)]
         });
+    }
+
+    #[test]
+    fn test_tilde_at_join() {
+        assert_lex_for(
+            "~@foo",
+            &[
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::MethodName, pos_in(src, b"~@", 0), 0),
+                    token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
+                ]
+            },
+        );
+    }
+
+    #[test]
+    fn test_tilde_at_separate() {
+        assert_lex_except(
+            "~@foo",
+            &[
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::Tilde, pos_in(src, b"~", 0), 0),
+                    token(TokenKind::IvarName, pos_in(src, b"@foo", 0), 0),
+                ]
+            },
+        );
     }
 }
