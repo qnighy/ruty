@@ -1,7 +1,13 @@
-use std::{collections::HashMap, sync::LazyLock};
+use core::str;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::LazyLock,
+};
+
+use ordered_float::NotNan;
 
 use crate::{
-    ast::CodeRange,
+    ast::{CodeRange, NumericValue},
     encoding::{EStrRef, EncodingState},
     Diagnostic,
 };
@@ -125,15 +131,8 @@ pub(super) enum TokenKind {
     /// `$foo` etc., namely `tGVAR`, `tNTH_REF`, and `tBACK_REF`
     GvarName,
 
-    // TODO: merge Integer/Float/Rational/Imaginary into Numeric
-    /// `123` etc., namely `tINTEGER`
-    Integer,
-    /// `123.0` etc., namely `tFLOAT`
-    Float,
-    /// `123r` etc., namely `tRATIONAL`
-    Rational,
-    /// `123i` etc., namely `tIMAGINARY`
-    Imaginary,
+    /// `123` etc., namely `tINTEGER`, `tFLOAT`, `tRATIONAL`, and `tIMAGINARY`
+    Numeric,
     /// `?a` etc., namely `tCHAR`
     CharLiteral,
 
@@ -746,12 +745,7 @@ impl<'a> Lexer<'a> {
                     }
                 }
             }
-            b'0'..=b'9' => {
-                while self.peek_byte().is_ascii_digit() {
-                    self.pos += 1;
-                }
-                TokenKind::Integer
-            }
+            b'0'..=b'9' => self.lex_numeric(diag),
             // `!`
             // `!@`
             // `!=`
@@ -921,7 +915,12 @@ impl<'a> Lexer<'a> {
                     }
                     _ => {
                         if state.prefer_prefix_operator(space_before, self.peek_space()) {
-                            TokenKind::PlusPrefix
+                            if self.peek_byte().is_ascii_digit() {
+                                // Leave '+' eaten so that lex_numeric need not to check it again
+                                self.lex_numeric(diag)
+                            } else {
+                                TokenKind::PlusPrefix
+                            }
                         } else {
                             TokenKind::Plus
                         }
@@ -979,17 +978,10 @@ impl<'a> Lexer<'a> {
                         }
                     }
                     b'0'..=b'9' => {
-                        while self.peek_byte().is_ascii_digit() {
-                            self.pos += 1;
-                        }
-                        diag.push(Diagnostic {
-                            range: CodeRange {
-                                start,
-                                end: self.pos,
-                            },
-                            message: format!("Invalid float literal"),
-                        });
-                        TokenKind::Float
+                        self.pos -= 1;
+                        // Always results in an invalid float, though
+                        // it seems the best guess at this point.
+                        self.lex_numeric(diag)
                     }
                     _ => TokenKind::Dot,
                 }
@@ -1303,6 +1295,293 @@ impl<'a> Lexer<'a> {
             range: CodeRange { start, end },
             indent: self.indent,
         }
+    }
+
+    fn lex_numeric(&mut self, diag: &mut Vec<Diagnostic>) -> TokenKind {
+        // For sign:
+        // - '+' was already consumed in the caller
+        // - For '-', it is tokenized separately so that `-2 ** 2` parses as `-(2 ** 2)`
+        // So, we don't need to check for sign here
+
+        let start = self.pos;
+
+        let body_result = if self.peek_byte() == b'0' {
+            self.pos += 1;
+            match self.peek_byte() {
+                b'b' | b'B' => {
+                    self.pos += 1;
+                    self.lex_integer_body(|b| b == b'0' || b == b'1')
+                }
+                b'd' | b'D' => {
+                    self.pos += 1;
+                    self.lex_integer_body(|b| b.is_ascii_digit())
+                }
+                b'o' | b'O' => {
+                    self.pos += 1;
+                    self.lex_integer_body(|b| matches!(b, b'0'..=b'7'))
+                }
+                b'x' | b'X' => {
+                    self.pos += 1;
+                    self.lex_integer_body(|b| b.is_ascii_hexdigit())
+                }
+                b'0'..b'9' | b'_' => {
+                    self.pos -= 1;
+                    self.lex_integer_body(|b| matches!(b, b'0'..=b'7'))
+                }
+                _ => {
+                    self.pos -= 1;
+                    self.lex_decimal_body()
+                }
+            }
+        } else {
+            self.lex_decimal_body()
+        };
+        if let Ok(found_e) = body_result {
+            let body_end = self.pos;
+            while is_ident_continue(self.peek_byte()) {
+                self.pos += 1;
+            }
+            let suffix = &self.bytes()[body_end..self.pos];
+            if SUFFIX_KEYWORDS.contains(&suffix) {
+                // Something like `1and` is found and there is a chance
+                // that it is a part of a valid expression like `1and 0`.
+                self.pos = body_end;
+                return TokenKind::Numeric;
+            } else if suffix == b""
+                || suffix == b"i"
+                || (!found_e && suffix == b"r")
+                || (!found_e && suffix == b"ri")
+            {
+                // Valid numeric suffixes.
+                // Also check for numeric-like invalid continuations.
+                let has_invalid_cont =
+                    self.peek_byte() == b'.' && self.peek_byte_at(1).is_ascii_digit();
+                if !has_invalid_cont {
+                    return TokenKind::Numeric;
+                }
+            }
+        }
+        self.pos = start;
+        self.lex_erroneous_numeric(diag)
+    }
+
+    fn lex_decimal_body(&mut self) -> Result<bool, ()> {
+        self.lex_integer_body(|b| b.is_ascii_digit())?;
+        if self.peek_byte() == b'.' && self.peek_byte_at(1).is_ascii_digit() {
+            self.pos += 1;
+            self.lex_integer_body(|b| b.is_ascii_digit())?;
+        }
+        if matches!(self.peek_byte(), b'e' | b'E')
+            && matches!(self.peek_byte_at(1), b'+' | b'-' | b'0'..=b'9')
+        {
+            self.pos += 1;
+            if matches!(self.peek_byte(), b'+' | b'-') {
+                self.pos += 1;
+            }
+            self.lex_integer_body(|b| b.is_ascii_digit())?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    fn lex_integer_body(&mut self, mut is_digit: impl FnMut(u8) -> bool) -> Result<bool, ()> {
+        let start = self.pos;
+        let mut underscore = true;
+        loop {
+            if self.peek_byte() == b'_' {
+                if underscore {
+                    return Err(());
+                }
+                underscore = true;
+                self.pos += 1;
+            } else if is_digit(self.peek_byte()) {
+                underscore = false;
+                self.pos += 1;
+            } else {
+                break;
+            }
+        }
+        if !underscore && start < self.pos {
+            Ok(false)
+        } else {
+            Err(())
+        }
+    }
+
+    fn lex_erroneous_numeric(&mut self, diag: &mut Vec<Diagnostic>) -> TokenKind {
+        // Error recovery. It reconsumes the token to get more intuitive boundary.
+
+        // Modified starting point for error reporting
+        let start_mod = if self.pos > 0 && matches!(self.bytes()[self.pos - 1], b'+' | b'-') {
+            self.pos - 1
+        } else {
+            self.pos
+        };
+
+        let (base, allow_float) = if self.peek_byte() == b'0' {
+            self.pos += 1;
+            match self.peek_byte() {
+                b'b' | b'B' => {
+                    self.pos += 1;
+                    (2, false)
+                }
+                b'd' | b'D' => {
+                    self.pos += 1;
+                    (10, false)
+                }
+                b'o' | b'O' => {
+                    self.pos += 1;
+                    (8, false)
+                }
+                b'x' | b'X' => {
+                    self.pos += 1;
+                    (16, false)
+                }
+                b'0'..b'9' | b'_' => {
+                    self.pos -= 1;
+                    (8, false)
+                }
+                _ => {
+                    self.pos -= 1;
+                    (10, true)
+                }
+            }
+        } else {
+            (10, true)
+        };
+        let mut first_invalid_letter: Option<usize> = None;
+        let mut num_points = 0;
+        let mut num_exponents = 0;
+        let mut has_point_after_exponent = false;
+        let mut has_invalid_digit = false;
+        let mut invalid_leading_underscore = false;
+        let mut invalid_trailing_underscore = false;
+        let mut invalid_leading_point = false;
+        let mut invalid_trailing_point = false;
+        loop {
+            match self.peek_byte() {
+                // exponents (except hexadecimals)
+                b'e' | b'E' if base != 16 && self.peek_byte_at(1).is_ascii_digit() => {
+                    num_exponents += 1;
+                    self.pos += 2;
+                }
+                b'e' | b'E'
+                    if base != 16
+                        && matches!(self.peek_byte_at(1), b'+' | b'-')
+                        && self.peek_byte_at(2).is_ascii_digit() =>
+                {
+                    self.pos += 3;
+                }
+                b'a'..b'f' | b'A'..b'F' if base == 16 => {
+                    self.pos += 1;
+                }
+                b'a'..b'z' | b'A'..b'Z' => {
+                    if first_invalid_letter.is_none() {
+                        first_invalid_letter = Some(self.pos);
+                    }
+                    self.pos += 1;
+                }
+                b'_' => {
+                    let a = self.peek_byte_at(1);
+                    if !a.is_ascii_digit() && !(a.is_ascii_hexdigit() && base == 16) {
+                        invalid_trailing_underscore = true;
+                    }
+                    let b = self.bytes()[self.pos.saturating_sub(1)];
+                    if !b.is_ascii_digit() && !(b.is_ascii_hexdigit() && base == 16) {
+                        invalid_leading_underscore = true;
+                    }
+                    self.pos += 1;
+                }
+                b'0'..b'9' => {
+                    if (self.peek_byte() - b'0') >= base {
+                        has_invalid_digit = true;
+                    }
+                    self.pos += 1;
+                }
+                // decimal point, only when followed by a decimal digit
+                b'.' if self.peek_byte_at(1).is_ascii_digit() => {
+                    num_points += 1;
+                    if num_exponents > 0 {
+                        has_point_after_exponent = true;
+                    }
+                    let a = self.peek_byte_at(1);
+                    if !a.is_ascii_digit() && a != b'_' {
+                        invalid_trailing_point = true;
+                    }
+                    let b = self.bytes()[self.pos.saturating_sub(1)];
+                    if !b.is_ascii_digit() && b != b'_' {
+                        invalid_leading_point = true;
+                    }
+                    self.pos += 2;
+                }
+                _ => {
+                    break;
+                }
+            }
+        }
+        let mut multiple_r_suffixes = false;
+        let mut multiple_i_suffixes = false;
+        let mut i_before_r = false;
+        let mut invalid_r = false;
+        if let Some(pos) = first_invalid_letter {
+            let maybe_suffix = &self.bytes()[pos..self.pos];
+            if maybe_suffix.iter().all(|&b| b == b'r' || b == b'i') {
+                multiple_r_suffixes = maybe_suffix.iter().filter(|&&b| b == b'r').count() > 1;
+                multiple_i_suffixes = maybe_suffix.iter().filter(|&&b| b == b'i').count() > 1;
+                i_before_r = maybe_suffix.contains(&b'i')
+                    && maybe_suffix.contains(&b'r')
+                    && maybe_suffix != b"ri";
+                invalid_r = num_exponents > 0 && maybe_suffix.contains(&b'r');
+                first_invalid_letter = None;
+            }
+        }
+
+        let range = CodeRange {
+            start: start_mod,
+            end: self.pos,
+        };
+        let msg = if let Some(pos) = first_invalid_letter {
+            let b = self.bytes()[pos];
+            if b < 0x80 {
+                format!("Invalid letter in a number: {}", b as char)
+            } else {
+                format!("Invalid letter in a number")
+            }
+        } else if !allow_float && (num_exponents > 0 || num_points > 0) {
+            format!("Float literal cannot have a base prefix")
+        } else if num_points > 1 {
+            format!("Multiple decimal points in a number")
+        } else if num_exponents > 1 {
+            format!("Multiple exponents in a number")
+        } else if has_point_after_exponent {
+            format!("Decimal point should appear before the exponent")
+        } else if invalid_leading_point {
+            format!("Numbers cannot start with a decimal point")
+        } else if invalid_trailing_point {
+            format!("Numbers cannot end with a decimal point")
+        } else if has_invalid_digit {
+            format!("Invalid digit for base {}", base)
+        } else if invalid_leading_underscore {
+            format!("Underscore should follow a digit")
+        } else if invalid_trailing_underscore {
+            format!("Underscore should precede a digit")
+        } else if multiple_r_suffixes {
+            format!("Multiple 'r' suffixes in a number")
+        } else if multiple_i_suffixes {
+            format!("Multiple 'i' suffixes in a number")
+        } else if i_before_r {
+            format!("'i' should precede 'r' in a number")
+        } else if invalid_r {
+            format!("Rational number cannot have an exponent")
+        } else {
+            format!("Invalid number")
+        };
+        diag.push(Diagnostic {
+            range,
+            message: msg,
+        });
+        TokenKind::Numeric
     }
 
     fn lex_string_like(&mut self, _diag: &mut Vec<Diagnostic>, delim: StringDelimiter) -> Token {
@@ -1656,6 +1935,247 @@ static KEYWORDS: LazyLock<HashMap<&'static [u8], TokenKind>> = LazyLock::new(|| 
     ])
 });
 
+/// List of keywords that can follow an expression.
+///
+/// Used to determine when to split a seemingly consecutive tokens like
+/// `0and` and `$-Ior`.
+static SUFFIX_KEYWORDS: LazyLock<HashSet<&'static [u8]>> = LazyLock::new(|| {
+    HashSet::from_iter(vec![
+        // `0and 1`
+        &b"and"[..],
+        // `f 1do end`
+        b"do",
+        // `if 0; 1else end`
+        b"else",
+        // `if 0; 1elsif 2; end`
+        b"elsif",
+        // `begin 1end`
+        b"end",
+        // `begin 1ensure end`
+        b"ensure",
+        // `1if 0`
+        b"if",
+        // `1in 1`
+        b"in",
+        // `1or 2`
+        b"or",
+        // `1rescue 2`
+        b"rescue",
+        // `if 1then end`
+        b"then",
+        // `1unless 0`
+        b"unless",
+        // `1until 0`
+        b"until",
+        // `case 0when 1; end`
+        b"when",
+        // `1while 0`
+        b"while",
+    ])
+});
+
+pub(crate) fn interpret_numeric(mut s: &[u8]) -> (NumericValue, bool) {
+    // Validation is already done by the lexer,
+    // so it is just sufficient to loosely parse it.
+
+    // Strip the suffixes and prefixes
+    let mut neg = false;
+    let mut base = 10;
+    let mut imaginary = false;
+    let mut rational = false;
+    loop {
+        if s.starts_with(b"+") {
+            s = &s[1..];
+            continue;
+        } else if s.starts_with(b"-") {
+            s = &s[1..];
+            neg = true;
+            continue;
+        }
+        break;
+    }
+    if s.len() >= 2 && s[0] == b'0' {
+        match s[1] {
+            b'b' | b'B' => {
+                base = 2;
+                s = &s[2..];
+            }
+            b'd' | b'D' => {
+                base = 10;
+                s = &s[2..];
+            }
+            b'o' | b'O' => {
+                base = 8;
+                s = &s[2..];
+            }
+            b'x' | b'X' => {
+                base = 16;
+                s = &s[2..];
+            }
+            b'0'..=b'9' | b'_' => {
+                base = 8;
+            }
+            _ => {}
+        }
+    }
+    loop {
+        if s.ends_with(b"i") {
+            s = &s[..s.len() - 1];
+            imaginary = true;
+            continue;
+        } else if s.ends_with(b"r") {
+            s = &s[..s.len() - 1];
+            rational = true;
+            continue;
+        }
+        break;
+    }
+    let value = if !rational
+        && (s.contains(&b'.') || (base != 16 && s.iter().any(|&b| b == b'e' || b == b'E')))
+    {
+        // Float
+        if let Some(result) = str::from_utf8(s).ok().and_then(|s| s.parse::<f64>().ok()) {
+            NumericValue::Float(NotNan::new(result).unwrap_or_default())
+        } else {
+            // Get the source reformatted
+            let mut src = String::new();
+            loop {
+                match s.get(0).copied().unwrap_or(b'\0') {
+                    b'0'..=b'9' => {
+                        src.push(s[0] as char);
+                        s = &s[1..];
+                    }
+                    b'_' => {
+                        s = &s[1..];
+                    }
+                    _ => break,
+                }
+            }
+            if src == "" {
+                src.push('0');
+            }
+            if s.starts_with(b".") {
+                src.push('.');
+                s = &s[1..];
+                let len = s.len();
+                loop {
+                    match s.get(0).copied().unwrap_or(b'\0') {
+                        b'0'..=b'9' => {
+                            src.push(s[0] as char);
+                            s = &s[1..];
+                        }
+                        b'_' => {
+                            s = &s[1..];
+                        }
+                        _ => break,
+                    }
+                }
+                if len == s.len() {
+                    src.push('0');
+                }
+            }
+            if s.starts_with(b"e") || s.starts_with(b"E") {
+                src.push('e');
+                s = &s[1..];
+                if s.starts_with(b"-") {
+                    src.push('-');
+                    s = &s[1..];
+                } else if s.starts_with(b"+") {
+                    s = &s[1..];
+                }
+                let len = s.len();
+                loop {
+                    match s.get(0).copied().unwrap_or(b'\0') {
+                        b'0'..=b'9' => {
+                            src.push(s[0] as char);
+                            s = &s[1..];
+                        }
+                        b'_' => {
+                            s = &s[1..];
+                        }
+                        _ => break,
+                    }
+                }
+                if len == s.len() {
+                    src.push('0');
+                }
+            }
+            NumericValue::Float(NotNan::new(src.parse().unwrap_or_default()).unwrap_or_default())
+        }
+    } else if rational && base == 10 {
+        // Decimal Rational
+        let mut numerator = 0;
+        let mut denominator = 1;
+        loop {
+            match s.get(0).copied().unwrap_or(b'\0') {
+                b'0'..=b'9' => {
+                    numerator = numerator * 10 + (s[0] - b'0') as i32;
+                    s = &s[1..];
+                }
+                b'_' => {
+                    s = &s[1..];
+                }
+                _ => break,
+            }
+        }
+        if s.starts_with(b".") {
+            s = &s[1..];
+            loop {
+                match s.get(0).copied().unwrap_or(b'\0') {
+                    b'0'..=b'9' => {
+                        numerator = numerator * 10 + (s[0] - b'0') as i32;
+                        denominator *= 10;
+                        s = &s[1..];
+                    }
+                    b'_' => {
+                        s = &s[1..];
+                    }
+                    _ => break,
+                }
+            }
+        }
+        NumericValue::Rational(numerator, denominator)
+    } else {
+        // Integer
+        let mut value = 0;
+        loop {
+            match s.get(0).copied().unwrap_or(b'\0') {
+                b'0'..=b'9' => {
+                    value = value * base + (s[0] - b'0') as i32;
+                    s = &s[1..];
+                }
+                b'a'..=b'f' => {
+                    value = value * base + (s[0] - b'a' + 10) as i32;
+                    s = &s[1..];
+                }
+                b'A'..=b'F' => {
+                    value = value * base + (s[0] - b'A' + 10) as i32;
+                    s = &s[1..];
+                }
+                b'_' => {
+                    s = &s[1..];
+                }
+                _ => break,
+            }
+        }
+        if rational {
+            NumericValue::Rational(value, 1)
+        } else {
+            NumericValue::Integer(value)
+        }
+    };
+    let value = if neg {
+        match value {
+            NumericValue::Integer(v) => NumericValue::Integer(-v),
+            NumericValue::Float(v) => NumericValue::Float(-v),
+            NumericValue::Rational(n, d) => NumericValue::Rational(-n, d),
+        }
+    } else {
+        value
+    };
+    (value, imaginary)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{ast::pos_in, Encoding};
@@ -1749,10 +2269,7 @@ mod tests {
             TokenKind::IvarName => LexerState::End,
             TokenKind::CvarName => LexerState::End,
             TokenKind::GvarName => LexerState::End,
-            TokenKind::Integer => LexerState::End,
-            TokenKind::Float => LexerState::End,
-            TokenKind::Rational => LexerState::End,
-            TokenKind::Imaginary => LexerState::End,
+            TokenKind::Numeric => LexerState::End,
             TokenKind::CharLiteral => LexerState::End,
             TokenKind::StringBegin => LexerState::StringLike(match bytes[tok.range.start] {
                 b'\'' => StringDelimiter::Quote,
@@ -1987,56 +2504,56 @@ mod tests {
     #[test]
     fn test_lex_spaces_space() {
         assert_lex(" 1", |src| {
-            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 1)]
+            vec![token(TokenKind::Numeric, pos_in(src, b"1", 0), 1)]
         });
     }
 
     #[test]
     fn test_lex_spaces_tab() {
         assert_lex("\t1", |src| {
-            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 8)]
+            vec![token(TokenKind::Numeric, pos_in(src, b"1", 0), 8)]
         });
     }
 
     #[test]
     fn test_lex_spaces_tab_and_space() {
         assert_lex("\t 1", |src| {
-            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 9)]
+            vec![token(TokenKind::Numeric, pos_in(src, b"1", 0), 9)]
         });
     }
 
     #[test]
     fn test_lex_spaces_space_and_tab() {
         assert_lex(" \t1", |src| {
-            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 8)]
+            vec![token(TokenKind::Numeric, pos_in(src, b"1", 0), 8)]
         });
     }
 
     #[test]
     fn test_lex_spaces_vtab() {
         assert_lex("\x0B1", |src| {
-            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 0)]
+            vec![token(TokenKind::Numeric, pos_in(src, b"1", 0), 0)]
         });
     }
 
     #[test]
     fn test_lex_spaces_ff() {
         assert_lex("\x0C1", |src| {
-            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 0)]
+            vec![token(TokenKind::Numeric, pos_in(src, b"1", 0), 0)]
         });
     }
 
     #[test]
     fn test_lex_spaces_cr() {
         assert_lex("\r1", |src| {
-            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 0)]
+            vec![token(TokenKind::Numeric, pos_in(src, b"1", 0), 0)]
         });
     }
 
     #[test]
     fn test_lex_spaces_multiple() {
         assert_lex("  1", |src| {
-            vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 2)]
+            vec![token(TokenKind::Numeric, pos_in(src, b"1", 0), 2)]
         });
     }
 
@@ -2050,7 +2567,7 @@ mod tests {
                 LexerState::WeakFirstArgument,
                 LexerState::End,
             ],
-            |src| vec![token(TokenKind::Integer, pos_in(src, b"1", 0), 0)],
+            |src| vec![token(TokenKind::Numeric, pos_in(src, b"1", 0), 0)],
         );
     }
 
@@ -2928,9 +3445,234 @@ mod tests {
     }
 
     #[test]
-    fn test_lex_integer() {
+    fn test_lex_integer_simple() {
         assert_lex("123", |src| {
-            vec![token(TokenKind::Integer, pos_in(src, b"123", 0), 0)]
+            vec![token(TokenKind::Numeric, pos_in(src, b"123", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_integer_positive() {
+        assert_lex_except(
+            "+123",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::Numeric, pos_in(src, b"+123", 0), 0)],
+        );
+    }
+
+    #[test]
+    fn test_lex_integer_underscore() {
+        assert_lex("1_2_3", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"1_2_3", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_integer_hex_small() {
+        assert_lex("0xff", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"0xff", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_integer_hex_capital() {
+        assert_lex("0XFF", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"0XFF", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_integer_explicit_dec_small() {
+        assert_lex("0d0129", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"0d0129", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_integer_explicit_dec_capital() {
+        assert_lex("0D0129", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"0D0129", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_integer_explicit_oct_small() {
+        assert_lex("0o0127", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"0o0127", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_integer_explicit_oct_capital() {
+        assert_lex("0O0127", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"0O0127", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_integer_oct() {
+        assert_lex("0127", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"0127", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_float_simple() {
+        assert_lex("1.0", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"1.0", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_float_positive() {
+        assert_lex_except(
+            "+1.0",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::Numeric, pos_in(src, b"+1.0", 0), 0)],
+        );
+    }
+
+    #[test]
+    fn test_lex_float_zero() {
+        assert_lex("0.5", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"0.5", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_float_with_exponent_simple() {
+        assert_lex("1e-3", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"1e-3", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_float_with_exponent_capital() {
+        assert_lex("1E-3", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"1E-3", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_float_with_exponent_nosign() {
+        assert_lex("1e3", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"1e3", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_float_with_exponent_negative() {
+        assert_lex("1e-3", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"1e-3", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_float_with_exponent_positive() {
+        assert_lex("1e+3", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"1e+3", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_float_with_exponent_leading_zero() {
+        assert_lex("1e+09", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"1e+09", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_float_with_point_and_exponent() {
+        assert_lex("1.53e-4", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"1.53e-4", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_rational_simple() {
+        assert_lex("3r", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"3r", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_rational_positive() {
+        assert_lex_except(
+            "+3r",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::Numeric, pos_in(src, b"+3r", 0), 0)],
+        );
+    }
+
+    #[test]
+    fn test_lex_rational_float() {
+        assert_lex("3.52r", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"3.52r", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_rational_with_base() {
+        assert_lex("0xFFr", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"0xFFr", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_imaginary_integer_simple() {
+        assert_lex("123i", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"123i", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_imaginary_integer_positive() {
+        assert_lex_except(
+            "+123i",
+            &[
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethOrSymbolForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::Numeric, pos_in(src, b"+123i", 0), 0)],
+        );
+    }
+
+    #[test]
+    fn test_lex_imaginary_float_simple() {
+        assert_lex("1.5i", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"1.5i", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_imaginary_rational_simple() {
+        assert_lex("1.5ri", |src| {
+            vec![token(TokenKind::Numeric, pos_in(src, b"1.5ri", 0), 0)]
         });
     }
 
@@ -4584,6 +5326,78 @@ mod tests {
                     token(TokenKind::IvarName, pos_in(src, b"@foo", 0), 0),
                 ]
             },
+        );
+    }
+
+    #[test]
+    fn test_interpret_numeric_integer_simple() {
+        assert_eq!(
+            interpret_numeric(b"123"),
+            (NumericValue::Integer(123), false)
+        );
+    }
+
+    #[test]
+    fn test_interpret_numeric_integer_positive() {
+        assert_eq!(
+            interpret_numeric(b"+123"),
+            (NumericValue::Integer(123), false)
+        );
+    }
+
+    #[test]
+    fn test_interpret_numeric_integer_negative() {
+        assert_eq!(
+            interpret_numeric(b"-123"),
+            (NumericValue::Integer(-123), false)
+        );
+    }
+
+    #[test]
+    fn test_interpret_numeric_integer_underscore() {
+        assert_eq!(
+            interpret_numeric(b"1_2_3"),
+            (NumericValue::Integer(123), false)
+        );
+    }
+
+    #[test]
+    fn test_interpret_numeric_float_with_point() {
+        assert_eq!(
+            interpret_numeric(b"123.75"),
+            (NumericValue::Float(NotNan::new(123.75).unwrap()), false)
+        );
+    }
+
+    #[test]
+    fn test_interpret_numeric_float_with_exponent() {
+        assert_eq!(
+            interpret_numeric(b"12375e-2"),
+            (NumericValue::Float(NotNan::new(123.75).unwrap()), false)
+        );
+    }
+
+    #[test]
+    fn test_interpret_numeric_float_negative() {
+        assert_eq!(
+            interpret_numeric(b"-123.75"),
+            (NumericValue::Float(NotNan::new(-123.75).unwrap()), false)
+        );
+    }
+
+    #[test]
+    fn test_interpret_numeric_rational_with_point() {
+        assert_eq!(
+            interpret_numeric(b"123.75r"),
+            (NumericValue::Rational(12375, 100), false)
+        );
+    }
+
+    #[test]
+    fn test_interpret_numeric_rational_negative() {
+        assert_eq!(
+            interpret_numeric(b"-123.75r"),
+            (NumericValue::Rational(-12375, 100), false)
         );
     }
 }

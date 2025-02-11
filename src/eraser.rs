@@ -33,7 +33,7 @@ fn collect_ranges_expr(ranges: &mut Vec<CodeRange>, expr: &Expr) {
         Expr::Nil(_) => {}
         Expr::False(_) => {}
         Expr::True(_) => {}
-        Expr::Integer(_) => {}
+        Expr::Numeric(_) => {}
         Expr::String(expr) => {
             collect_ranges_string_contents(ranges, &expr.contents);
         }

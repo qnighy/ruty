@@ -5,9 +5,9 @@ use std::{collections::HashMap, mem::take};
 use crate::{
     ast::{
         AndExpr, CallExpr, CallStyle, CodeRange, ConstExpr, ConstReceiver, ErrorExpr, ErrorType,
-        ErrorWriteTarget, Expr, FalseExpr, FalseType, IfExpr, ImplicitParen, IntegerExpr,
-        IntegerType, InterpolationContent, LocalVariableExpr, LocalVariableWriteTarget, NilExpr,
-        NilStyle, NilType, OrExpr, Paren, ParenParen, Program, RegexpExpr, RegexpType, SelfExpr,
+        ErrorWriteTarget, Expr, FalseExpr, FalseType, IfExpr, ImplicitParen, IntegerType,
+        InterpolationContent, LocalVariableExpr, LocalVariableWriteTarget, NilExpr, NilStyle,
+        NilType, NumericExpr, OrExpr, Paren, ParenParen, Program, RegexpExpr, RegexpType, SelfExpr,
         SeqExpr, SourceEncodingExpr, SourceFileExpr, SourceLineExpr, Stmt, StmtSep, StmtSepKind,
         StringContent, StringExpr, StringType, TextContent, TrueExpr, TrueType, Type,
         TypeAnnotation, UntilExpr, WhileExpr, WriteExpr, WriteTarget, XStringExpr, DUMMY_RANGE,
@@ -15,7 +15,7 @@ use crate::{
     encoding::EStrRef,
     Diagnostic, EString,
 };
-use lexer::{Lexer, LexerState, StringDelimiter, Token, TokenKind};
+use lexer::{interpret_numeric, Lexer, LexerState, StringDelimiter, Token, TokenKind};
 
 pub fn parse(diag: &mut Vec<Diagnostic>, input: EStrRef<'_>, locals: &[EString]) -> Program {
     let mut parser = Parser::new(input);
@@ -1416,15 +1416,16 @@ impl<'a> Parser<'a> {
                     .into(),
                 )
             }
-            TokenKind::Integer => {
+            TokenKind::Numeric => {
                 self.bump();
+                let s = self.select(token.range);
+                let (value, imaginary) = interpret_numeric(s.as_bytes());
                 ExprLike::Expr(
-                    IntegerExpr {
+                    NumericExpr {
                         range: token.range,
                         parens: Vec::new(),
-                        value: String::from_utf8_lossy(self.select(token.range).as_bytes())
-                            .parse()
-                            .unwrap(),
+                        value,
+                        imaginary,
                     }
                     .into(),
                 )
@@ -2545,10 +2546,7 @@ fn is_cmdarg_begin(token: &Token) -> bool {
         | TokenKind::IvarName
         | TokenKind::CvarName
         | TokenKind::GvarName
-        | TokenKind::Integer
-        | TokenKind::Float
-        | TokenKind::Rational
-        | TokenKind::Imaginary
+        | TokenKind::Numeric
         | TokenKind::CharLiteral
         | TokenKind::StringBegin
         | TokenKind::Excl
@@ -2651,7 +2649,7 @@ mod tests {
     use pretty_assertions::{assert_eq, assert_ne};
 
     use crate::{
-        ast::{pos_in, IntegerExpr, ParenParen},
+        ast::{pos_in, NumericValue, ParenParen},
         CharPlus,
     };
 
@@ -2700,7 +2698,7 @@ mod tests {
             Expr::Nil(_) => 0,
             Expr::False(_) => 0,
             Expr::True(_) => 0,
-            Expr::Integer(_) => 0,
+            Expr::Numeric(_) => 0,
             Expr::String(_) => 0,
             Expr::Regexp(_) => 0,
             Expr::XString(_) => 0,
@@ -2744,8 +2742,21 @@ mod tests {
             Expr::True(_) => {
                 write!(f, "true")?;
             }
-            Expr::Integer(expr) => {
-                write!(f, "{}", expr.value)?;
+            Expr::Numeric(expr) => {
+                match expr.value {
+                    NumericValue::Integer(value) => {
+                        write!(f, "{}", value)?;
+                    }
+                    NumericValue::Float(value) => {
+                        write!(f, "{:?}", f64::from(value))?;
+                    }
+                    NumericValue::Rational(num, den) => {
+                        write!(f, "({}r/{})", num, den)?;
+                    }
+                }
+                if expr.imaginary {
+                    write!(f, "i")?;
+                }
             }
             Expr::String(expr) => {
                 write!(f, "\"")?;
@@ -3299,10 +3310,11 @@ mod tests {
         assert_eq!(
             p_expr(src, &[]),
             (
-                IntegerExpr {
+                NumericExpr {
                     range: pos_in(src, b"42", 0),
                     parens: vec![],
-                    value: 42,
+                    value: NumericValue::Integer(42),
+                    imaginary: false,
                 }
                 .into(),
                 vec![],
@@ -3590,16 +3602,18 @@ mod tests {
                     method: symbol("foo"),
                     method_range: pos_in(src, b"foo", 0),
                     args: vec![
-                        IntegerExpr {
+                        NumericExpr {
                             range: pos_in(src, b"1", 0),
                             parens: vec![],
-                            value: 1,
+                            value: NumericValue::Integer(1),
+                            imaginary: false,
                         }
                         .into(),
-                        IntegerExpr {
+                        NumericExpr {
                             range: pos_in(src, b"2", 0),
                             parens: vec![],
-                            value: 2,
+                            value: NumericValue::Integer(2),
+                            imaginary: false,
                         }
                         .into(),
                     ],
@@ -3725,16 +3739,18 @@ mod tests {
                     method: symbol("foo"),
                     method_range: pos_in(src, b"foo", 0),
                     args: vec![
-                        IntegerExpr {
+                        NumericExpr {
                             range: pos_in(src, b"1", 0),
                             parens: vec![],
-                            value: 1,
+                            value: NumericValue::Integer(1),
+                            imaginary: false,
                         }
                         .into(),
-                        IntegerExpr {
+                        NumericExpr {
                             range: pos_in(src, b"2", 0),
                             parens: vec![],
-                            value: 2,
+                            value: NumericValue::Integer(2),
+                            imaginary: false,
                         }
                         .into(),
                     ],
@@ -3790,10 +3806,11 @@ mod tests {
                         .into()
                     ),
                     rhs: Box::new(
-                        IntegerExpr {
+                        NumericExpr {
                             range: pos_in(src, b"42", 0),
                             parens: vec![],
-                            value: 42
+                            value: NumericValue::Integer(42),
+                            imaginary: false,
                         }
                         .into()
                     ),
@@ -3824,10 +3841,11 @@ mod tests {
                         .into()
                     ),
                     rhs: Box::new(
-                        IntegerExpr {
+                        NumericExpr {
                             range: pos_in(src, b"42", 0),
                             parens: vec![],
-                            value: 42,
+                            value: NumericValue::Integer(42),
+                            imaginary: false,
                         }
                         .into()
                     ),
@@ -4328,10 +4346,11 @@ mod tests {
                                             private: false,
                                             optional: false,
                                             receiver: Box::new(
-                                                IntegerExpr {
+                                                NumericExpr {
                                                     range: pos_in(src, b"0", 0),
                                                     parens: vec![],
-                                                    value: 0,
+                                                    value: NumericValue::Integer(0),
+                                                    imaginary: false,
                                                 }
                                                 .into()
                                             ),

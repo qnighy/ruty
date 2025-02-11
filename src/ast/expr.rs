@@ -1,3 +1,5 @@
+use ordered_float::NotNan;
+
 use crate::{
     ast::{CodeRange, Paren, Stmt, TypeAnnotation, WriteTarget},
     EString,
@@ -9,7 +11,7 @@ pub enum Expr {
     Nil(NilExpr),
     False(FalseExpr),
     True(TrueExpr),
-    Integer(IntegerExpr),
+    Numeric(NumericExpr),
     String(StringExpr),
     Regexp(RegexpExpr),
     XString(XStringExpr),
@@ -34,7 +36,7 @@ impl_from!(
     (Expr, NilExpr, Expr::Nil),
     (Expr, FalseExpr, Expr::False),
     (Expr, TrueExpr, Expr::True),
-    (Expr, IntegerExpr, Expr::Integer),
+    (Expr, NumericExpr, Expr::Numeric),
     (Expr, StringExpr, Expr::String),
     (Expr, RegexpExpr, Expr::Regexp),
     (Expr, XStringExpr, Expr::XString),
@@ -59,7 +61,7 @@ impl_delegators!(
         Nil(NilExpr),
         False(FalseExpr),
         True(TrueExpr),
-        Integer(IntegerExpr),
+        Numeric(NumericExpr),
         String(StringExpr),
         Regexp(RegexpExpr),
         XString(XStringExpr),
@@ -130,11 +132,29 @@ pub struct TrueExpr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct IntegerExpr {
+pub struct NumericExpr {
     pub range: CodeRange,
     pub parens: Vec<Paren>,
 
-    pub value: i32,
+    pub value: NumericValue,
+    /// The value should be a Complex number containing an imaginary part.
+    pub imaginary: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum NumericValue {
+    // TODO: use BigInt
+    /// The value should be an Integer number unless `imaginary` is set.
+    Integer(i32),
+    /// The value should be a Float number unless `imaginary` is set.
+    Float(NotNan<f64>),
+    // TODO: use BigInt
+    /// The value should be a Rational number unless `imaginary` is set.
+    ///
+    /// - The first value is the numerator.
+    /// - The second value is the denominator, which is always positive.
+    /// - The value is always reduced to the simplest form.
+    Rational(i32, i32),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

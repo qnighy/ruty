@@ -5,7 +5,7 @@
 use std::collections::{BTreeSet, HashMap};
 
 use crate::{
-    ast::{CodeRange, ConstReceiver, Expr, Program, WriteTarget, DUMMY_RANGE},
+    ast::{CodeRange, ConstReceiver, Expr, NumericValue, Program, WriteTarget, DUMMY_RANGE},
     Diagnostic, EString,
 };
 
@@ -182,11 +182,49 @@ fn compile_expr(
             range: expr.range,
             live_in: BTreeSet::new(),
         }),
-        Expr::Integer(expr) => iseq.push(Instr {
-            kind: InstrKind::LoadConstInteger { value: expr.value },
-            range: expr.range,
-            live_in: BTreeSet::new(),
-        }),
+        Expr::Numeric(expr) => {
+            if expr.imaginary {
+                diag.push(Diagnostic {
+                    range: expr.range,
+                    message: "Iseq: Imaginary number is not implemented yet".to_owned(),
+                });
+                iseq.push(Instr {
+                    kind: InstrKind::Error,
+                    range: expr.range,
+                    live_in: BTreeSet::new(),
+                })
+            } else {
+                match expr.value {
+                    NumericValue::Integer(value) => iseq.push(Instr {
+                        kind: InstrKind::LoadConstInteger { value },
+                        range: expr.range,
+                        live_in: BTreeSet::new(),
+                    }),
+                    NumericValue::Float(_) => {
+                        diag.push(Diagnostic {
+                            range: expr.range,
+                            message: "Iseq: Float literal is not implemented yet".to_owned(),
+                        });
+                        iseq.push(Instr {
+                            kind: InstrKind::Error,
+                            range: expr.range,
+                            live_in: BTreeSet::new(),
+                        })
+                    }
+                    NumericValue::Rational(_, _) => {
+                        diag.push(Diagnostic {
+                            range: expr.range,
+                            message: "Iseq: Rational literal is not implemented yet".to_owned(),
+                        });
+                        iseq.push(Instr {
+                            kind: InstrKind::Error,
+                            range: expr.range,
+                            live_in: BTreeSet::new(),
+                        })
+                    }
+                }
+            }
+        }
         Expr::String(expr) => {
             // TODO
             diag.push(Diagnostic {
