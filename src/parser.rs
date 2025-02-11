@@ -15,7 +15,7 @@ use crate::{
     encoding::EStrRef,
     Diagnostic, EString,
 };
-use lexer::{interpret_numeric, Lexer, LexerState, StringDelimiter, Token, TokenKind};
+use lexer::{interpret_numeric, Lexer, LexerState, StringDelimiter, StringState, Token, TokenKind};
 
 pub fn parse(diag: &mut Vec<Diagnostic>, input: EStrRef<'_>, locals: &[EString]) -> Program {
     let mut parser = Parser::new(input);
@@ -1430,7 +1430,8 @@ impl<'a> Parser<'a> {
                     .into(),
                 )
             }
-            TokenKind::StringBegin => {
+            TokenKind::StringBegin | TokenKind::StringBeginLabelable => {
+                let labelable = token.kind == TokenKind::StringBeginLabelable;
                 self.bump();
                 let delim = match self.bytes()[token.range.start] {
                     b'\'' => StringDelimiter::Quote,
@@ -1442,7 +1443,13 @@ impl<'a> Parser<'a> {
                 let mut contents = Vec::<StringContent>::new();
                 let close_range;
                 loop {
-                    let token = self.fill_token(diag, LexerState::StringLike(delim));
+                    let token = self.fill_token(
+                        diag,
+                        LexerState::StringLike(StringState {
+                            delim,
+                            allow_label: labelable,
+                        }),
+                    );
                     match token.kind {
                         TokenKind::StringEnd => {
                             self.bump();
@@ -2549,6 +2556,7 @@ fn is_cmdarg_begin(token: &Token) -> bool {
         | TokenKind::Numeric
         | TokenKind::CharLiteral
         | TokenKind::StringBegin
+        | TokenKind::StringBeginLabelable
         | TokenKind::Excl
         | TokenKind::AmpPrefix
         | TokenKind::LParenRestricted

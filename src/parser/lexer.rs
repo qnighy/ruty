@@ -142,6 +142,9 @@ pub(super) enum TokenKind {
     /// - `tXSTRING_BEG`
     /// - `tREGEXP_BEG`
     StringBegin,
+    /// Similar to [TokenKind::StringBegin] but allows converting to a label
+    /// at the end of the string.
+    StringBeginLabelable,
     /// `"` etc. in String-like context. Namely:
     ///
     /// - `tSTRING_END`
@@ -462,7 +465,7 @@ pub(super) enum LexerState {
     /// - Heredocs are suppressed.
     MethForCall,
     /// Special state for string contents.
-    StringLike(StringDelimiter),
+    StringLike(StringState),
 }
 
 impl LexerState {
@@ -554,6 +557,28 @@ impl LexerState {
         }
     }
 
+    /// Should we allow labels, such as:
+    ///
+    /// - `foo:`
+    /// - `foo!:` or `foo?:`
+    /// - `"foo":`
+    fn allow_label(&self) -> bool {
+        match self {
+            LexerState::BeginLabelable
+            | LexerState::FirstArgument
+            | LexerState::WeakFirstArgument => true,
+            _ => false,
+        }
+    }
+
+    fn string_begin(&self) -> TokenKind {
+        if self.allow_label() {
+            TokenKind::StringBeginLabelable
+        } else {
+            TokenKind::StringBegin
+        }
+    }
+
     /// Should we split `||`?
     fn split_vert_vert(&self) -> bool {
         match self {
@@ -581,6 +606,12 @@ impl LexerState {
             LexerState::StringLike(_) => unreachable!(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(super) struct StringState {
+    pub(super) delim: StringDelimiter,
+    pub(super) allow_label: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -639,8 +670,8 @@ impl<'a> Lexer<'a> {
     }
 
     pub(super) fn lex(&mut self, diag: &mut Vec<Diagnostic>, state: LexerState) -> Token {
-        if let LexerState::StringLike(delim) = state {
-            return self.lex_string_like(diag, delim);
+        if let LexerState::StringLike(string_state) = state {
+            return self.lex_string_like(diag, string_state);
         }
         let space_before = self.lex_space(diag, state);
         let start = self.pos;
@@ -681,7 +712,7 @@ impl<'a> Lexer<'a> {
                 while is_ident_continue(self.peek_byte()) {
                     self.pos += 1;
                 }
-                let suffixed = match self.peek_byte() {
+                let is_method_name = match self.peek_byte() {
                     b'!' | b'?' if self.peek_byte_at(1) != b'=' => {
                         self.pos += 1;
                         true
@@ -699,6 +730,15 @@ impl<'a> Lexer<'a> {
                         true
                     }
                     _ => false,
+                };
+                let is_label = if state.allow_label()
+                    && self.peek_byte() == b':'
+                    && self.peek_byte_at(1) != b':'
+                {
+                    self.pos += 1;
+                    true
+                } else {
+                    false
                 };
                 let s_bytes = &self.bytes()[start..self.pos];
                 let s = EStrRef::from_bytes(s_bytes, self.input.encoding());
@@ -726,7 +766,10 @@ impl<'a> Lexer<'a> {
                         }
                         _ => kwd,
                     }
-                } else if suffixed {
+                } else if is_label {
+                    // is_label wins over is_method_name so that `foo?:` is a label
+                    TokenKind::Label
+                } else if is_method_name {
                     TokenKind::MethodName
                 } else {
                     if !s.is_valid() {
@@ -770,7 +813,7 @@ impl<'a> Lexer<'a> {
             }
             b'"' => {
                 self.pos += 1;
-                TokenKind::StringBegin
+                state.string_begin()
             }
             b'#' => {
                 unreachable!("Should have been skipped by lex_space");
@@ -949,7 +992,7 @@ impl<'a> Lexer<'a> {
             }
             b'\'' => {
                 self.pos += 1;
-                TokenKind::StringBegin
+                state.string_begin()
             }
             b'(' => {
                 self.pos += 1;
@@ -1684,7 +1727,7 @@ impl<'a> Lexer<'a> {
         TokenKind::Numeric
     }
 
-    fn lex_string_like(&mut self, _diag: &mut Vec<Diagnostic>, delim: StringDelimiter) -> Token {
+    fn lex_string_like(&mut self, _diag: &mut Vec<Diagnostic>, state: StringState) -> Token {
         if self.pos >= self.bytes().len() {
             return Token {
                 kind: TokenKind::EOF,
@@ -1698,7 +1741,31 @@ impl<'a> Lexer<'a> {
 
         let start = self.pos;
         match self.peek_byte() {
-            b'\'' if delim == StringDelimiter::Quote => {
+            b'\'' if state.delim == StringDelimiter::Quote => {
+                self.pos += 1;
+                let kind = self.extend_string_end(state);
+                Token {
+                    kind,
+                    range: CodeRange {
+                        start,
+                        end: self.pos,
+                    },
+                    indent: self.indent,
+                }
+            }
+            b'"' if state.delim == StringDelimiter::DoubleQuote => {
+                self.pos += 1;
+                let kind = self.extend_string_end(state);
+                Token {
+                    kind,
+                    range: CodeRange {
+                        start,
+                        end: self.pos,
+                    },
+                    indent: self.indent,
+                }
+            }
+            b'`' if state.delim == StringDelimiter::Backtick => {
                 self.pos += 1;
                 Token {
                     kind: TokenKind::StringEnd,
@@ -1709,7 +1776,7 @@ impl<'a> Lexer<'a> {
                     indent: self.indent,
                 }
             }
-            b'"' if delim == StringDelimiter::DoubleQuote => {
+            b'/' if state.delim == StringDelimiter::Slash => {
                 self.pos += 1;
                 Token {
                     kind: TokenKind::StringEnd,
@@ -1720,29 +1787,7 @@ impl<'a> Lexer<'a> {
                     indent: self.indent,
                 }
             }
-            b'`' if delim == StringDelimiter::Backtick => {
-                self.pos += 1;
-                Token {
-                    kind: TokenKind::StringEnd,
-                    range: CodeRange {
-                        start,
-                        end: self.pos,
-                    },
-                    indent: self.indent,
-                }
-            }
-            b'/' if delim == StringDelimiter::Slash => {
-                self.pos += 1;
-                Token {
-                    kind: TokenKind::StringEnd,
-                    range: CodeRange {
-                        start,
-                        end: self.pos,
-                    },
-                    indent: self.indent,
-                }
-            }
-            b'#' if delim.allow_interpolation() && self.lookahead_interpolation() => {
+            b'#' if state.delim.allow_interpolation() && self.lookahead_interpolation() => {
                 self.pos += 1;
                 match self.peek_byte() {
                     b'{' => {
@@ -1779,11 +1824,13 @@ impl<'a> Lexer<'a> {
             _ => {
                 while self.pos < self.bytes().len() {
                     match self.peek_byte() {
-                        b'\'' if delim == StringDelimiter::Quote => break,
-                        b'"' if delim == StringDelimiter::DoubleQuote => break,
-                        b'`' if delim == StringDelimiter::Backtick => break,
-                        b'/' if delim == StringDelimiter::Slash => break,
-                        b'#' if delim.allow_interpolation() && self.lookahead_interpolation() => {
+                        b'\'' if state.delim == StringDelimiter::Quote => break,
+                        b'"' if state.delim == StringDelimiter::DoubleQuote => break,
+                        b'`' if state.delim == StringDelimiter::Backtick => break,
+                        b'/' if state.delim == StringDelimiter::Slash => break,
+                        b'#' if state.delim.allow_interpolation()
+                            && self.lookahead_interpolation() =>
+                        {
                             break
                         }
                         b'\\' if self.pos + 2 <= self.bytes().len() => {
@@ -1810,6 +1857,15 @@ impl<'a> Lexer<'a> {
                     indent: self.indent,
                 }
             }
+        }
+    }
+
+    fn extend_string_end(&mut self, state: StringState) -> TokenKind {
+        if state.allow_label && self.peek_byte() == b':' {
+            self.pos += 1;
+            TokenKind::StringEndColon
+        } else {
+            TokenKind::StringEnd
         }
     }
 
@@ -2371,13 +2427,19 @@ mod tests {
             TokenKind::GvarName => LexerState::End,
             TokenKind::Numeric => LexerState::End,
             TokenKind::CharLiteral => LexerState::End,
-            TokenKind::StringBegin => LexerState::StringLike(match bytes[tok.range.start] {
-                b'\'' => StringDelimiter::Quote,
-                b'"' => StringDelimiter::DoubleQuote,
-                b'`' => StringDelimiter::Backtick,
-                b'/' => StringDelimiter::Slash,
-                _ => unreachable!(),
-            }),
+            TokenKind::StringBegin | TokenKind::StringBeginLabelable => {
+                LexerState::StringLike(StringState {
+                    delim: match bytes[tok.range.start] {
+                        b'\'' => StringDelimiter::Quote,
+                        b'"' => StringDelimiter::DoubleQuote,
+                        b'`' => StringDelimiter::Backtick,
+                        b'/' => StringDelimiter::Slash,
+                        _ => unreachable!(),
+                    },
+                    allow_label: matches!(bytes[tok.range.start], b'\'' | b'"')
+                        && tok.kind == TokenKind::StringBeginLabelable,
+                })
+            }
             TokenKind::StringEnd => LexerState::End,
             TokenKind::StringEndColon => LexerState::Begin,
             TokenKind::StringContent => prev,
@@ -3391,6 +3453,71 @@ mod tests {
     }
 
     #[test]
+    fn test_lex_label_simple() {
+        assert_lex_for(
+            "foo123:",
+            &[
+                LexerState::BeginLabelable,
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+            ],
+            |src| vec![token(TokenKind::Label, pos_in(src, b"foo123:", 0), 0)],
+        );
+    }
+
+    #[test]
+    fn test_lex_label_cap() {
+        assert_lex_for(
+            "Bar:",
+            &[
+                LexerState::BeginLabelable,
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+            ],
+            |src| vec![token(TokenKind::Label, pos_in(src, b"Bar:", 0), 0)],
+        );
+    }
+
+    #[test]
+    fn test_lex_label_keyword_like() {
+        assert_lex_for(
+            "case:",
+            &[
+                LexerState::BeginLabelable,
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+            ],
+            |src| vec![token(TokenKind::Label, pos_in(src, b"case:", 0), 0)],
+        );
+    }
+
+    #[test]
+    fn test_lex_label_bang() {
+        assert_lex_for(
+            "foo!:",
+            &[
+                LexerState::BeginLabelable,
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+            ],
+            |src| vec![token(TokenKind::Label, pos_in(src, b"foo!:", 0), 0)],
+        );
+    }
+
+    #[test]
+    fn test_lex_label_question() {
+        assert_lex_for(
+            "foo?:",
+            &[
+                LexerState::BeginLabelable,
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+            ],
+            |src| vec![token(TokenKind::Label, pos_in(src, b"foo?:", 0), 0)],
+        );
+    }
+
+    #[test]
     fn test_lex_static_symbol_ident_like() {
         assert_lex(":foo123", |src| {
             vec![token(TokenKind::Symbol, pos_in(src, b":foo123", 0), 0)]
@@ -3970,19 +4097,65 @@ mod tests {
     }
 
     #[test]
-    fn test_quote_string_tokens_simple() {
-        assert_lex("' foo '", |src| {
-            vec![
-                token(TokenKind::StringBegin, pos_in(src, b"'", 0), 0),
-                token(TokenKind::StringContent, pos_in(src, " foo ", 0), 0),
-                token(TokenKind::StringEnd, pos_in(src, b"'", 1), 0),
-            ]
-        });
+    fn test_quote_string_tokens_simple_nolabelable() {
+        assert_lex_except(
+            "' foo '",
+            &[
+                LexerState::BeginLabelable,
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::StringBegin, pos_in(src, b"'", 0), 0),
+                    token(TokenKind::StringContent, pos_in(src, " foo ", 0), 0),
+                    token(TokenKind::StringEnd, pos_in(src, b"'", 1), 0),
+                ]
+            },
+        );
+    }
+
+    #[test]
+    fn test_quote_string_tokens_simple_labelable() {
+        assert_lex_for(
+            "' foo '",
+            &[
+                LexerState::BeginLabelable,
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::StringBeginLabelable, pos_in(src, b"'", 0), 0),
+                    token(TokenKind::StringContent, pos_in(src, " foo ", 0), 0),
+                    token(TokenKind::StringEnd, pos_in(src, b"'", 1), 0),
+                ]
+            },
+        );
+    }
+
+    #[test]
+    fn test_quote_string_tokens_labelled() {
+        assert_lex_for(
+            "' foo ':",
+            &[
+                LexerState::BeginLabelable,
+                LexerState::FirstArgument,
+                LexerState::WeakFirstArgument,
+            ],
+            |src| {
+                vec![
+                    token(TokenKind::StringBeginLabelable, pos_in(src, b"'", 0), 0),
+                    token(TokenKind::StringContent, pos_in(src, " foo ", 0), 0),
+                    token(TokenKind::StringEndColon, pos_in(src, b"':", 0), 0),
+                ]
+            },
+        );
     }
 
     #[test]
     fn test_quote_string_tokens_escaped() {
-        assert_lex("'\\''", |src| {
+        assert_lex_for("'\\''", &[LexerState::Begin], |src| {
             vec![
                 token(TokenKind::StringBegin, pos_in(src, b"'", 0), 0),
                 token(TokenKind::StringContent, pos_in(src, "\\'", 0), 0),
@@ -3993,7 +4166,7 @@ mod tests {
 
     #[test]
     fn test_quote_string_tokens_backslashes() {
-        assert_lex("'\\\\'", |src| {
+        assert_lex_for("'\\\\'", &[LexerState::Begin], |src| {
             vec![
                 token(TokenKind::StringBegin, pos_in(src, b"'", 0), 0),
                 token(TokenKind::StringContent, pos_in(src, "\\\\", 0), 0),
@@ -4004,7 +4177,7 @@ mod tests {
 
     #[test]
     fn test_double_quote_string_tokens_simple() {
-        assert_lex("\" foo \"", |src| {
+        assert_lex_for("\" foo \"", &[LexerState::Begin], |src| {
             vec![
                 token(TokenKind::StringBegin, pos_in(src, b"\"", 0), 0),
                 token(TokenKind::StringContent, pos_in(src, " foo ", 0), 0),
@@ -4015,7 +4188,7 @@ mod tests {
 
     #[test]
     fn test_double_quote_string_tokens_dynamic() {
-        assert_lex("\" foo #{bar}", |src| {
+        assert_lex_for("\" foo #{bar}", &[LexerState::Begin], |src| {
             vec![
                 token(TokenKind::StringBegin, pos_in(src, b"\"", 0), 0),
                 token(TokenKind::StringContent, pos_in(src, " foo ", 0), 0),
