@@ -470,7 +470,7 @@ impl<'a> Iterator for CharIndices<'a> {
     type Item = (usize, CharPlus);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.bytes.is_empty() {
+        if self.pos >= self.bytes.len() {
             return None;
         }
 
