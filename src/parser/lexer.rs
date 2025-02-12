@@ -579,6 +579,22 @@ impl LexerState {
         }
     }
 
+    fn allow_symbol(&self) -> bool {
+        match self {
+            LexerState::Begin => true,
+            LexerState::ClassName => true,
+            LexerState::BeginOpt => true,
+            LexerState::BeginLabelable => true,
+            LexerState::FirstArgument => true,
+            LexerState::WeakFirstArgument => true,
+            LexerState::End => false,
+            LexerState::MethForDef => false,
+            LexerState::MethOrSymbolForDef => true,
+            LexerState::MethForCall => false,
+            LexerState::StringLike(_) => unreachable!(),
+        }
+    }
+
     /// Should we split `||`?
     fn split_vert_vert(&self) -> bool {
         match self {
@@ -1146,32 +1162,19 @@ impl<'a> Lexer<'a> {
                 }
             }
             b':' => {
-                self.pos += 1;
-                match self.peek_byte() {
-                    b if is_ident_continue(b) => {
-                        while is_ident_continue(self.peek_byte()) {
-                            self.pos += 1;
-                        }
-                        TokenKind::Symbol
+                if self.peek_byte_at(1) == b':' {
+                    self.pos += 2;
+                    // Pass `false` so that `p :: Foo` is equivalent to `p ::Foo`
+                    if state.prefer_prefix_operator(space_before, false) {
+                        TokenKind::ColonColonPrefix
+                    } else {
+                        TokenKind::ColonColon
                     }
-                    b'"' => {
-                        self.pos += 1;
-                        TokenKind::StringBegin
-                    }
-                    b'\'' => {
-                        self.pos += 1;
-                        TokenKind::StringBegin
-                    }
-                    b':' => {
-                        self.pos += 1;
-                        // Pass `false` so that `p :: Foo` is equivalent to `p ::Foo`
-                        if state.prefer_prefix_operator(space_before, false) {
-                            TokenKind::ColonColonPrefix
-                        } else {
-                            TokenKind::ColonColon
-                        }
-                    }
-                    _ => TokenKind::Colon,
+                } else if state.allow_symbol() {
+                    self.lex_maybe_symbol(diag)
+                } else {
+                    self.pos += 1;
+                    TokenKind::Colon
                 }
             }
             b';' => {
@@ -1438,6 +1441,782 @@ impl<'a> Lexer<'a> {
             range: CodeRange { start, end },
             indent: self.indent,
         }
+    }
+
+    fn lex_maybe_symbol(&mut self, diag: &mut Vec<Diagnostic>) -> TokenKind {
+        let start = self.pos;
+        // Consume the first ':'
+        self.pos += 1;
+
+        match self.peek_byte() {
+            b'\0' | b'\x04' | b'\x1A' | b'\t' | b'\n' | b'\x0B' | b'\x0C' | b'\r' | b' ' | b'#' => {
+                return TokenKind::Colon;
+            }
+            b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'\x80'.. => {
+                let is_numeric = self.peek_byte().is_ascii_digit();
+                while is_ident_continue(self.peek_byte()) {
+                    self.pos += 1;
+                }
+                match self.peek_byte() {
+                    b'!' | b'?' if self.peek_byte_at(1) != b'=' => {
+                        self.pos += 1;
+                        true
+                    }
+                    b'=' if match self.peek_byte_at(1) {
+                        // Ignore foo=> or foo=~
+                        b'>' | b'~' => false,
+                        // Ignore foo== but consume foo==> specially
+                        b'=' => self.peek_byte_at(2) == b'>',
+                        _ => true,
+                    } =>
+                    {
+                        self.pos += 1;
+                        true
+                    }
+                    _ => false,
+                };
+                let s_bytes = &self.bytes()[start..self.pos];
+                let s = EStrRef::from_bytes(s_bytes, self.input.encoding());
+                if !s.is_valid() {
+                    diag.push(Diagnostic {
+                        range: CodeRange {
+                            start,
+                            end: self.pos,
+                        },
+                        message: format!("The symbol contains invalid characters"),
+                    });
+                } else if is_numeric {
+                    diag.push(Diagnostic {
+                        range: CodeRange {
+                            start,
+                            end: self.pos,
+                        },
+                        message: format!("The symbol cannot start with a digit"),
+                    });
+                }
+            }
+            // `!`
+            // `!@`
+            // `!=`
+            // `!~`
+            b'!' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'=' | b'@' | b'~' => {
+                        self.pos += 1;
+                    }
+                    _ => {}
+                }
+            }
+            b'"' => {
+                self.pos += 1;
+                return TokenKind::StringBegin;
+            }
+            b'$' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'\x80'.. => {
+                        while is_ident_continue(self.peek_byte()) {
+                            self.pos += 1;
+                        }
+                        let s = EStrRef::from_bytes(
+                            &self.bytes()[start..self.pos],
+                            self.input.encoding(),
+                        );
+                        if !s.is_valid() {
+                            diag.push(Diagnostic {
+                                range: CodeRange {
+                                    start,
+                                    end: self.pos,
+                                },
+                                message: format!("The symbol contains invalid characters"),
+                            });
+                        }
+                    }
+                    b'!' | b'"' | b'$' | b'&' | b'\'' | b'*' | b'+' | b',' | b'.' | b'/' | b':'
+                    | b';' | b'<' | b'=' | b'>' | b'?' | b'@' | b'\\' | b'`' | b'~' => {
+                        self.pos += 1;
+                    }
+                    b'0'..=b'9' => {
+                        // Lexically speaking `$0` behaves similarly to `$1`
+                        // except that `$00` is not allowed.
+                        if self.peek_byte() == b'0' {
+                            self.pos += 1;
+                        } else {
+                            while self.peek_byte().is_ascii_digit() {
+                                self.pos += 1;
+                            }
+                        }
+                        let num_end = self.pos;
+                        while is_ident_continue(self.peek_byte()) {
+                            self.pos += 1;
+                        }
+                        let cont = &self.bytes()[num_end..self.pos];
+                        if cont.is_empty() || SUFFIX_KEYWORDS.contains(cont) {
+                            // Split legit pair like `:$1and 0`
+                            self.pos = num_end;
+                        } else {
+                            // Otherwise treat the whole token as an invalid global variable
+                            // like `$123foo`
+                            diag.push(Diagnostic {
+                                range: CodeRange {
+                                    start,
+                                    end: self.pos,
+                                },
+                                message: format!("Global variable name cannot start with a digit"),
+                            });
+                        }
+                    }
+                    b'-' => {
+                        self.pos += 1;
+                        let ident_start = self.pos;
+                        while is_ident_continue(self.peek_byte()) {
+                            self.pos += 1;
+                        }
+                        let s = EStrRef::from_bytes(
+                            &self.bytes()[ident_start..self.pos],
+                            self.input.encoding(),
+                        );
+                        if s.is_valid() {
+                            let mut iter = s.char_indices();
+                            if iter.next().is_none() {
+                                // empty (i.e. `$-` alone)
+                                diag.push(Diagnostic {
+                                    range: CodeRange {
+                                        start: ident_start,
+                                        end: self.pos,
+                                    },
+                                    message: format!("A letter must follow `$-`"),
+                                });
+                            } else if let Some((pos, _)) = iter.next() {
+                                // More than one character
+                                let cont = &s.as_bytes()[pos..];
+                                if SUFFIX_KEYWORDS.contains(cont) {
+                                    // Split legit pair like `:$-aand 0`
+                                    self.pos = ident_start + pos;
+                                } else {
+                                    // Otherwise treat the whole token as an invalid global variable
+                                    // like `:$-foo`
+                                    diag.push(Diagnostic {
+                                        range: CodeRange {
+                                            start: ident_start,
+                                            end: self.pos,
+                                        },
+                                        message: format!("Only a single letter can follow `:$-`"),
+                                    });
+                                }
+                            } else {
+                                // One character. Okay!
+                            }
+                        } else {
+                            diag.push(Diagnostic {
+                                range: CodeRange {
+                                    start: ident_start,
+                                    end: self.pos,
+                                },
+                                message: format!("The symbol contains invalid characters"),
+                            });
+                        }
+                    }
+                    _ => {
+                        diag.push(Diagnostic {
+                            range: CodeRange {
+                                start,
+                                end: self.pos,
+                            },
+                            message: format!("Invalid symbol"),
+                        });
+                    }
+                }
+            }
+            b'%' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'=' => {
+                        self.pos += 1;
+                        // :%= is invalid
+                        diag.push(Diagnostic {
+                            range: CodeRange {
+                                start,
+                                end: self.pos,
+                            },
+                            message: format!("Invalid symbol"),
+                        });
+                    }
+                    _ => {}
+                }
+            }
+            // `&`
+            // `&&`
+            // `&&=`
+            // `&.`
+            // `&=`
+            b'&' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'&' => {
+                        self.pos += 1;
+                        match self.peek_byte() {
+                            b'=' => {
+                                self.pos += 1;
+                                // :&&= is invalid
+                                diag.push(Diagnostic {
+                                    range: CodeRange {
+                                        start,
+                                        end: self.pos,
+                                    },
+                                    message: format!("Invalid symbol"),
+                                });
+                            }
+                            _ => {
+                                // :&& is invalid
+                                diag.push(Diagnostic {
+                                    range: CodeRange {
+                                        start,
+                                        end: self.pos,
+                                    },
+                                    message: format!("Invalid symbol"),
+                                });
+                            }
+                        }
+                    }
+                    b'.' => {
+                        self.pos += 1;
+                        // :&. is invalid
+                        diag.push(Diagnostic {
+                            range: CodeRange {
+                                start,
+                                end: self.pos,
+                            },
+                            message: format!("Invalid symbol"),
+                        });
+                    }
+                    b'=' => {
+                        self.pos += 1;
+                        // :&= is invalid
+                        diag.push(Diagnostic {
+                            range: CodeRange {
+                                start,
+                                end: self.pos,
+                            },
+                            message: format!("Invalid symbol"),
+                        });
+                    }
+                    _ => {}
+                }
+            }
+            b'\'' => {
+                self.pos += 1;
+                return TokenKind::StringBegin;
+            }
+            b'(' => {
+                // :( is invalid. Split it apart to get more intuitive result.
+                diag.push(Diagnostic {
+                    range: CodeRange {
+                        start,
+                        end: self.pos,
+                    },
+                    message: format!("Invalid symbol"),
+                });
+            }
+            b')' => {
+                // :) is invalid. Split it apart to get more intuitive result.
+                diag.push(Diagnostic {
+                    range: CodeRange {
+                        start,
+                        end: self.pos,
+                    },
+                    message: format!("Invalid symbol"),
+                });
+            }
+            // `*`
+            // `**`
+            // `**=`
+            // `*=`
+            b'*' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'*' => {
+                        self.pos += 1;
+                        match self.peek_byte() {
+                            b'=' => {
+                                self.pos += 1;
+                                // :**= is invalid
+                                diag.push(Diagnostic {
+                                    range: CodeRange {
+                                        start,
+                                        end: self.pos,
+                                    },
+                                    message: format!("Invalid symbol"),
+                                });
+                            }
+                            _ => {}
+                        }
+                    }
+                    b'=' => {
+                        self.pos += 1;
+                        // :*= is invalid
+                        diag.push(Diagnostic {
+                            range: CodeRange {
+                                start,
+                                end: self.pos,
+                            },
+                            message: format!("Invalid symbol"),
+                        });
+                    }
+                    _ => {}
+                }
+            }
+            // `+`
+            // `+@`
+            // `+=`
+            b'+' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'@' => {
+                        self.pos += 1;
+                    }
+                    // // Interestingly enough, Ruby lexer splits `+=` apart
+                    // // in method name context, unlike `*=`. Therefore,
+                    // //
+                    // // - `{:+=>2}` is valid, while
+                    // // - `{:*=>2}` is invalid.
+                    // b'=' => {
+                    //     self.pos += 1;
+                    //     // :+= is invalid
+                    //     diag.push(Diagnostic {
+                    //         range: CodeRange {
+                    //             start,
+                    //             end: self.pos,
+                    //         },
+                    //         message: format!("Invalid symbol"),
+                    //     });
+                    // }
+                    _ => {}
+                }
+            }
+            b',' => {
+                // :, is invalid. Split it apart to get more intuitive result.
+                diag.push(Diagnostic {
+                    range: CodeRange {
+                        start,
+                        end: self.pos,
+                    },
+                    message: format!("Invalid symbol"),
+                });
+            }
+            // `-`
+            // `-@`
+            // `-=`
+            // `->`
+            // `-123`
+            b'-' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'@' => {
+                        self.pos += 1;
+                    }
+                    // // Interestingly enough, Ruby lexer splits `+=` apart
+                    // // in method name context, unlike `*=`. Therefore,
+                    // //
+                    // // - `{:+=>2}` is valid, while
+                    // // - `{:*=>2}` is invalid.
+                    // b'=' => {
+                    //     self.pos += 1;
+                    //     // :-= is invalid
+                    //     diag.push(Diagnostic {
+                    //         range: CodeRange {
+                    //             start,
+                    //             end: self.pos,
+                    //         },
+                    //         message: format!("Invalid symbol"),
+                    //     });
+                    // }
+                    // // Same as above, making `:->:-` valid
+                    // b'>' => {
+                    //     self.pos += 1;
+                    //     // :-> is invalid
+                    //     diag.push(Diagnostic {
+                    //         range: CodeRange {
+                    //             start,
+                    //             end: self.pos,
+                    //         },
+                    //         message: format!("Invalid symbol"),
+                    //     });
+                    // }
+                    _ => {}
+                }
+            }
+            // `.`
+            // `..`
+            // `...`
+            // `.123` (which is an invalid float)
+            b'.' => {
+                // Neither of :., :.., :... is invalid.
+                // Split it apart to get more intuitive result.
+                diag.push(Diagnostic {
+                    range: CodeRange {
+                        start,
+                        end: self.pos,
+                    },
+                    message: format!("Invalid symbol"),
+                });
+            }
+            // `/`
+            // `/=`
+            b'/' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'=' => {
+                        self.pos += 1;
+                        // :/= is invalid
+                        diag.push(Diagnostic {
+                            range: CodeRange {
+                                start,
+                                end: self.pos,
+                            },
+                            message: format!("Invalid symbol"),
+                        });
+                    }
+                    _ => {}
+                }
+            }
+            // Remember that the last letter is also ':'.
+            // "::" should already have been handled in the caller.
+            b':' => unreachable!(),
+            b';' => {
+                // :; is invalid. Split it apart to get more intuitive result.
+                diag.push(Diagnostic {
+                    range: CodeRange {
+                        start,
+                        end: self.pos,
+                    },
+                    message: format!("Invalid symbol"),
+                });
+            }
+            b'<' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'<' => {
+                        self.pos += 1;
+                        match self.peek_byte() {
+                            b'=' => {
+                                self.pos += 1;
+                                // :<<= is invalid
+                                diag.push(Diagnostic {
+                                    range: CodeRange {
+                                        start,
+                                        end: self.pos,
+                                    },
+                                    message: format!("Invalid symbol"),
+                                });
+                            }
+                            _ => {}
+                        }
+                    }
+                    b'=' => {
+                        self.pos += 1;
+                        match self.peek_byte() {
+                            b'>' => {
+                                self.pos += 1;
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            b'=' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'=' => {
+                        self.pos += 1;
+                        match self.peek_byte() {
+                            b'=' => {
+                                self.pos += 1;
+                            }
+                            _ => {}
+                        }
+                    }
+                    b'>' => {
+                        self.pos += 1;
+                        // :=> is invalid
+                        diag.push(Diagnostic {
+                            range: CodeRange {
+                                start,
+                                end: self.pos,
+                            },
+                            message: format!("Invalid symbol"),
+                        });
+                    }
+                    b'~' => {
+                        self.pos += 1;
+                    }
+                    _ => {
+                        // := is invalid
+                        diag.push(Diagnostic {
+                            range: CodeRange {
+                                start,
+                                end: self.pos,
+                            },
+                            message: format!("Invalid symbol"),
+                        });
+                    }
+                }
+            }
+            b'>' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'=' => {
+                        self.pos += 1;
+                    }
+                    b'>' => {
+                        self.pos += 1;
+                        match self.peek_byte() {
+                            b'=' => {
+                                self.pos += 1;
+                                // :>>= is invalid
+                                diag.push(Diagnostic {
+                                    range: CodeRange {
+                                        start,
+                                        end: self.pos,
+                                    },
+                                    message: format!("Invalid symbol"),
+                                });
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            b'?' => {
+                // :? is invalid. Split it apart to get more intuitive result.
+                diag.push(Diagnostic {
+                    range: CodeRange {
+                        start,
+                        end: self.pos,
+                    },
+                    message: format!("Invalid symbol"),
+                });
+            }
+            b'@' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b if is_ident_continue(b) => {
+                        let is_numeric = b.is_ascii_digit();
+                        while is_ident_continue(self.peek_byte()) {
+                            self.pos += 1;
+                        }
+                        let s = EStrRef::from_bytes(
+                            &self.bytes()[start..self.pos],
+                            self.input.encoding(),
+                        );
+                        if is_numeric {
+                            diag.push(Diagnostic {
+                                range: CodeRange {
+                                    start,
+                                    end: self.pos,
+                                },
+                                message: format!("Invalid symbol"),
+                            });
+                        } else if !s.is_valid() {
+                            diag.push(Diagnostic {
+                                range: CodeRange {
+                                    start,
+                                    end: self.pos,
+                                },
+                                message: format!("The symbol contains invalid characters"),
+                            });
+                        }
+                    }
+                    b'@' => {
+                        self.pos += 1;
+                        match self.peek_byte() {
+                            b if is_ident_continue(b) => {
+                                let is_numeric = b.is_ascii_digit();
+                                while is_ident_continue(self.peek_byte()) {
+                                    self.pos += 1;
+                                }
+                                let s = EStrRef::from_bytes(
+                                    &self.bytes()[start..self.pos],
+                                    self.input.encoding(),
+                                );
+                                if is_numeric {
+                                    diag.push(Diagnostic {
+                                        range: CodeRange {
+                                            start,
+                                            end: self.pos,
+                                        },
+                                        message: format!("Invalid symbol"),
+                                    });
+                                } else if !s.is_valid() {
+                                    diag.push(Diagnostic {
+                                        range: CodeRange {
+                                            start,
+                                            end: self.pos,
+                                        },
+                                        message: format!("The symbol contains invalid characters"),
+                                    });
+                                }
+                            }
+                            _ => {
+                                // :@@ is invalid
+                                diag.push(Diagnostic {
+                                    range: CodeRange {
+                                        start,
+                                        end: self.pos,
+                                    },
+                                    message: format!("Invalid symbol"),
+                                });
+                            }
+                        }
+                    }
+                    _ => {
+                        // :@ is invalid
+                        diag.push(Diagnostic {
+                            range: CodeRange {
+                                start,
+                                end: self.pos,
+                            },
+                            message: format!("Invalid symbol"),
+                        });
+                    }
+                }
+            }
+            b'[' => {
+                if self.peek_byte_at(1) == b']' {
+                    self.pos += 2;
+                    match self.peek_byte() {
+                        b'=' => {
+                            self.pos += 1;
+                        }
+                        _ => {}
+                    }
+                } else {
+                    // :[ is invalid otherwise. Split it apart to get more intuitive result.
+                    diag.push(Diagnostic {
+                        range: CodeRange {
+                            start,
+                            end: self.pos,
+                        },
+                        message: format!("Invalid symbol"),
+                    });
+                }
+            }
+            b']' => {
+                // :] is invalid. Split it apart to get more intuitive result.
+                diag.push(Diagnostic {
+                    range: CodeRange {
+                        start,
+                        end: self.pos,
+                    },
+                    message: format!("Invalid symbol"),
+                });
+            }
+            b'^' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'=' => {
+                        self.pos += 1;
+                        // :^= is invalid
+                        diag.push(Diagnostic {
+                            range: CodeRange {
+                                start,
+                                end: self.pos,
+                            },
+                            message: format!("Invalid symbol"),
+                        });
+                    }
+                    _ => {}
+                }
+            }
+            b'`' => {
+                self.pos += 1;
+            }
+            b'{' => {
+                // :{ is invalid. Split it apart to get more intuitive result.
+                diag.push(Diagnostic {
+                    range: CodeRange {
+                        start,
+                        end: self.pos,
+                    },
+                    message: format!("Invalid symbol"),
+                });
+            }
+            b'|' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'|' => {
+                        self.pos += 1;
+                        match self.peek_byte() {
+                            b'=' => {
+                                self.pos += 1;
+                                // :||= is invalid
+                                diag.push(Diagnostic {
+                                    range: CodeRange {
+                                        start,
+                                        end: self.pos,
+                                    },
+                                    message: format!("Invalid symbol"),
+                                });
+                            }
+                            _ => {
+                                // :|| is invalid
+                                diag.push(Diagnostic {
+                                    range: CodeRange {
+                                        start,
+                                        end: self.pos,
+                                    },
+                                    message: format!("Invalid symbol"),
+                                });
+                            }
+                        }
+                    }
+                    b'=' => {
+                        self.pos += 1;
+                        // :|= is invalid
+                        diag.push(Diagnostic {
+                            range: CodeRange {
+                                start,
+                                end: self.pos,
+                            },
+                            message: format!("Invalid symbol"),
+                        });
+                    }
+                    _ => {}
+                }
+            }
+            b'}' => {
+                // :} is invalid. Split it apart to get more intuitive result.
+                diag.push(Diagnostic {
+                    range: CodeRange {
+                        start,
+                        end: self.pos,
+                    },
+                    message: format!("Invalid symbol"),
+                });
+            }
+            b'~' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'@' => {
+                        self.pos += 1;
+                    }
+                    _ => {}
+                }
+            }
+            _ => {
+                diag.push(Diagnostic {
+                    range: CodeRange {
+                        start,
+                        end: self.pos,
+                    },
+                    message: format!("Invalid symbol"),
+                });
+            }
+        };
+        TokenKind::Symbol
     }
 
     fn lex_numeric(&mut self, diag: &mut Vec<Diagnostic>) -> TokenKind {
@@ -3519,15 +4298,265 @@ mod tests {
 
     #[test]
     fn test_lex_static_symbol_ident_like() {
-        assert_lex(":foo123", |src| {
-            vec![token(TokenKind::Symbol, pos_in(src, b":foo123", 0), 0)]
-        });
+        assert_lex_except(
+            ":foo123",
+            &[
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::Symbol, pos_in(src, b":foo123", 0), 0)],
+        );
     }
 
     #[test]
     fn test_lex_static_symbol_const_like() {
-        assert_lex(":Baz", |src| {
-            vec![token(TokenKind::Symbol, pos_in(src, b":Baz", 0), 0)]
+        assert_lex_except(
+            ":Baz",
+            &[
+                LexerState::End,
+                LexerState::MethForDef,
+                LexerState::MethForCall,
+            ],
+            |src| vec![token(TokenKind::Symbol, pos_in(src, b":Baz", 0), 0)],
+        );
+    }
+
+    #[test]
+    fn test_lex_static_symbol_ident_bang() {
+        assert_lex_for(":foo123!", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":foo123!", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_ident_question() {
+        assert_lex_for(":foo123?", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":foo123?", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_ident_eq() {
+        assert_lex_for(":foo123=", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":foo123=", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_unary_plus() {
+        assert_lex_for(":+@", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":+@", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_unary_minus() {
+        assert_lex_for(":-@", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":-@", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_neg_implicit() {
+        assert_lex_for(":!", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":!", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_neg_explicit() {
+        assert_lex_for(":!@", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":!@", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_bitwise_not_implicit() {
+        assert_lex_for(":~", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":~", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_bitwise_not_explicit() {
+        assert_lex_for(":~@", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":~@", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_power() {
+        assert_lex_for(":**", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":**", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_mult() {
+        assert_lex_for(":*", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":*", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_div() {
+        assert_lex_for(":/", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":/", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_mod() {
+        assert_lex_for(":%", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":%", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_plus() {
+        assert_lex_for(":+", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":+", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_minus() {
+        assert_lex_for(":-", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":-", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_lshift() {
+        assert_lex_for(":<<", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":<<", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_rshift() {
+        assert_lex_for(":>>", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":>>", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_bitwise_and() {
+        assert_lex_for(":&", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":&", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_bitwise_or() {
+        assert_lex_for(":|", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":|", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_bitwise_xor() {
+        assert_lex_for(":^", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":^", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_lt() {
+        assert_lex_for(":<", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":<", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_le() {
+        assert_lex_for(":<=", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":<=", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_gt() {
+        assert_lex_for(":>", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":>", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_ge() {
+        assert_lex_for(":>=", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":>=", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_eq_cmp() {
+        assert_lex_for(":==", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":==", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_neq() {
+        assert_lex_for(":!=", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":!=", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_eqeqeq() {
+        assert_lex_for(":===", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":===", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_match() {
+        assert_lex_for(":=~", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":=~", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_nmatch() {
+        assert_lex_for(":!~", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":!~", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_aref() {
+        assert_lex_for(":[]", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":[]", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_aset() {
+        assert_lex_for(":[]=", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":[]=", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_ivar() {
+        assert_lex_for(":@foo", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":@foo", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_cvar() {
+        assert_lex_for(":@@foo", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":@@foo", 0), 0)]
+        });
+    }
+
+    #[test]
+    fn test_lex_static_symbol_gvar() {
+        assert_lex_for(":$foo", &[LexerState::Begin], |src| {
+            vec![token(TokenKind::Symbol, pos_in(src, b":$foo", 0), 0)]
         });
     }
 
