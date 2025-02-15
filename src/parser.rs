@@ -1443,20 +1443,20 @@ impl<'a> Parser<'a> {
                 let mut contents = Vec::<StringContent>::new();
                 let close_range;
                 loop {
-                    let token = self.fill_token(
+                    let token = self.lexer.lex_string_like(
                         diag,
-                        LexerState::StringLike(StringState {
+                        StringState {
                             delim,
                             allow_label: labelable,
-                        }),
+                        },
                     );
                     match token.kind {
                         TokenKind::StringEnd => {
-                            self.bump();
                             close_range = token.range;
                             break;
                         }
                         TokenKind::EOF => {
+                            self.next_token = Some(token);
                             diag.push(Diagnostic {
                                 range: token.range,
                                 message: format!("unexpected end of file"),
@@ -1465,7 +1465,6 @@ impl<'a> Parser<'a> {
                             break;
                         }
                         TokenKind::StringContent => {
-                            self.bump();
                             let s = self.select(token.range);
                             contents.push(StringContent::Text(TextContent {
                                 range: token.range,
@@ -1474,7 +1473,6 @@ impl<'a> Parser<'a> {
                             }));
                         }
                         TokenKind::StringInterpolationBegin => {
-                            self.bump();
                             let open_range = token.range;
                             let inner = self.parse_stmt_list(
                                 diag,
@@ -1503,7 +1501,6 @@ impl<'a> Parser<'a> {
                         }
                         // TokenKind::StringVarInterpolation => {}
                         _ => {
-                            self.bump();
                             diag.push(Diagnostic {
                                 range: token.range,
                                 message: format!("unexpected token"),

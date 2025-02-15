@@ -464,8 +464,6 @@ pub(super) enum LexerState {
     /// - Unlike [LexerState::MethForDef], it does not parse `foo=`-type method names.
     /// - Heredocs are suppressed.
     MethForCall,
-    /// Special state for string contents.
-    StringLike(StringState),
 }
 
 impl LexerState {
@@ -482,7 +480,6 @@ impl LexerState {
             LexerState::MethForDef => true,
             LexerState::MethOrSymbolForDef => true,
             LexerState::MethForCall => true,
-            LexerState::StringLike(_) => unreachable!(),
         }
     }
 
@@ -517,7 +514,6 @@ impl LexerState {
             | LexerState::MethForDef
             | LexerState::MethOrSymbolForDef
             | LexerState::MethForCall => false,
-            LexerState::StringLike(_) => unreachable!(),
         }
     }
 
@@ -591,7 +587,6 @@ impl LexerState {
             LexerState::MethForDef => false,
             LexerState::MethOrSymbolForDef => true,
             LexerState::MethForCall => false,
-            LexerState::StringLike(_) => unreachable!(),
         }
     }
 
@@ -619,7 +614,6 @@ impl LexerState {
             LexerState::MethForDef => false,
             LexerState::MethOrSymbolForDef => false,
             LexerState::MethForCall => false,
-            LexerState::StringLike(_) => unreachable!(),
         }
     }
 }
@@ -686,9 +680,6 @@ impl<'a> Lexer<'a> {
     }
 
     pub(super) fn lex(&mut self, diag: &mut Vec<Diagnostic>, state: LexerState) -> Token {
-        if let LexerState::StringLike(string_state) = state {
-            return self.lex_string_like(diag, string_state);
-        }
         let space_before = self.lex_space(diag, state);
         let start = self.pos;
         let kind = match self.peek_byte() {
@@ -2506,7 +2497,11 @@ impl<'a> Lexer<'a> {
         TokenKind::Numeric
     }
 
-    fn lex_string_like(&mut self, _diag: &mut Vec<Diagnostic>, state: StringState) -> Token {
+    pub(super) fn lex_string_like(
+        &mut self,
+        _diag: &mut Vec<Diagnostic>,
+        state: StringState,
+    ) -> Token {
         if self.pos >= self.bytes().len() {
             return Token {
                 kind: TokenKind::EOF,
@@ -3130,26 +3125,57 @@ mod tests {
         let mut diag = Vec::<Diagnostic>::new();
         let mut lexer = Lexer::new(input);
         let mut tokens = Vec::new();
+        let mut string_stack = Vec::<StringState>::new();
+        let mut current_string: Option<StringState> = None;
         loop {
-            let token = lexer.lex(&mut diag, state);
-            if token.kind == TokenKind::EOF {
-                if token.range
-                    != (CodeRange {
-                        start: input.len(),
-                        end: input.len(),
-                    })
-                {
-                    tokens.push(token);
+            if let Some(current_string_) = &current_string {
+                let token = lexer.lex_string_like(&mut diag, current_string_.clone());
+                if token.kind == TokenKind::EOF {
+                    if token.range
+                        != (CodeRange {
+                            start: input.len(),
+                            end: input.len(),
+                        })
+                    {
+                        tokens.push(token);
+                    }
+                    break;
+                } else if matches!(token.kind, TokenKind::StringEnd | TokenKind::StringEndColon) {
+                    current_string = None;
+                } else if matches!(token.kind, TokenKind::StringInterpolationBegin) {
+                    string_stack.push(current_string.take().unwrap());
                 }
-                break;
+                tokens.push(token);
+            } else {
+                let token = lexer.lex(&mut diag, state);
+                if token.kind == TokenKind::EOF {
+                    if token.range
+                        != (CodeRange {
+                            start: input.len(),
+                            end: input.len(),
+                        })
+                    {
+                        tokens.push(token);
+                    }
+                    break;
+                }
+                if matches!(
+                    token.kind,
+                    TokenKind::StringBegin | TokenKind::StringBeginLabelable
+                ) {
+                    current_string = Some(next_string_state_for_testing(&token, input.as_bytes()));
+                } else if matches!(token.kind, TokenKind::RBrace) && !string_stack.is_empty() {
+                    current_string = Some(string_stack.pop().unwrap());
+                } else {
+                    state = next_state_for_testing(&token, state);
+                }
+                tokens.push(token);
             }
-            state = next_state_for_testing(&token, input.as_bytes(), state);
-            tokens.push(token);
         }
         (tokens, diag)
     }
 
-    fn next_state_for_testing(tok: &Token, bytes: &[u8], prev: LexerState) -> LexerState {
+    fn next_state_for_testing(tok: &Token, prev: LexerState) -> LexerState {
         match tok.kind {
             TokenKind::KeywordCapitalDoubleUnderscoreEncoding => LexerState::End,
             TokenKind::KeywordCapitalDoubleUnderscoreLine => LexerState::End,
@@ -3207,17 +3233,7 @@ mod tests {
             TokenKind::Numeric => LexerState::End,
             TokenKind::CharLiteral => LexerState::End,
             TokenKind::StringBegin | TokenKind::StringBeginLabelable => {
-                LexerState::StringLike(StringState {
-                    delim: match bytes[tok.range.start] {
-                        b'\'' => StringDelimiter::Quote,
-                        b'"' => StringDelimiter::DoubleQuote,
-                        b'`' => StringDelimiter::Backtick,
-                        b'/' => StringDelimiter::Slash,
-                        _ => unreachable!(),
-                    },
-                    allow_label: matches!(bytes[tok.range.start], b'\'' | b'"')
-                        && tok.kind == TokenKind::StringBeginLabelable,
-                })
+                unreachable!()
             }
             TokenKind::StringEnd => LexerState::End,
             TokenKind::StringEndColon => LexerState::Begin,
@@ -3280,6 +3296,19 @@ mod tests {
             TokenKind::Tilde => LexerState::Begin,
             TokenKind::EOF => LexerState::Begin,
             TokenKind::Unknown => LexerState::Begin,
+        }
+    }
+
+    fn next_string_state_for_testing(tok: &Token, bytes: &[u8]) -> StringState {
+        StringState {
+            delim: match bytes[tok.range.start] {
+                b'\'' => StringDelimiter::Quote,
+                b'"' => StringDelimiter::DoubleQuote,
+                b'`' => StringDelimiter::Backtick,
+                b'/' => StringDelimiter::Slash,
+                _ => unreachable!(),
+            },
+            allow_label: tok.kind == TokenKind::StringBeginLabelable,
         }
     }
 
