@@ -570,651 +570,14 @@ impl<'a> Parser<'a> {
         diag: &mut Vec<Diagnostic>,
         first_token: Token,
         lv: &mut LVCtx,
-        prec: PrecCtx,
+        _prec: PrecCtx,
     ) -> (ExprLike, Token) {
-        let (mut lhs, mut last_token) = self.parse_expr_lv_logical_and(diag, first_token, lv, prec);
-        loop {
-            let token = last_token;
-            match token.kind {
-                TokenKind::VertVert => {
-                    let rhs_first_token = self.lexer.lex(diag, LexerState::Begin);
-                    let (rhs, token_after_rhs) = self.parse_expr_lv_logical_and(
-                        diag,
-                        rhs_first_token,
-                        lv,
-                        prec.with_invalid_command(),
-                    );
-                    let rhs = rhs.into_expr(diag);
-                    let lhs_expr = lhs.into_expr(diag);
-                    lhs = ExprLike::Expr(
-                        OrExpr {
-                            range: *lhs_expr.outer_range() | *rhs.outer_range(),
-                            parens: Vec::new(),
-
-                            lhs: Box::new(lhs_expr),
-                            rhs: Box::new(rhs),
-                        }
-                        .into(),
-                    );
-                    last_token = token_after_rhs;
-                }
-                _ => {
-                    last_token = token;
-                    break;
-                }
-            }
+        StackParser {
+            parser: self,
+            stack: Vec::new(),
+            top: None,
         }
-        (lhs, last_token)
-    }
-
-    fn parse_expr_lv_logical_and(
-        &mut self,
-        diag: &mut Vec<Diagnostic>,
-        first_token: Token,
-        lv: &mut LVCtx,
-        prec: PrecCtx,
-    ) -> (ExprLike, Token) {
-        let (mut lhs, mut last_token) = self.parse_expr_lv_eq(diag, first_token, lv, prec);
-        loop {
-            let token = last_token;
-            match token.kind {
-                TokenKind::AmpAmp => {
-                    let rhs_first_token = self.lexer.lex(diag, LexerState::Begin);
-                    let (rhs, token_after_rhs) = self.parse_expr_lv_eq(
-                        diag,
-                        rhs_first_token,
-                        lv,
-                        prec.with_invalid_command(),
-                    );
-                    let rhs = rhs.into_expr(diag);
-                    let lhs_expr = lhs.into_expr(diag);
-                    lhs = ExprLike::Expr(
-                        AndExpr {
-                            range: *lhs_expr.outer_range() | *rhs.outer_range(),
-                            parens: Vec::new(),
-
-                            lhs: Box::new(lhs_expr),
-                            rhs: Box::new(rhs),
-                        }
-                        .into(),
-                    );
-                    last_token = token_after_rhs;
-                }
-                _ => {
-                    last_token = token;
-                    break;
-                }
-            }
-        }
-        (lhs, last_token)
-    }
-
-    fn parse_expr_lv_eq(
-        &mut self,
-        diag: &mut Vec<Diagnostic>,
-        first_token: Token,
-        lv: &mut LVCtx,
-        prec: PrecCtx,
-    ) -> (ExprLike, Token) {
-        let (mut lhs, mut last_token) = self.parse_expr_lv_ineq(diag, first_token, lv, prec);
-        let mut count = 0;
-        loop {
-            let token = last_token;
-            match token.kind {
-                TokenKind::EqEq
-                | TokenKind::ExclEq
-                | TokenKind::EqEqEq
-                | TokenKind::EqMatch
-                | TokenKind::ExclTilde
-                | TokenKind::LtEqGt => {
-                    count += 1;
-                    if count > 1 {
-                        diag.push(Diagnostic {
-                            range: token.range,
-                            message: format!("these operators cannot be chained"),
-                        });
-                    }
-                    let meth = match token.kind {
-                        TokenKind::EqEq => "==",
-                        TokenKind::ExclEq => "!=",
-                        TokenKind::EqEqEq => "===",
-                        TokenKind::EqMatch => "=~",
-                        TokenKind::ExclTilde => "!~",
-                        TokenKind::LtEqGt => "<=>",
-                        _ => unimplemented!(),
-                    };
-                    let rhs_first_token = self.lexer.lex(diag, LexerState::Begin);
-                    let (rhs, token_after_rhs) = self.parse_expr_lv_ineq(
-                        diag,
-                        rhs_first_token,
-                        lv,
-                        prec.with_invalid_command(),
-                    );
-                    let rhs = rhs.into_expr(diag);
-                    let lhs_expr = lhs.into_expr(diag);
-                    lhs = ExprLike::Expr(
-                        CallExpr {
-                            range: *lhs_expr.outer_range() | *rhs.outer_range(),
-                            parens: Vec::new(),
-
-                            style: CallStyle::BinOp,
-                            private: false,
-                            optional: false,
-                            receiver: Box::new(lhs_expr),
-                            method: symbol(meth),
-                            method_range: token.range,
-                            args: vec![rhs],
-                        }
-                        .into(),
-                    );
-                    last_token = token_after_rhs;
-                }
-                _ => {
-                    last_token = token;
-                    break;
-                }
-            }
-        }
-        (lhs, last_token)
-    }
-
-    fn parse_expr_lv_ineq(
-        &mut self,
-        diag: &mut Vec<Diagnostic>,
-        first_token: Token,
-        lv: &mut LVCtx,
-        prec: PrecCtx,
-    ) -> (ExprLike, Token) {
-        let (mut lhs, mut last_token) = self.parse_expr_lv_bitwise_or(diag, first_token, lv, prec);
-        loop {
-            let token = last_token;
-            match token.kind {
-                TokenKind::Lt | TokenKind::LtEq | TokenKind::Gt | TokenKind::GtEq => {
-                    let meth = match token.kind {
-                        TokenKind::Lt => "<",
-                        TokenKind::LtEq => "<=",
-                        TokenKind::Gt => ">",
-                        TokenKind::GtEq => ">=",
-                        _ => unimplemented!(),
-                    };
-                    let rhs_first_token = self.lexer.lex(diag, LexerState::Begin);
-                    let (rhs, token_after_rhs) = self.parse_expr_lv_bitwise_or(
-                        diag,
-                        rhs_first_token,
-                        lv,
-                        prec.with_invalid_command(),
-                    );
-                    let rhs = rhs.into_expr(diag);
-                    let lhs_expr = lhs.into_expr(diag);
-                    lhs = ExprLike::Expr(
-                        CallExpr {
-                            range: *lhs_expr.outer_range() | *rhs.outer_range(),
-                            parens: Vec::new(),
-
-                            style: CallStyle::BinOp,
-                            private: false,
-                            optional: false,
-                            receiver: Box::new(lhs_expr),
-                            method: symbol(meth),
-                            method_range: token.range,
-                            args: vec![rhs],
-                        }
-                        .into(),
-                    );
-                    last_token = token_after_rhs;
-                }
-                _ => {
-                    last_token = token;
-                    break;
-                }
-            }
-        }
-        (lhs, last_token)
-    }
-
-    fn parse_expr_lv_bitwise_or(
-        &mut self,
-        diag: &mut Vec<Diagnostic>,
-        first_token: Token,
-        lv: &mut LVCtx,
-        prec: PrecCtx,
-    ) -> (ExprLike, Token) {
-        let (mut lhs, mut last_token) = self.parse_expr_lv_bitwise_and(diag, first_token, lv, prec);
-        loop {
-            let token = last_token;
-            match token.kind {
-                TokenKind::Vert | TokenKind::Caret => {
-                    let meth = match token.kind {
-                        TokenKind::Vert => "|",
-                        TokenKind::Caret => "^",
-                        _ => unimplemented!(),
-                    };
-                    let rhs_first_token = self.lexer.lex(
-                        diag,
-                        if token.kind == TokenKind::Vert {
-                            LexerState::BeginLabelable
-                        } else {
-                            LexerState::Begin
-                        },
-                    );
-                    let (rhs, token_after_rhs) = self.parse_expr_lv_bitwise_and(
-                        diag,
-                        rhs_first_token,
-                        lv,
-                        prec.with_invalid_command(),
-                    );
-                    let rhs = rhs.into_expr(diag);
-                    let lhs_expr = lhs.into_expr(diag);
-                    lhs = ExprLike::Expr(
-                        CallExpr {
-                            range: *lhs_expr.outer_range() | *rhs.outer_range(),
-                            parens: Vec::new(),
-
-                            style: CallStyle::BinOp,
-                            private: false,
-                            optional: false,
-                            receiver: Box::new(lhs_expr),
-                            method: symbol(meth),
-                            method_range: token.range,
-                            args: vec![rhs],
-                        }
-                        .into(),
-                    );
-                    last_token = token_after_rhs;
-                }
-                _ => {
-                    last_token = token;
-                    break;
-                }
-            }
-        }
-        (lhs, last_token)
-    }
-
-    fn parse_expr_lv_bitwise_and(
-        &mut self,
-        diag: &mut Vec<Diagnostic>,
-        first_token: Token,
-        lv: &mut LVCtx,
-        prec: PrecCtx,
-    ) -> (ExprLike, Token) {
-        let (mut lhs, mut last_token) = self.parse_expr_lv_shift(diag, first_token, lv, prec);
-        loop {
-            let token = last_token;
-            match token.kind {
-                TokenKind::Amp => {
-                    let meth = match token.kind {
-                        TokenKind::Amp => "&",
-                        _ => unimplemented!(),
-                    };
-                    let rhs_first_token = self.lexer.lex(diag, LexerState::Begin);
-                    let (rhs, token_after_rhs) = self.parse_expr_lv_shift(
-                        diag,
-                        rhs_first_token,
-                        lv,
-                        prec.with_invalid_command(),
-                    );
-                    let rhs = rhs.into_expr(diag);
-                    let lhs_expr = lhs.into_expr(diag);
-                    lhs = ExprLike::Expr(
-                        CallExpr {
-                            range: *lhs_expr.outer_range() | *rhs.outer_range(),
-                            parens: Vec::new(),
-
-                            style: CallStyle::BinOp,
-                            private: false,
-                            optional: false,
-                            receiver: Box::new(lhs_expr),
-                            method: symbol(meth),
-                            method_range: token.range,
-                            args: vec![rhs],
-                        }
-                        .into(),
-                    );
-                    last_token = token_after_rhs;
-                }
-                _ => {
-                    last_token = token;
-                    break;
-                }
-            }
-        }
-        (lhs, last_token)
-    }
-
-    fn parse_expr_lv_shift(
-        &mut self,
-        diag: &mut Vec<Diagnostic>,
-        first_token: Token,
-        lv: &mut LVCtx,
-        prec: PrecCtx,
-    ) -> (ExprLike, Token) {
-        let (mut lhs, mut last_token) = self.parse_expr_lv_additive(diag, first_token, lv, prec);
-        loop {
-            let token = last_token;
-            match token.kind {
-                TokenKind::LtLt | TokenKind::GtGt => {
-                    let meth = match token.kind {
-                        TokenKind::LtLt => "<<",
-                        TokenKind::GtGt => ">>",
-                        _ => unimplemented!(),
-                    };
-                    let rhs_first_token = self.lexer.lex(diag, LexerState::Begin);
-                    let (rhs, token_after_rhs) = self.parse_expr_lv_additive(
-                        diag,
-                        rhs_first_token,
-                        lv,
-                        prec.with_invalid_command(),
-                    );
-                    let rhs = rhs.into_expr(diag);
-                    let lhs_expr = lhs.into_expr(diag);
-                    lhs = ExprLike::Expr(
-                        CallExpr {
-                            range: *lhs_expr.outer_range() | *rhs.outer_range(),
-                            parens: Vec::new(),
-
-                            style: CallStyle::BinOp,
-                            private: false,
-                            optional: false,
-                            receiver: Box::new(lhs_expr),
-                            method: symbol(meth),
-                            method_range: token.range,
-                            args: vec![rhs],
-                        }
-                        .into(),
-                    );
-                    last_token = token_after_rhs;
-                }
-                _ => {
-                    last_token = token;
-                    break;
-                }
-            }
-        }
-        (lhs, last_token)
-    }
-
-    fn parse_expr_lv_additive(
-        &mut self,
-        diag: &mut Vec<Diagnostic>,
-        first_token: Token,
-        lv: &mut LVCtx,
-        prec: PrecCtx,
-    ) -> (ExprLike, Token) {
-        let (mut lhs, mut last_token) =
-            self.parse_expr_lv_multiplicative(diag, first_token, lv, prec);
-        loop {
-            let token = last_token;
-            match token.kind {
-                TokenKind::Plus | TokenKind::Minus => {
-                    let meth = match token.kind {
-                        TokenKind::Plus => "+",
-                        TokenKind::Minus => "-",
-                        _ => unimplemented!(),
-                    };
-                    let rhs_first_token = self.lexer.lex(diag, LexerState::Begin);
-                    let (rhs, token_after_rhs) = self.parse_expr_lv_multiplicative(
-                        diag,
-                        rhs_first_token,
-                        lv,
-                        prec.with_invalid_command(),
-                    );
-                    let rhs = rhs.into_expr(diag);
-                    let lhs_expr = lhs.into_expr(diag);
-                    lhs = ExprLike::Expr(
-                        CallExpr {
-                            range: *lhs_expr.outer_range() | *rhs.outer_range(),
-                            parens: Vec::new(),
-
-                            style: CallStyle::BinOp,
-                            private: false,
-                            optional: false,
-                            receiver: Box::new(lhs_expr),
-                            method: symbol(meth),
-                            method_range: token.range,
-                            args: vec![rhs],
-                        }
-                        .into(),
-                    );
-                    last_token = token_after_rhs;
-                }
-                _ => {
-                    last_token = token;
-                    break;
-                }
-            }
-        }
-        (lhs, last_token)
-    }
-
-    fn parse_expr_lv_multiplicative(
-        &mut self,
-        diag: &mut Vec<Diagnostic>,
-        first_token: Token,
-        lv: &mut LVCtx,
-        prec: PrecCtx,
-    ) -> (ExprLike, Token) {
-        let (mut lhs, mut last_token) = self.parse_expr_lv_exponential(diag, first_token, lv, prec);
-        loop {
-            let token = last_token;
-            match token.kind {
-                TokenKind::Star | TokenKind::Slash | TokenKind::Percent => {
-                    let meth = match token.kind {
-                        TokenKind::Star => "*",
-                        TokenKind::Slash => "/",
-                        TokenKind::Percent => "%",
-                        _ => unimplemented!(),
-                    };
-                    let rhs_first_token = self.lexer.lex(diag, LexerState::Begin);
-                    let (rhs, token_after_rhs) = self.parse_expr_lv_exponential(
-                        diag,
-                        rhs_first_token,
-                        lv,
-                        prec.with_invalid_command(),
-                    );
-                    let rhs = rhs.into_expr(diag);
-                    let lhs_expr = lhs.into_expr(diag);
-                    lhs = ExprLike::Expr(
-                        CallExpr {
-                            range: *lhs_expr.outer_range() | *rhs.outer_range(),
-                            parens: Vec::new(),
-
-                            style: CallStyle::BinOp,
-                            private: false,
-                            optional: false,
-                            receiver: Box::new(lhs_expr),
-                            method: symbol(meth),
-                            method_range: token.range,
-                            args: vec![rhs],
-                        }
-                        .into(),
-                    );
-                    last_token = token_after_rhs;
-                }
-                _ => {
-                    last_token = token;
-                    break;
-                }
-            }
-        }
-        (lhs, last_token)
-    }
-
-    fn parse_expr_lv_exponential(
-        &mut self,
-        diag: &mut Vec<Diagnostic>,
-        first_token: Token,
-        lv: &mut LVCtx,
-        prec: PrecCtx,
-    ) -> (ExprLike, Token) {
-        let (lhs, token_after_lhs) = self.parse_expr_lv_unary(diag, first_token, lv, prec);
-        match token_after_lhs.kind {
-            TokenKind::StarStar => {
-                let meth = match token_after_lhs.kind {
-                    TokenKind::StarStar => "**",
-                    _ => unimplemented!(),
-                };
-                let rhs_first_token = self.lexer.lex(diag, LexerState::Begin);
-                let (rhs, token_after_rhs) = self.parse_expr_lv_exponential(
-                    diag,
-                    rhs_first_token,
-                    lv,
-                    prec.with_invalid_command(),
-                );
-                let rhs = rhs.into_expr(diag);
-                let expr = match self.reparse_minus(lhs.into_expr(diag)) {
-                    Ok((minus_range, lhs)) => ExprLike::Expr(
-                        CallExpr {
-                            range: minus_range | *rhs.outer_range(),
-                            parens: Vec::new(),
-
-                            style: CallStyle::UnOp,
-                            private: false,
-                            optional: false,
-                            receiver: Box::new(
-                                CallExpr {
-                                    range: *lhs.outer_range() | *rhs.outer_range(),
-                                    parens: Vec::new(),
-
-                                    style: CallStyle::BinOp,
-                                    private: false,
-                                    optional: false,
-                                    receiver: Box::new(lhs),
-                                    method: symbol(meth),
-                                    method_range: token_after_lhs.range,
-                                    args: vec![rhs],
-                                }
-                                .into(),
-                            ),
-                            method: symbol("-@"),
-                            method_range: minus_range,
-                            args: vec![],
-                        }
-                        .into(),
-                    ),
-                    Err(lhs) => ExprLike::Expr(
-                        CallExpr {
-                            range: *lhs.outer_range() | *rhs.outer_range(),
-                            parens: Vec::new(),
-
-                            style: CallStyle::BinOp,
-                            private: false,
-                            optional: false,
-                            receiver: Box::new(lhs),
-                            method: symbol(meth),
-                            method_range: token_after_lhs.range,
-                            args: vec![rhs],
-                        }
-                        .into(),
-                    ),
-                };
-                (expr, token_after_rhs)
-            }
-            _ => (lhs, token_after_lhs),
-        }
-    }
-
-    fn reparse_minus(&self, expr: Expr) -> Result<(CodeRange, Expr), Expr> {
-        // TODO: also split numeric literals
-        match expr {
-            Expr::Call(expr)
-                if expr.method.as_estr() == symbol_ref("-@")
-                    && matches!(expr.style, CallStyle::UnOp)
-                    && expr.parens.is_empty() =>
-            {
-                Ok((expr.method_range, *expr.receiver))
-            }
-            _ => Err(expr),
-        }
-    }
-
-    fn parse_expr_lv_unary(
-        &mut self,
-        diag: &mut Vec<Diagnostic>,
-        first_token: Token,
-        lv: &mut LVCtx,
-        prec: PrecCtx,
-    ) -> (ExprLike, Token) {
-        match first_token.kind {
-            TokenKind::Plus
-            | TokenKind::PlusPrefix
-            | TokenKind::Minus
-            | TokenKind::MinusPrefix
-            | TokenKind::Excl
-            | TokenKind::Tilde => {
-                let meth = match first_token.kind {
-                    TokenKind::Plus | TokenKind::PlusPrefix => "+@",
-                    TokenKind::Minus | TokenKind::MinusPrefix => "-@",
-                    TokenKind::Excl => "!",
-                    TokenKind::Tilde => "~",
-                    _ => unreachable!(),
-                };
-                let inner_first_token = self.lexer.lex(diag, LexerState::Begin);
-                let (inner, token_after_inner) = self.parse_expr_lv_unary(
-                    diag,
-                    inner_first_token,
-                    lv,
-                    prec.with_invalid_command(),
-                );
-                let inner = inner.into_expr(diag);
-                let expr = ExprLike::Expr(
-                    CallExpr {
-                        range: first_token.range | *inner.outer_range(),
-                        parens: Vec::new(),
-
-                        style: CallStyle::UnOp,
-                        private: false,
-                        optional: false,
-                        receiver: Box::new(inner),
-                        method: symbol(meth),
-                        method_range: first_token.range,
-                        args: vec![],
-                    }
-                    .into(),
-                );
-                (expr, token_after_inner)
-            }
-            _ => self.parse_expr_lv_call_like_absorb_cmds(diag, first_token, lv, prec),
-        }
-    }
-
-    fn parse_expr_lv_call_like_absorb_cmds(
-        &mut self,
-        diag: &mut Vec<Diagnostic>,
-        first_token: Token,
-        lv: &mut LVCtx,
-        prec: PrecCtx,
-    ) -> (ExprLike, Token) {
-        let (lhs, token_after_lhs) = self.parse_expr_lv_call_like(diag, first_token, lv);
-        if prec.invalid_command {
-            if is_cmdarg_begin(&token_after_lhs) {
-                diag.push(Diagnostic {
-                    range: token_after_lhs.range,
-                    message: format!("non-parenthesized calls are not allowed in this context"),
-                });
-                let method_range = token_after_lhs.range;
-                let (args, args_range, token_after_args) =
-                    self.parse_cmd_args(diag, token_after_lhs, lv);
-                let lhs_expr = lhs.into_expr(diag);
-                let expr = ExprLike::Expr(
-                    CallExpr {
-                        range: *lhs_expr.outer_range() | args_range,
-                        parens: Vec::new(),
-
-                        style: CallStyle::CallOp,
-                        private: false,
-                        optional: false,
-                        receiver: Box::new(lhs_expr),
-                        method: symbol("call"),
-                        method_range,
-                        args,
-                    }
-                    .into(),
-                );
-                return (expr, token_after_args);
-            }
-        }
-        (lhs, token_after_lhs)
+        .parse(diag, first_token, lv)
     }
 
     fn parse_expr_lv_call_like(
@@ -2305,6 +1668,300 @@ impl<'a> Parser<'a> {
 
     fn select(&self, range: CodeRange) -> EStrRef<'a> {
         EStrRef::from_bytes(&self.bytes()[range.range()], self.input().encoding())
+    }
+}
+
+/// LR(1)-like handwritten parser.
+// Note: I plan to replace the whole Parser with this stack-based one,
+// but currently it is used only for parsing operators.
+#[derive(Debug)]
+struct StackParser<'a, 'b> {
+    parser: &'b mut Parser<'a>,
+    stack: Vec<StackElem>,
+    top: Option<ExprLike>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum StackElem {
+    PartialBinaryOp {
+        lhs: Expr,
+        op_token: Token,
+        op_prec: usize,
+    },
+    PartialPrefixOp {
+        op_token: Token,
+        op_prec: usize,
+    },
+}
+
+// For binary operators:
+//
+// - Even value means left-associative or non-associative.
+// - Odd value means right-associative.
+const PREC_UNARY: usize = 0;
+const PREC_EXPONENTIAL: usize = 1;
+const PREC_MULTIPLICATIVE: usize = 2;
+const PREC_ADDITIVE: usize = 4;
+const PREC_SHIFT: usize = 6;
+const PREC_BITWISE_AND: usize = 8;
+const PREC_BITWISE_OR: usize = 10;
+const PREC_INEQUALITY: usize = 12;
+const PREC_EQUALITY: usize = 14;
+const PREC_LOGICAL_AND: usize = 16;
+const PREC_LOGICAL_OR: usize = 18;
+const PREC_LOWEST: usize = 100;
+
+impl<'a, 'b> StackParser<'a, 'b> {
+    // fn parse_expr_lv_logical_or
+    fn parse(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        first_token: Token,
+        lv: &mut LVCtx,
+    ) -> (ExprLike, Token) {
+        let mut last_token = first_token;
+        loop {
+            if let Some(top) = self.top.take() {
+                match last_token.kind {
+                    TokenKind::VertVert
+                    | TokenKind::AmpAmp
+                    | TokenKind::EqEq
+                    | TokenKind::ExclEq
+                    | TokenKind::EqMatch
+                    | TokenKind::ExclTilde
+                    | TokenKind::EqEqEq
+                    | TokenKind::LtEqGt
+                    | TokenKind::Lt
+                    | TokenKind::LtEq
+                    | TokenKind::Gt
+                    | TokenKind::GtEq
+                    | TokenKind::Vert
+                    | TokenKind::Caret
+                    | TokenKind::Amp
+                    | TokenKind::LtLt
+                    | TokenKind::GtGt
+                    | TokenKind::Plus
+                    | TokenKind::Minus
+                    | TokenKind::Star
+                    | TokenKind::Slash
+                    | TokenKind::Percent
+                    | TokenKind::StarStar => {
+                        let op_prec = match last_token.kind {
+                            TokenKind::VertVert => PREC_LOGICAL_OR,
+                            TokenKind::AmpAmp => PREC_LOGICAL_AND,
+                            TokenKind::EqEq
+                            | TokenKind::ExclEq
+                            | TokenKind::EqMatch
+                            | TokenKind::ExclTilde
+                            | TokenKind::EqEqEq
+                            | TokenKind::LtEqGt => PREC_EQUALITY,
+                            TokenKind::Lt | TokenKind::LtEq | TokenKind::Gt | TokenKind::GtEq => {
+                                PREC_INEQUALITY
+                            }
+                            TokenKind::Vert | TokenKind::Caret => PREC_BITWISE_OR,
+                            TokenKind::Amp => PREC_BITWISE_AND,
+                            TokenKind::LtLt | TokenKind::GtGt => PREC_SHIFT,
+                            TokenKind::Plus | TokenKind::Minus => PREC_ADDITIVE,
+                            TokenKind::Star | TokenKind::Slash | TokenKind::Percent => {
+                                PREC_MULTIPLICATIVE
+                            }
+                            TokenKind::StarStar => PREC_EXPONENTIAL,
+                            _ => unreachable!(),
+                        };
+                        let next_state = if matches!(last_token.kind, TokenKind::Vert) {
+                            LexerState::BeginLabelable
+                        } else {
+                            LexerState::Begin
+                        };
+                        let lhs = self.reduce(diag, top, op_prec).into_expr(diag);
+                        self.stack.push(StackElem::PartialBinaryOp {
+                            lhs,
+                            op_token: last_token,
+                            op_prec,
+                        });
+                        last_token = self.parser.lexer.lex(diag, next_state);
+                    }
+                    _ => {
+                        let top = self.reduce(diag, top, PREC_LOWEST);
+                        assert_eq!(self.stack.len(), 0);
+                        return (top, last_token);
+                    }
+                }
+            } else {
+                match last_token.kind {
+                    TokenKind::Plus
+                    | TokenKind::PlusPrefix
+                    | TokenKind::Minus
+                    | TokenKind::MinusPrefix
+                    | TokenKind::Excl
+                    | TokenKind::Tilde => {
+                        let op_prec = PREC_UNARY;
+                        self.stack.push(StackElem::PartialPrefixOp {
+                            op_token: last_token,
+                            op_prec,
+                        });
+                        last_token = self.parser.lexer.lex(diag, LexerState::Begin);
+                    }
+                    _ => {
+                        let (expr, next_token) =
+                            self.parser.parse_expr_lv_call_like(diag, last_token, lv);
+                        last_token = next_token;
+                        self.top = Some(expr);
+                    }
+                }
+            }
+        }
+    }
+
+    fn reduce(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        mut expr: ExprLike,
+        op_prec: usize,
+    ) -> ExprLike {
+        loop {
+            let Some(last) = self.stack.last() else {
+                break;
+            };
+            let (last_op_prec, last_op_token) = match last {
+                StackElem::PartialBinaryOp {
+                    op_prec, op_token, ..
+                } => (*op_prec, op_token),
+                StackElem::PartialPrefixOp {
+                    op_prec, op_token, ..
+                } => (*op_prec, op_token),
+            };
+            let is_unary_minus = matches!(
+                last,
+                StackElem::PartialPrefixOp {
+                    op_token: Token {
+                        kind: TokenKind::Minus | TokenKind::MinusPrefix,
+                        ..
+                    },
+                    ..
+                }
+            );
+            if last_op_prec == op_prec && op_prec == PREC_EQUALITY {
+                diag.push(Diagnostic {
+                    range: last_op_token.range,
+                    message: format!("these operators cannot be chained"),
+                });
+            }
+            let assoc_right = last_op_prec > op_prec
+                || (last_op_prec == op_prec && op_prec % 2 == 1)
+                // Parse `-2 ** 2` as `-(2 ** 2)`
+                || is_unary_minus && op_prec == PREC_EXPONENTIAL;
+            if assoc_right {
+                break;
+            }
+            let last = self.stack.pop().unwrap();
+            expr = last.apply(diag, expr);
+        }
+        expr
+    }
+}
+
+impl StackElem {
+    fn apply(self, diag: &mut Vec<Diagnostic>, top: ExprLike) -> ExprLike {
+        match self {
+            StackElem::PartialBinaryOp {
+                lhs,
+                op_token,
+                op_prec: _,
+            } => match op_token.kind {
+                TokenKind::VertVert => {
+                    let rhs = top.into_expr(diag);
+                    let expr = OrExpr {
+                        range: *lhs.outer_range() | *rhs.outer_range(),
+                        parens: Vec::new(),
+
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    }
+                    .into();
+                    ExprLike::Expr(expr)
+                }
+                TokenKind::AmpAmp => {
+                    let rhs = top.into_expr(diag);
+                    let expr = AndExpr {
+                        range: *lhs.outer_range() | *rhs.outer_range(),
+                        parens: Vec::new(),
+
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    }
+                    .into();
+                    ExprLike::Expr(expr)
+                }
+                _ => {
+                    let method_name = match op_token.kind {
+                        TokenKind::EqEq => "==",
+                        TokenKind::ExclEq => "!=",
+                        TokenKind::EqMatch => "=~",
+                        TokenKind::ExclTilde => "!~",
+                        TokenKind::EqEqEq => "===",
+                        TokenKind::LtEqGt => "<=>",
+                        TokenKind::Lt => "<",
+                        TokenKind::LtEq => "<=",
+                        TokenKind::Gt => ">",
+                        TokenKind::GtEq => ">=",
+                        TokenKind::Vert => "|",
+                        TokenKind::Caret => "^",
+                        TokenKind::Amp => "&",
+                        TokenKind::LtLt => "<<",
+                        TokenKind::GtGt => ">>",
+                        TokenKind::Plus => "+",
+                        TokenKind::Minus => "-",
+                        TokenKind::Star => "*",
+                        TokenKind::Slash => "/",
+                        TokenKind::Percent => "%",
+                        TokenKind::StarStar => "**",
+                        _ => unreachable!(),
+                    };
+                    let rhs = top.into_expr(diag);
+                    let expr = CallExpr {
+                        range: *lhs.outer_range() | *rhs.outer_range(),
+                        parens: Vec::new(),
+
+                        receiver: Box::new(lhs),
+                        args: vec![rhs],
+                        style: CallStyle::BinOp,
+                        private: false,
+                        optional: false,
+                        method: EString::from(method_name).asciified(),
+                        method_range: op_token.range,
+                    };
+                    ExprLike::Expr(expr.into())
+                }
+            },
+            StackElem::PartialPrefixOp {
+                op_token,
+                op_prec: _,
+            } => {
+                let rhs = top.into_expr(diag);
+                let method_name = match op_token.kind {
+                    TokenKind::Excl => "!",
+                    TokenKind::Tilde => "~",
+                    TokenKind::Plus | TokenKind::PlusPrefix => "+@",
+                    TokenKind::Minus | TokenKind::MinusPrefix => "-@",
+                    _ => unreachable!(),
+                };
+                let expr = CallExpr {
+                    range: op_token.range | *rhs.outer_range(),
+                    parens: Vec::new(),
+
+                    receiver: Box::new(rhs),
+                    args: Vec::new(),
+                    style: CallStyle::UnOp,
+                    private: false,
+                    optional: false,
+                    method: EString::from(method_name).asciified(),
+                    method_range: op_token.range,
+                }
+                .into();
+                ExprLike::Expr(expr)
+            }
+        }
     }
 }
 
