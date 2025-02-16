@@ -38,14 +38,12 @@ pub fn parse_type(diag: &mut Vec<Diagnostic>, input: EStrRef<'_>) -> Type {
 #[derive(Debug)]
 struct Parser<'a> {
     lexer: Lexer<'a>,
-    next_token: Option<Token>,
 }
 
 impl<'a> Parser<'a> {
     fn new(input: EStrRef<'a>) -> Self {
         Self {
             lexer: Lexer::new(input),
-            next_token: None,
         }
     }
 
@@ -63,8 +61,10 @@ impl<'a> Parser<'a> {
             lv.push(local.clone());
         }
         let lv_checkpoint = lv.checkpoint();
-        let body = self.parse_stmt_list(
+        let first_token = self.lexer.lex(diag, LexerState::Begin);
+        let (body, last_token) = self.parse_stmt_list(
             diag,
+            first_token,
             &mut lv,
             BailCtx {
                 end_style: EndStyle::EOF,
@@ -72,12 +72,11 @@ impl<'a> Parser<'a> {
                 ..Default::default()
             },
         );
-        let token = self.fill_token(diag, LexerState::End);
-        match token.kind {
+        match last_token.kind {
             TokenKind::EOF => {}
             _ => {
                 diag.push(Diagnostic {
-                    range: token.range,
+                    range: last_token.range,
                     message: format!("unexpected token"),
                 });
             }
@@ -96,19 +95,24 @@ impl<'a> Parser<'a> {
     fn parse_stmt_list(
         &mut self,
         diag: &mut Vec<Diagnostic>,
+        first_token: Token,
         lv: &mut LVCtx,
         bail: BailCtx,
-    ) -> Expr {
+    ) -> (Expr, Token) {
         let mut separator_prefix = Vec::<StmtSep>::new();
         let mut stmts = Vec::<Stmt>::new();
         let mut range = DUMMY_RANGE;
+        let mut last_token = first_token;
         loop {
-            let token = self.fill_token(diag, LexerState::Begin).clone();
+            let token = last_token;
             match token.kind {
-                _ if bail.should_bail(&token) => break,
+                _ if bail.should_bail(&token) => {
+                    last_token = token;
+                    break;
+                }
                 TokenKind::Semicolon | TokenKind::Newline => {
                     range |= token.range;
-                    self.bump();
+                    last_token = self.lexer.lex(diag, LexerState::Begin);
                     let kind = match token.kind {
                         TokenKind::Semicolon => StmtSepKind::Semicolon,
                         TokenKind::Newline => StmtSepKind::Newline,
@@ -128,7 +132,8 @@ impl<'a> Parser<'a> {
                     }
                 }
                 _ => {
-                    let expr = self.parse_expr_lv_spelled_cond_infix(diag, lv);
+                    let (expr, token_after_expr) =
+                        self.parse_expr_lv_spelled_cond_infix(diag, token, lv);
                     range |= *expr.outer_range();
                     let separator_prefix = take(&mut separator_prefix);
                     stmts.push(Stmt {
@@ -137,6 +142,7 @@ impl<'a> Parser<'a> {
                         separator_prefix,
                         separator_suffix: Vec::new(),
                     });
+                    last_token = token_after_expr;
                 }
             }
         }
@@ -157,7 +163,7 @@ impl<'a> Parser<'a> {
                 separator_suffix,
             });
         }
-        if stmts.len() == 1 {
+        let expr = if stmts.len() == 1 {
             let stmt = stmts.swap_remove(0);
             let mut expr = stmt.expr;
             if !stmt.separator_prefix.is_empty() || !stmt.separator_suffix.is_empty() {
@@ -179,7 +185,8 @@ impl<'a> Parser<'a> {
                 statements: stmts,
             }
             .into()
-        }
+        };
+        (expr, last_token)
     }
 
     fn parse_whole_expr(&mut self, diag: &mut Vec<Diagnostic>, locals: &[EString]) -> Expr {
@@ -187,13 +194,13 @@ impl<'a> Parser<'a> {
         for local in locals {
             lv.push(local.clone());
         }
-        let expr = self.parse_expr_lv_spelled_cond_infix(diag, &mut lv);
-        let token = self.fill_token(diag, LexerState::End);
-        match token.kind {
+        let first_token = self.lexer.lex(diag, LexerState::Begin);
+        let (expr, last_token) = self.parse_expr_lv_spelled_cond_infix(diag, first_token, &mut lv);
+        match last_token.kind {
             TokenKind::EOF => {}
             _ => {
                 diag.push(Diagnostic {
-                    range: token.range,
+                    range: last_token.range,
                     message: format!("unexpected token"),
                 });
             }
@@ -204,12 +211,13 @@ impl<'a> Parser<'a> {
     fn parse_expr_lv_spelled_cond_infix(
         &mut self,
         diag: &mut Vec<Diagnostic>,
+        first_token: Token,
         lv: &mut LVCtx,
-    ) -> Expr {
-        let mut lhs = self.parse_expr_lv_spelled_and_or(diag, lv);
+    ) -> (Expr, Token) {
+        let (mut lhs, mut last_token) = self.parse_expr_lv_spelled_and_or(diag, first_token, lv);
         let mut count = 0;
         loop {
-            let token = self.fill_token(diag, LexerState::End).clone();
+            let token = last_token;
             match token.kind {
                 TokenKind::KeywordIfInfix
                 | TokenKind::KeywordUnlessInfix
@@ -222,8 +230,9 @@ impl<'a> Parser<'a> {
                             message: format!("these operators cannot be chained"),
                         });
                     }
-                    self.bump();
-                    let rhs = self.parse_expr_lv_spelled_and_or(diag, lv);
+                    let rhs_first_token = self.lexer.lex(diag, LexerState::Begin);
+                    let (rhs, token_after_rhs) =
+                        self.parse_expr_lv_spelled_and_or(diag, rhs_first_token, lv);
                     lhs = match token.kind {
                         TokenKind::KeywordIfInfix => IfExpr {
                             range: *lhs.outer_range() | *rhs.outer_range(),
@@ -277,21 +286,30 @@ impl<'a> Parser<'a> {
                         .into(),
                         _ => unreachable!(),
                     };
+                    last_token = token_after_rhs;
                 }
-                _ => break,
+                _ => {
+                    last_token = token;
+                    break;
+                }
             }
         }
-        lhs
+        (lhs, last_token)
     }
 
-    fn parse_expr_lv_spelled_and_or(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> Expr {
-        let mut lhs = self.parse_expr_lv_cmd(diag, lv);
+    fn parse_expr_lv_spelled_and_or(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        first_token: Token,
+        lv: &mut LVCtx,
+    ) -> (Expr, Token) {
+        let (mut lhs, mut last_token) = self.parse_expr_lv_cmd(diag, first_token, lv);
         loop {
-            let token = self.fill_token(diag, LexerState::End).clone();
+            let token = last_token;
             match token.kind {
                 TokenKind::KeywordAnd | TokenKind::KeywordOr => {
-                    self.bump();
-                    let rhs = self.parse_expr_lv_cmd(diag, lv);
+                    let rhs_first_token = self.lexer.lex(diag, LexerState::Begin);
+                    let (rhs, token_after_rhs) = self.parse_expr_lv_cmd(diag, rhs_first_token, lv);
                     lhs = match token.kind {
                         TokenKind::KeywordAnd => AndExpr {
                             range: *lhs.outer_range() | *rhs.outer_range(),
@@ -311,20 +329,31 @@ impl<'a> Parser<'a> {
                         .into(),
                         _ => unreachable!(),
                     };
+                    last_token = token_after_rhs;
                 }
-                _ => break,
+                _ => {
+                    last_token = token;
+                    break;
+                }
             }
         }
-        lhs
+        (lhs, last_token)
     }
 
-    fn parse_expr_lv_cmd(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> Expr {
-        let lhs = self.parse_expr_lv_assignment(diag, lv, PrecCtx::default());
-        let token = self.fill_token(diag, LexerState::End).clone();
-        if is_cmdarg_begin(&token) {
-            let (args, args_range) = self.parse_cmd_args(diag, lv);
+    fn parse_expr_lv_cmd(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        first_token: Token,
+        lv: &mut LVCtx,
+    ) -> (Expr, Token) {
+        let (lhs, token_after_lhs) =
+            self.parse_expr_lv_assignment(diag, first_token, lv, PrecCtx::default());
+        if is_cmdarg_begin(&token_after_lhs) {
+            let method_range = token_after_lhs.range;
+            let (args, args_range, token_after_args) =
+                self.parse_cmd_args(diag, token_after_lhs, lv);
             let lhs = lhs.callify();
-            match lhs {
+            let expr = match lhs {
                 ExprLike::ArglessCall {
                     range,
                     style,
@@ -363,14 +392,14 @@ impl<'a> Parser<'a> {
                         optional: false,
                         receiver: Box::new(arg),
                         method: symbol("!"),
-                        method_range: token.range,
+                        method_range,
                         args: vec![],
                     }
                     .into()
                 }
                 _ => {
                     diag.push(Diagnostic {
-                        range: token.range,
+                        range: method_range,
                         message: format!("this expression cannot be called"),
                     });
                     let lhs = lhs.into_expr(diag);
@@ -383,28 +412,28 @@ impl<'a> Parser<'a> {
                         optional: false,
                         receiver: Box::new(lhs),
                         method: symbol("call"),
-                        method_range: token.range,
+                        method_range,
                         args,
                     }
                     .into()
                 }
-            }
+            };
+            (expr, token_after_args)
         } else {
-            lhs.into_expr(diag)
+            (lhs.into_expr(diag), token_after_lhs)
         }
     }
 
     fn parse_expr_lv_assignment(
         &mut self,
         diag: &mut Vec<Diagnostic>,
+        first_token: Token,
         lv: &mut LVCtx,
         prec: PrecCtx,
-    ) -> ExprLike {
-        let lhs = self.parse_expr_lv_tertiary_cond(diag, lv, prec);
-        let token = self.fill_token(diag, LexerState::End);
-        match token.kind {
+    ) -> (ExprLike, Token) {
+        let (lhs, token_after_lhs) = self.parse_expr_lv_tertiary_cond(diag, first_token, lv, prec);
+        match token_after_lhs.kind {
             TokenKind::Eq => {
-                self.bump();
                 let lhs: WriteTarget = match lhs {
                     ExprLike::Identifier {
                         range,
@@ -442,7 +471,13 @@ impl<'a> Parser<'a> {
                     }
                     _ => {}
                 }
-                let rhs = self.parse_expr_lv_assignment(diag, lv, prec.with_invalid_command());
+                let rhs_first_token = self.lexer.lex(diag, LexerState::Begin);
+                let (rhs, token_after_rhs) = self.parse_expr_lv_assignment(
+                    diag,
+                    rhs_first_token,
+                    lv,
+                    prec.with_invalid_command(),
+                );
                 let rhs = rhs.into_expr(diag);
                 let expr: Expr = WriteExpr {
                     range: *lhs.range() | *rhs.outer_range(),
@@ -451,40 +486,41 @@ impl<'a> Parser<'a> {
                     rhs: Box::new(rhs),
                 }
                 .into();
-                return ExprLike::Expr(expr);
+                return (ExprLike::Expr(expr), token_after_rhs);
             }
             _ => {}
         }
-        lhs
+        (lhs, token_after_lhs)
     }
 
     fn parse_expr_lv_tertiary_cond(
         &mut self,
         diag: &mut Vec<Diagnostic>,
+        first_token: Token,
         lv: &mut LVCtx,
         prec: PrecCtx,
-    ) -> ExprLike {
-        let lhs = self.parse_expr_lv_logical_or(diag, lv, prec);
-        let token = self.fill_token(diag, LexerState::End);
-        match token.kind {
+    ) -> (ExprLike, Token) {
+        let (lhs, token_after_lhs) = self.parse_expr_lv_logical_or(diag, first_token, lv, prec);
+        match token_after_lhs.kind {
             TokenKind::Question => {
-                self.bump();
+                let mid_first_token = self.lexer.lex(diag, LexerState::Begin);
                 // TODO: middle expression precedence needs review
-                let mid = self
-                    .parse_expr_lv_assignment(diag, lv, prec.with_invalid_command())
-                    .into_expr(diag);
-                let mid2_token = self.fill_token(diag, LexerState::End);
-                if matches!(mid2_token.kind, TokenKind::Colon) {
-                    self.bump();
-                } else {
+                let (mid, token_after_mid) = self.parse_expr_lv_assignment(
+                    diag,
+                    mid_first_token,
+                    lv,
+                    prec.with_invalid_command(),
+                );
+                let mid = mid.into_expr(diag);
+                if !matches!(token_after_mid.kind, TokenKind::Colon) {
                     diag.push(Diagnostic {
-                        range: mid2_token.range,
+                        range: token_after_mid.range,
                         message: format!("expected `:`"),
                     });
                     let lhs_expr = lhs.into_expr(diag);
-                    return ExprLike::Expr(
+                    let expr = ExprLike::Expr(
                         IfExpr {
-                            range: *lhs_expr.outer_range() | mid2_token.range,
+                            range: *lhs_expr.outer_range() | token_after_mid.range,
                             parens: Vec::new(),
 
                             cond: Box::new(lhs_expr),
@@ -501,12 +537,18 @@ impl<'a> Parser<'a> {
                         }
                         .into(),
                     );
+                    return (expr, token_after_mid);
                 }
-                let rhs = self
-                    .parse_expr_lv_tertiary_cond(diag, lv, prec.with_invalid_command())
-                    .into_expr(diag);
+                let rhs_first_token = self.lexer.lex(diag, LexerState::Begin);
+                let (rhs, token_after_rhs) = self.parse_expr_lv_tertiary_cond(
+                    diag,
+                    rhs_first_token,
+                    lv,
+                    prec.with_invalid_command(),
+                );
+                let rhs = rhs.into_expr(diag);
                 let lhs_expr = lhs.into_expr(diag);
-                ExprLike::Expr(
+                let expr = ExprLike::Expr(
                     IfExpr {
                         range: *lhs_expr.outer_range() | *rhs.outer_range(),
                         parens: Vec::new(),
@@ -516,27 +558,33 @@ impl<'a> Parser<'a> {
                         else_: Box::new(rhs),
                     }
                     .into(),
-                )
+                );
+                (expr, token_after_rhs)
             }
-            _ => lhs,
+            _ => (lhs, token_after_lhs),
         }
     }
 
     fn parse_expr_lv_logical_or(
         &mut self,
         diag: &mut Vec<Diagnostic>,
+        first_token: Token,
         lv: &mut LVCtx,
         prec: PrecCtx,
-    ) -> ExprLike {
-        let mut lhs = self.parse_expr_lv_logical_and(diag, lv, prec);
+    ) -> (ExprLike, Token) {
+        let (mut lhs, mut last_token) = self.parse_expr_lv_logical_and(diag, first_token, lv, prec);
         loop {
-            let token = self.fill_token(diag, LexerState::End);
+            let token = last_token;
             match token.kind {
                 TokenKind::VertVert => {
-                    self.bump();
-                    let rhs = self
-                        .parse_expr_lv_logical_and(diag, lv, prec.with_invalid_command())
-                        .into_expr(diag);
+                    let rhs_first_token = self.lexer.lex(diag, LexerState::Begin);
+                    let (rhs, token_after_rhs) = self.parse_expr_lv_logical_and(
+                        diag,
+                        rhs_first_token,
+                        lv,
+                        prec.with_invalid_command(),
+                    );
+                    let rhs = rhs.into_expr(diag);
                     let lhs_expr = lhs.into_expr(diag);
                     lhs = ExprLike::Expr(
                         OrExpr {
@@ -548,28 +596,37 @@ impl<'a> Parser<'a> {
                         }
                         .into(),
                     );
+                    last_token = token_after_rhs;
                 }
-                _ => break,
+                _ => {
+                    last_token = token;
+                    break;
+                }
             }
         }
-        lhs
+        (lhs, last_token)
     }
 
     fn parse_expr_lv_logical_and(
         &mut self,
         diag: &mut Vec<Diagnostic>,
+        first_token: Token,
         lv: &mut LVCtx,
         prec: PrecCtx,
-    ) -> ExprLike {
-        let mut lhs = self.parse_expr_lv_eq(diag, lv, prec);
+    ) -> (ExprLike, Token) {
+        let (mut lhs, mut last_token) = self.parse_expr_lv_eq(diag, first_token, lv, prec);
         loop {
-            let token = self.fill_token(diag, LexerState::End);
+            let token = last_token;
             match token.kind {
                 TokenKind::AmpAmp => {
-                    self.bump();
-                    let rhs = self
-                        .parse_expr_lv_eq(diag, lv, prec.with_invalid_command())
-                        .into_expr(diag);
+                    let rhs_first_token = self.lexer.lex(diag, LexerState::Begin);
+                    let (rhs, token_after_rhs) = self.parse_expr_lv_eq(
+                        diag,
+                        rhs_first_token,
+                        lv,
+                        prec.with_invalid_command(),
+                    );
+                    let rhs = rhs.into_expr(diag);
                     let lhs_expr = lhs.into_expr(diag);
                     lhs = ExprLike::Expr(
                         AndExpr {
@@ -581,23 +638,28 @@ impl<'a> Parser<'a> {
                         }
                         .into(),
                     );
+                    last_token = token_after_rhs;
                 }
-                _ => break,
+                _ => {
+                    last_token = token;
+                    break;
+                }
             }
         }
-        lhs
+        (lhs, last_token)
     }
 
     fn parse_expr_lv_eq(
         &mut self,
         diag: &mut Vec<Diagnostic>,
+        first_token: Token,
         lv: &mut LVCtx,
         prec: PrecCtx,
-    ) -> ExprLike {
-        let mut lhs = self.parse_expr_lv_ineq(diag, lv, prec);
+    ) -> (ExprLike, Token) {
+        let (mut lhs, mut last_token) = self.parse_expr_lv_ineq(diag, first_token, lv, prec);
         let mut count = 0;
         loop {
-            let token = self.fill_token(diag, LexerState::End).clone();
+            let token = last_token;
             match token.kind {
                 TokenKind::EqEq
                 | TokenKind::ExclEq
@@ -621,10 +683,14 @@ impl<'a> Parser<'a> {
                         TokenKind::LtEqGt => "<=>",
                         _ => unimplemented!(),
                     };
-                    self.bump();
-                    let rhs = self
-                        .parse_expr_lv_ineq(diag, lv, prec.with_invalid_command())
-                        .into_expr(diag);
+                    let rhs_first_token = self.lexer.lex(diag, LexerState::Begin);
+                    let (rhs, token_after_rhs) = self.parse_expr_lv_ineq(
+                        diag,
+                        rhs_first_token,
+                        lv,
+                        prec.with_invalid_command(),
+                    );
+                    let rhs = rhs.into_expr(diag);
                     let lhs_expr = lhs.into_expr(diag);
                     lhs = ExprLike::Expr(
                         CallExpr {
@@ -641,22 +707,27 @@ impl<'a> Parser<'a> {
                         }
                         .into(),
                     );
+                    last_token = token_after_rhs;
                 }
-                _ => break,
+                _ => {
+                    last_token = token;
+                    break;
+                }
             }
         }
-        lhs
+        (lhs, last_token)
     }
 
     fn parse_expr_lv_ineq(
         &mut self,
         diag: &mut Vec<Diagnostic>,
+        first_token: Token,
         lv: &mut LVCtx,
         prec: PrecCtx,
-    ) -> ExprLike {
-        let mut lhs = self.parse_expr_lv_bitwise_or(diag, lv, prec);
+    ) -> (ExprLike, Token) {
+        let (mut lhs, mut last_token) = self.parse_expr_lv_bitwise_or(diag, first_token, lv, prec);
         loop {
-            let token = self.fill_token(diag, LexerState::End).clone();
+            let token = last_token;
             match token.kind {
                 TokenKind::Lt | TokenKind::LtEq | TokenKind::Gt | TokenKind::GtEq => {
                     let meth = match token.kind {
@@ -666,10 +737,14 @@ impl<'a> Parser<'a> {
                         TokenKind::GtEq => ">=",
                         _ => unimplemented!(),
                     };
-                    self.bump();
-                    let rhs = self
-                        .parse_expr_lv_bitwise_or(diag, lv, prec.with_invalid_command())
-                        .into_expr(diag);
+                    let rhs_first_token = self.lexer.lex(diag, LexerState::Begin);
+                    let (rhs, token_after_rhs) = self.parse_expr_lv_bitwise_or(
+                        diag,
+                        rhs_first_token,
+                        lv,
+                        prec.with_invalid_command(),
+                    );
+                    let rhs = rhs.into_expr(diag);
                     let lhs_expr = lhs.into_expr(diag);
                     lhs = ExprLike::Expr(
                         CallExpr {
@@ -686,22 +761,27 @@ impl<'a> Parser<'a> {
                         }
                         .into(),
                     );
+                    last_token = token_after_rhs;
                 }
-                _ => break,
+                _ => {
+                    last_token = token;
+                    break;
+                }
             }
         }
-        lhs
+        (lhs, last_token)
     }
 
     fn parse_expr_lv_bitwise_or(
         &mut self,
         diag: &mut Vec<Diagnostic>,
+        first_token: Token,
         lv: &mut LVCtx,
         prec: PrecCtx,
-    ) -> ExprLike {
-        let mut lhs = self.parse_expr_lv_bitwise_and(diag, lv, prec);
+    ) -> (ExprLike, Token) {
+        let (mut lhs, mut last_token) = self.parse_expr_lv_bitwise_and(diag, first_token, lv, prec);
         loop {
-            let token = self.fill_token(diag, LexerState::End).clone();
+            let token = last_token;
             match token.kind {
                 TokenKind::Vert | TokenKind::Caret => {
                     let meth = match token.kind {
@@ -709,13 +789,21 @@ impl<'a> Parser<'a> {
                         TokenKind::Caret => "^",
                         _ => unimplemented!(),
                     };
-                    self.bump();
-                    if token.kind == TokenKind::Vert {
-                        self.fill_token(diag, LexerState::BeginLabelable);
-                    }
-                    let rhs = self
-                        .parse_expr_lv_bitwise_and(diag, lv, prec.with_invalid_command())
-                        .into_expr(diag);
+                    let rhs_first_token = self.lexer.lex(
+                        diag,
+                        if token.kind == TokenKind::Vert {
+                            LexerState::BeginLabelable
+                        } else {
+                            LexerState::Begin
+                        },
+                    );
+                    let (rhs, token_after_rhs) = self.parse_expr_lv_bitwise_and(
+                        diag,
+                        rhs_first_token,
+                        lv,
+                        prec.with_invalid_command(),
+                    );
+                    let rhs = rhs.into_expr(diag);
                     let lhs_expr = lhs.into_expr(diag);
                     lhs = ExprLike::Expr(
                         CallExpr {
@@ -732,32 +820,41 @@ impl<'a> Parser<'a> {
                         }
                         .into(),
                     );
+                    last_token = token_after_rhs;
                 }
-                _ => break,
+                _ => {
+                    last_token = token;
+                    break;
+                }
             }
         }
-        lhs
+        (lhs, last_token)
     }
 
     fn parse_expr_lv_bitwise_and(
         &mut self,
         diag: &mut Vec<Diagnostic>,
+        first_token: Token,
         lv: &mut LVCtx,
         prec: PrecCtx,
-    ) -> ExprLike {
-        let mut lhs = self.parse_expr_lv_shift(diag, lv, prec);
+    ) -> (ExprLike, Token) {
+        let (mut lhs, mut last_token) = self.parse_expr_lv_shift(diag, first_token, lv, prec);
         loop {
-            let token = self.fill_token(diag, LexerState::End).clone();
+            let token = last_token;
             match token.kind {
                 TokenKind::Amp => {
                     let meth = match token.kind {
                         TokenKind::Amp => "&",
                         _ => unimplemented!(),
                     };
-                    self.bump();
-                    let rhs = self
-                        .parse_expr_lv_shift(diag, lv, prec.with_invalid_command())
-                        .into_expr(diag);
+                    let rhs_first_token = self.lexer.lex(diag, LexerState::Begin);
+                    let (rhs, token_after_rhs) = self.parse_expr_lv_shift(
+                        diag,
+                        rhs_first_token,
+                        lv,
+                        prec.with_invalid_command(),
+                    );
+                    let rhs = rhs.into_expr(diag);
                     let lhs_expr = lhs.into_expr(diag);
                     lhs = ExprLike::Expr(
                         CallExpr {
@@ -774,22 +871,27 @@ impl<'a> Parser<'a> {
                         }
                         .into(),
                     );
+                    last_token = token_after_rhs;
                 }
-                _ => break,
+                _ => {
+                    last_token = token;
+                    break;
+                }
             }
         }
-        lhs
+        (lhs, last_token)
     }
 
     fn parse_expr_lv_shift(
         &mut self,
         diag: &mut Vec<Diagnostic>,
+        first_token: Token,
         lv: &mut LVCtx,
         prec: PrecCtx,
-    ) -> ExprLike {
-        let mut lhs = self.parse_expr_lv_additive(diag, lv, prec);
+    ) -> (ExprLike, Token) {
+        let (mut lhs, mut last_token) = self.parse_expr_lv_additive(diag, first_token, lv, prec);
         loop {
-            let token = self.fill_token(diag, LexerState::End).clone();
+            let token = last_token;
             match token.kind {
                 TokenKind::LtLt | TokenKind::GtGt => {
                     let meth = match token.kind {
@@ -797,10 +899,14 @@ impl<'a> Parser<'a> {
                         TokenKind::GtGt => ">>",
                         _ => unimplemented!(),
                     };
-                    self.bump();
-                    let rhs = self
-                        .parse_expr_lv_additive(diag, lv, prec.with_invalid_command())
-                        .into_expr(diag);
+                    let rhs_first_token = self.lexer.lex(diag, LexerState::Begin);
+                    let (rhs, token_after_rhs) = self.parse_expr_lv_additive(
+                        diag,
+                        rhs_first_token,
+                        lv,
+                        prec.with_invalid_command(),
+                    );
+                    let rhs = rhs.into_expr(diag);
                     let lhs_expr = lhs.into_expr(diag);
                     lhs = ExprLike::Expr(
                         CallExpr {
@@ -817,22 +923,28 @@ impl<'a> Parser<'a> {
                         }
                         .into(),
                     );
+                    last_token = token_after_rhs;
                 }
-                _ => break,
+                _ => {
+                    last_token = token;
+                    break;
+                }
             }
         }
-        lhs
+        (lhs, last_token)
     }
 
     fn parse_expr_lv_additive(
         &mut self,
         diag: &mut Vec<Diagnostic>,
+        first_token: Token,
         lv: &mut LVCtx,
         prec: PrecCtx,
-    ) -> ExprLike {
-        let mut lhs = self.parse_expr_lv_multiplicative(diag, lv, prec);
+    ) -> (ExprLike, Token) {
+        let (mut lhs, mut last_token) =
+            self.parse_expr_lv_multiplicative(diag, first_token, lv, prec);
         loop {
-            let token = self.fill_token(diag, LexerState::End).clone();
+            let token = last_token;
             match token.kind {
                 TokenKind::Plus | TokenKind::Minus => {
                     let meth = match token.kind {
@@ -840,10 +952,14 @@ impl<'a> Parser<'a> {
                         TokenKind::Minus => "-",
                         _ => unimplemented!(),
                     };
-                    self.bump();
-                    let rhs = self
-                        .parse_expr_lv_multiplicative(diag, lv, prec.with_invalid_command())
-                        .into_expr(diag);
+                    let rhs_first_token = self.lexer.lex(diag, LexerState::Begin);
+                    let (rhs, token_after_rhs) = self.parse_expr_lv_multiplicative(
+                        diag,
+                        rhs_first_token,
+                        lv,
+                        prec.with_invalid_command(),
+                    );
+                    let rhs = rhs.into_expr(diag);
                     let lhs_expr = lhs.into_expr(diag);
                     lhs = ExprLike::Expr(
                         CallExpr {
@@ -860,22 +976,27 @@ impl<'a> Parser<'a> {
                         }
                         .into(),
                     );
+                    last_token = token_after_rhs;
                 }
-                _ => break,
+                _ => {
+                    last_token = token;
+                    break;
+                }
             }
         }
-        lhs
+        (lhs, last_token)
     }
 
     fn parse_expr_lv_multiplicative(
         &mut self,
         diag: &mut Vec<Diagnostic>,
+        first_token: Token,
         lv: &mut LVCtx,
         prec: PrecCtx,
-    ) -> ExprLike {
-        let mut lhs = self.parse_expr_lv_exponential(diag, lv, prec);
+    ) -> (ExprLike, Token) {
+        let (mut lhs, mut last_token) = self.parse_expr_lv_exponential(diag, first_token, lv, prec);
         loop {
-            let token = self.fill_token(diag, LexerState::End).clone();
+            let token = last_token;
             match token.kind {
                 TokenKind::Star | TokenKind::Slash | TokenKind::Percent => {
                     let meth = match token.kind {
@@ -884,10 +1005,14 @@ impl<'a> Parser<'a> {
                         TokenKind::Percent => "%",
                         _ => unimplemented!(),
                     };
-                    self.bump();
-                    let rhs = self
-                        .parse_expr_lv_exponential(diag, lv, prec.with_invalid_command())
-                        .into_expr(diag);
+                    let rhs_first_token = self.lexer.lex(diag, LexerState::Begin);
+                    let (rhs, token_after_rhs) = self.parse_expr_lv_exponential(
+                        diag,
+                        rhs_first_token,
+                        lv,
+                        prec.with_invalid_command(),
+                    );
+                    let rhs = rhs.into_expr(diag);
                     let lhs_expr = lhs.into_expr(diag);
                     lhs = ExprLike::Expr(
                         CallExpr {
@@ -904,32 +1029,40 @@ impl<'a> Parser<'a> {
                         }
                         .into(),
                     );
+                    last_token = token_after_rhs;
                 }
-                _ => break,
+                _ => {
+                    last_token = token;
+                    break;
+                }
             }
         }
-        lhs
+        (lhs, last_token)
     }
 
     fn parse_expr_lv_exponential(
         &mut self,
         diag: &mut Vec<Diagnostic>,
+        first_token: Token,
         lv: &mut LVCtx,
         prec: PrecCtx,
-    ) -> ExprLike {
-        let lhs = self.parse_expr_lv_unary(diag, lv, prec);
-        let token = self.fill_token(diag, LexerState::End).clone();
-        match token.kind {
+    ) -> (ExprLike, Token) {
+        let (lhs, token_after_lhs) = self.parse_expr_lv_unary(diag, first_token, lv, prec);
+        match token_after_lhs.kind {
             TokenKind::StarStar => {
-                let meth = match token.kind {
+                let meth = match token_after_lhs.kind {
                     TokenKind::StarStar => "**",
                     _ => unimplemented!(),
                 };
-                self.bump();
-                let rhs = self
-                    .parse_expr_lv_exponential(diag, lv, prec.with_invalid_command())
-                    .into_expr(diag);
-                match self.reparse_minus(lhs.into_expr(diag)) {
+                let rhs_first_token = self.lexer.lex(diag, LexerState::Begin);
+                let (rhs, token_after_rhs) = self.parse_expr_lv_exponential(
+                    diag,
+                    rhs_first_token,
+                    lv,
+                    prec.with_invalid_command(),
+                );
+                let rhs = rhs.into_expr(diag);
+                let expr = match self.reparse_minus(lhs.into_expr(diag)) {
                     Ok((minus_range, lhs)) => ExprLike::Expr(
                         CallExpr {
                             range: minus_range | *rhs.outer_range(),
@@ -948,7 +1081,7 @@ impl<'a> Parser<'a> {
                                     optional: false,
                                     receiver: Box::new(lhs),
                                     method: symbol(meth),
-                                    method_range: token.range,
+                                    method_range: token_after_lhs.range,
                                     args: vec![rhs],
                                 }
                                 .into(),
@@ -969,14 +1102,15 @@ impl<'a> Parser<'a> {
                             optional: false,
                             receiver: Box::new(lhs),
                             method: symbol(meth),
-                            method_range: token.range,
+                            method_range: token_after_lhs.range,
                             args: vec![rhs],
                         }
                         .into(),
                     ),
-                }
+                };
+                (expr, token_after_rhs)
             }
-            _ => lhs,
+            _ => (lhs, token_after_lhs),
         }
     }
 
@@ -997,31 +1131,35 @@ impl<'a> Parser<'a> {
     fn parse_expr_lv_unary(
         &mut self,
         diag: &mut Vec<Diagnostic>,
+        first_token: Token,
         lv: &mut LVCtx,
         prec: PrecCtx,
-    ) -> ExprLike {
-        let token = self.fill_token(diag, LexerState::Begin).clone();
-        match token.kind {
+    ) -> (ExprLike, Token) {
+        match first_token.kind {
             TokenKind::Plus
             | TokenKind::PlusPrefix
             | TokenKind::Minus
             | TokenKind::MinusPrefix
             | TokenKind::Excl
             | TokenKind::Tilde => {
-                let meth = match token.kind {
+                let meth = match first_token.kind {
                     TokenKind::Plus | TokenKind::PlusPrefix => "+@",
                     TokenKind::Minus | TokenKind::MinusPrefix => "-@",
                     TokenKind::Excl => "!",
                     TokenKind::Tilde => "~",
                     _ => unreachable!(),
                 };
-                self.bump();
-                let inner = self
-                    .parse_expr_lv_unary(diag, lv, prec.with_invalid_command())
-                    .into_expr(diag);
-                ExprLike::Expr(
+                let inner_first_token = self.lexer.lex(diag, LexerState::Begin);
+                let (inner, token_after_inner) = self.parse_expr_lv_unary(
+                    diag,
+                    inner_first_token,
+                    lv,
+                    prec.with_invalid_command(),
+                );
+                let inner = inner.into_expr(diag);
+                let expr = ExprLike::Expr(
                     CallExpr {
-                        range: token.range | *inner.outer_range(),
+                        range: first_token.range | *inner.outer_range(),
                         parens: Vec::new(),
 
                         style: CallStyle::UnOp,
@@ -1029,33 +1167,36 @@ impl<'a> Parser<'a> {
                         optional: false,
                         receiver: Box::new(inner),
                         method: symbol(meth),
-                        method_range: token.range,
+                        method_range: first_token.range,
                         args: vec![],
                     }
                     .into(),
-                )
+                );
+                (expr, token_after_inner)
             }
-            _ => self.parse_expr_lv_call_like_absorb_cmds(diag, lv, prec),
+            _ => self.parse_expr_lv_call_like_absorb_cmds(diag, first_token, lv, prec),
         }
     }
 
     fn parse_expr_lv_call_like_absorb_cmds(
         &mut self,
         diag: &mut Vec<Diagnostic>,
+        first_token: Token,
         lv: &mut LVCtx,
         prec: PrecCtx,
-    ) -> ExprLike {
-        let lhs = self.parse_expr_lv_call_like(diag, lv);
+    ) -> (ExprLike, Token) {
+        let (lhs, token_after_lhs) = self.parse_expr_lv_call_like(diag, first_token, lv);
         if prec.invalid_command {
-            let token = self.fill_token(diag, LexerState::End).clone();
-            if is_cmdarg_begin(&token) {
+            if is_cmdarg_begin(&token_after_lhs) {
                 diag.push(Diagnostic {
-                    range: token.range,
+                    range: token_after_lhs.range,
                     message: format!("non-parenthesized calls are not allowed in this context"),
                 });
-                let (args, args_range) = self.parse_cmd_args(diag, lv);
+                let method_range = token_after_lhs.range;
+                let (args, args_range, token_after_args) =
+                    self.parse_cmd_args(diag, token_after_lhs, lv);
                 let lhs_expr = lhs.into_expr(diag);
-                return ExprLike::Expr(
+                let expr = ExprLike::Expr(
                     CallExpr {
                         range: *lhs_expr.outer_range() | args_range,
                         parens: Vec::new(),
@@ -1065,23 +1206,31 @@ impl<'a> Parser<'a> {
                         optional: false,
                         receiver: Box::new(lhs_expr),
                         method: symbol("call"),
-                        method_range: token.range,
+                        method_range,
                         args,
                     }
                     .into(),
                 );
+                return (expr, token_after_args);
             }
         }
-        lhs
+        (lhs, token_after_lhs)
     }
 
-    fn parse_expr_lv_call_like(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> ExprLike {
-        let mut lhs = self.parse_expr_lv_primary(diag, lv);
+    fn parse_expr_lv_call_like(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        first_token: Token,
+        lv: &mut LVCtx,
+    ) -> (ExprLike, Token) {
+        let (mut lhs, mut last_token) = self.parse_expr_lv_primary(diag, first_token, lv);
         loop {
-            let token = self.fill_token(diag, LexerState::End).clone();
+            let token = last_token;
             match token.kind {
                 TokenKind::LParen => {
-                    let (args, args_range) = self.parse_paren_args(diag, lv);
+                    let method_range = token.range;
+                    let (args, args_range, token_after_args) =
+                        self.parse_paren_args(diag, token, lv);
                     lhs = lhs.callify();
                     match lhs {
                         ExprLike::ArglessCall {
@@ -1133,7 +1282,7 @@ impl<'a> Parser<'a> {
                                             .into(),
                                         ),
                                         method: symbol("!"),
-                                        method_range: token.range,
+                                        method_range,
                                         args: vec![],
                                     }
                                     .into(),
@@ -1157,7 +1306,7 @@ impl<'a> Parser<'a> {
                                         optional: false,
                                         receiver: Box::new(arg),
                                         method: symbol("!"),
-                                        method_range: token.range,
+                                        method_range,
                                         args: vec![],
                                     }
                                     .into(),
@@ -1166,7 +1315,7 @@ impl<'a> Parser<'a> {
                         }
                         _ => {
                             diag.push(Diagnostic {
-                                range: token.range,
+                                range: method_range,
                                 message: format!("Need a dot to call an expression"),
                             });
                             let lhs_expr = lhs.into_expr(diag);
@@ -1180,13 +1329,14 @@ impl<'a> Parser<'a> {
                                     optional: false,
                                     receiver: Box::new(lhs_expr),
                                     method: symbol("call"),
-                                    method_range: token.range,
+                                    method_range,
                                     args,
                                 }
                                 .into(),
                             );
                         }
                     }
+                    last_token = token_after_args;
                 }
                 TokenKind::Dot | TokenKind::AmpDot | TokenKind::ColonColon => {
                     let private = if let ExprLike::Expr(Expr::Self_(expr)) = &lhs {
@@ -1196,12 +1346,13 @@ impl<'a> Parser<'a> {
                     };
                     let optional = matches!(token.kind, TokenKind::AmpDot);
                     let const_like = matches!(token.kind, TokenKind::ColonColon);
-                    self.bump();
-                    let token = self.fill_token(diag, LexerState::MethForCall).clone();
-                    match token.kind {
+                    let token_after_dot = self.lexer.lex(diag, LexerState::MethForCall);
+                    match token_after_dot.kind {
                         TokenKind::LParen => {
+                            let method_range = token_after_dot.range;
                             // expr.(args)
-                            let (args, args_range) = self.parse_paren_args(diag, lv);
+                            let (args, args_range, token_after_args) =
+                                self.parse_paren_args(diag, token_after_dot, lv);
                             let lhs_expr = lhs.into_expr(diag);
                             lhs = ExprLike::BlocklessCall {
                                 range: *lhs_expr.outer_range() | args_range,
@@ -1210,58 +1361,60 @@ impl<'a> Parser<'a> {
                                 optional,
                                 receiver: Box::new(lhs_expr),
                                 method: symbol("call"),
-                                method_range: token.range,
+                                method_range,
                                 args,
                             };
+                            last_token = token_after_args;
                         }
                         TokenKind::Const if const_like => {
-                            self.bump();
                             // expr::Const
-                            let s = self.select(token.range);
+                            let s = self.select(token_after_dot.range);
                             let lhs_expr = lhs.into_expr(diag);
                             lhs = ExprLike::Const {
-                                range: *lhs_expr.outer_range() | token.range,
+                                range: *lhs_expr.outer_range() | token_after_dot.range,
                                 private,
                                 receiver: ConstReceiver::Expr(Box::new(lhs_expr)),
                                 name: s.to_estring().asciified(),
                             };
+                            last_token = self.lexer.lex(diag, LexerState::FirstArgument);
                         }
                         TokenKind::Identifier | TokenKind::Const | TokenKind::MethodName => {
-                            self.bump();
                             // expr.meth
-                            let s = self.select(token.range);
+                            let s = self.select(token_after_dot.range);
                             let lhs_expr = lhs.into_expr(diag);
                             lhs = ExprLike::ArglessCall {
-                                range: *lhs_expr.outer_range() | token.range,
+                                range: *lhs_expr.outer_range() | token_after_dot.range,
                                 style: CallStyle::Dot,
                                 private,
                                 optional,
                                 receiver: Box::new(lhs_expr),
                                 method: s.to_estring().asciified(),
-                                method_range: token.range,
+                                method_range: token_after_dot.range,
                             };
+                            last_token = self.lexer.lex(diag, LexerState::FirstArgument);
                         }
                         _ => {
                             diag.push(Diagnostic {
-                                range: token.range,
+                                range: token_after_dot.range,
                                 message: format!("unexpected token"),
                             });
                             let lhs_expr = lhs.into_expr(diag);
                             lhs = ExprLike::ArglessCall {
-                                range: *lhs_expr.outer_range() | token.range,
+                                range: *lhs_expr.outer_range() | token_after_dot.range,
                                 style: CallStyle::Dot,
                                 private,
                                 optional,
                                 receiver: Box::new(lhs_expr),
                                 method: symbol(""),
-                                method_range: token.range,
+                                method_range: token_after_dot.range,
                             };
+                            last_token = token_after_dot;
                         }
                     }
                 }
                 TokenKind::At => {
-                    self.bump();
-                    let ty = self.parse_type(diag);
+                    let ty_first_token = self.lexer.lex(diag, LexerState::Begin);
+                    let (ty, token_after_ty) = self.parse_type(diag, ty_first_token);
                     if let ExprLike::Identifier { has_local, .. } = &mut lhs {
                         *has_local = true;
                     }
@@ -1284,75 +1437,79 @@ impl<'a> Parser<'a> {
                             lhs_expr
                         }
                     });
+                    last_token = token_after_ty;
                 }
-                _ => break,
+                _ => {
+                    last_token = token;
+                    break;
+                }
             }
         }
 
-        lhs
+        (lhs, last_token)
     }
 
-    fn parse_expr_lv_primary(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> ExprLike {
-        let token = self.fill_token(diag, LexerState::Begin).clone();
-        match token.kind {
-            TokenKind::KeywordNil => {
-                self.bump();
-                ExprLike::Expr(
-                    NilExpr {
-                        range: token.range,
-                        parens: Vec::new(),
+    fn parse_expr_lv_primary(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        first_token: Token,
+        lv: &mut LVCtx,
+    ) -> (ExprLike, Token) {
+        let mut next_token: Option<Token> = None;
+        let expr = match first_token.kind {
+            TokenKind::KeywordNil => ExprLike::Expr(
+                NilExpr {
+                    range: first_token.range,
+                    parens: Vec::new(),
 
-                        style: NilStyle::Keyword,
-                    }
-                    .into(),
-                )
-            }
-            TokenKind::KeywordFalse => {
-                self.bump();
-                ExprLike::Expr(
-                    FalseExpr {
-                        range: token.range,
-                        parens: Vec::new(),
-                    }
-                    .into(),
-                )
-            }
-            TokenKind::KeywordTrue => {
-                self.bump();
-                ExprLike::Expr(
-                    TrueExpr {
-                        range: token.range,
-                        parens: Vec::new(),
-                    }
-                    .into(),
-                )
-            }
+                    style: NilStyle::Keyword,
+                }
+                .into(),
+            ),
+            TokenKind::KeywordFalse => ExprLike::Expr(
+                FalseExpr {
+                    range: first_token.range,
+                    parens: Vec::new(),
+                }
+                .into(),
+            ),
+            TokenKind::KeywordTrue => ExprLike::Expr(
+                TrueExpr {
+                    range: first_token.range,
+                    parens: Vec::new(),
+                }
+                .into(),
+            ),
             TokenKind::Identifier => {
-                self.bump();
-                let s = self.select(token.range);
+                let s = self.select(first_token.range);
                 let name = s.to_estring().asciified();
                 let has_local = lv.has(&name);
+                if has_local {
+                    next_token = Some(self.lexer.lex(diag, LexerState::WeakFirstArgument))
+                } else {
+                    next_token = Some(self.lexer.lex(diag, LexerState::FirstArgument));
+                }
                 ExprLike::Identifier {
-                    range: token.range,
+                    range: first_token.range,
                     has_local,
                     name,
                 }
             }
             TokenKind::Const => {
-                self.bump();
-                let s = self.select(token.range);
+                let s = self.select(first_token.range);
+                next_token = Some(self.lexer.lex(diag, LexerState::FirstArgument));
                 ExprLike::Const {
                     receiver: ConstReceiver::None,
                     private: true,
-                    range: token.range,
+                    range: first_token.range,
                     name: s.to_estring().asciified(),
                 }
             }
             TokenKind::MethodName => {
-                self.bump();
-                let s = self.select(token.range);
+                let s = self.select(first_token.range);
+                next_token = Some(self.lexer.lex(diag, LexerState::FirstArgument));
                 ExprLike::ArglessCall {
-                    range: token.range,
+                    range: first_token.range,
                     style: CallStyle::ImplicitSelf,
                     private: true,
                     optional: false,
@@ -1364,65 +1521,54 @@ impl<'a> Parser<'a> {
                         .into(),
                     ),
                     method: s.to_estring().asciified(),
-                    method_range: token.range,
+                    method_range: first_token.range,
                 }
             }
             TokenKind::KeywordNot => {
-                self.bump();
-                let token2 = self.fill_token(diag, LexerState::FirstArgument);
-                if matches!(token2.kind, TokenKind::Newline) {
-                    self.bump();
-                    self.fill_token(diag, LexerState::Begin);
+                let token2 = self.lexer.lex(diag, LexerState::FirstArgument);
+                next_token = Some(if matches!(token2.kind, TokenKind::Newline) {
+                    self.lexer.lex(diag, LexerState::Begin)
+                } else {
+                    token2
+                });
+                ExprLike::NotOp {
+                    range: first_token.range,
                 }
-                ExprLike::NotOp { range: token.range }
             }
-            TokenKind::KeywordSelf => {
-                self.bump();
-                ExprLike::Expr(
-                    SelfExpr {
-                        range: token.range,
-                        parens: Vec::new(),
-                    }
-                    .into(),
-                )
-            }
-            TokenKind::KeywordCapitalDoubleUnderscoreEncoding => {
-                self.bump();
-                ExprLike::Expr(
-                    SourceEncodingExpr {
-                        range: token.range,
-                        parens: Vec::new(),
-                    }
-                    .into(),
-                )
-            }
-            TokenKind::KeywordCapitalDoubleUnderscoreFile => {
-                self.bump();
-                ExprLike::Expr(
-                    SourceFileExpr {
-                        range: token.range,
-                        parens: Vec::new(),
-                    }
-                    .into(),
-                )
-            }
-            TokenKind::KeywordCapitalDoubleUnderscoreLine => {
-                self.bump();
-                ExprLike::Expr(
-                    SourceLineExpr {
-                        range: token.range,
-                        parens: Vec::new(),
-                    }
-                    .into(),
-                )
-            }
+            TokenKind::KeywordSelf => ExprLike::Expr(
+                SelfExpr {
+                    range: first_token.range,
+                    parens: Vec::new(),
+                }
+                .into(),
+            ),
+            TokenKind::KeywordCapitalDoubleUnderscoreEncoding => ExprLike::Expr(
+                SourceEncodingExpr {
+                    range: first_token.range,
+                    parens: Vec::new(),
+                }
+                .into(),
+            ),
+            TokenKind::KeywordCapitalDoubleUnderscoreFile => ExprLike::Expr(
+                SourceFileExpr {
+                    range: first_token.range,
+                    parens: Vec::new(),
+                }
+                .into(),
+            ),
+            TokenKind::KeywordCapitalDoubleUnderscoreLine => ExprLike::Expr(
+                SourceLineExpr {
+                    range: first_token.range,
+                    parens: Vec::new(),
+                }
+                .into(),
+            ),
             TokenKind::Numeric => {
-                self.bump();
-                let s = self.select(token.range);
+                let s = self.select(first_token.range);
                 let (value, imaginary) = interpret_numeric(s.as_bytes());
                 ExprLike::Expr(
                     NumericExpr {
-                        range: token.range,
+                        range: first_token.range,
                         parens: Vec::new(),
                         value,
                         imaginary,
@@ -1431,9 +1577,8 @@ impl<'a> Parser<'a> {
                 )
             }
             TokenKind::StringBegin | TokenKind::StringBeginLabelable => {
-                let labelable = token.kind == TokenKind::StringBeginLabelable;
-                self.bump();
-                let delim = match self.bytes()[token.range.start] {
+                let labelable = first_token.kind == TokenKind::StringBeginLabelable;
+                let delim = match self.bytes()[first_token.range.start] {
                     b'\'' => StringDelimiter::Quote,
                     b'"' => StringDelimiter::DoubleQuote,
                     b'`' => StringDelimiter::Backtick,
@@ -1456,13 +1601,11 @@ impl<'a> Parser<'a> {
                             break;
                         }
                         TokenKind::EOF => {
-                            let token_range = token.range;
-                            self.next_token = Some(token);
                             diag.push(Diagnostic {
-                                range: token_range,
+                                range: token.range,
                                 message: format!("unexpected end of file"),
                             });
-                            close_range = token_range;
+                            close_range = token.range;
                             break;
                         }
                         TokenKind::StringContent => {
@@ -1475,8 +1618,10 @@ impl<'a> Parser<'a> {
                         }
                         TokenKind::StringInterpolationBegin => {
                             let open_range = token.range;
-                            let inner = self.parse_stmt_list(
+                            let inner_first_token = self.lexer.lex(diag, LexerState::Begin);
+                            let (inner, token_after_inner) = self.parse_stmt_list(
                                 diag,
+                                inner_first_token,
                                 lv,
                                 BailCtx {
                                     end_style: EndStyle::RBrace,
@@ -1484,19 +1629,16 @@ impl<'a> Parser<'a> {
                                     ..Default::default()
                                 },
                             );
-                            let token = self.fill_token(diag, LexerState::End).clone();
-                            if let TokenKind::RBrace = token.kind {
-                                self.bump();
-                            } else {
+                            if !matches!(token_after_inner.kind, TokenKind::RBrace) {
                                 diag.push(Diagnostic {
-                                    range: token.range,
+                                    range: token_after_inner.range,
                                     message: format!("expected '}}'"),
                                 });
                             }
                             contents.push(StringContent::Interpolation(InterpolationContent {
-                                range: open_range | token.range,
+                                range: open_range | token_after_inner.range,
                                 open_range,
-                                close_range: token.range,
+                                close_range: token_after_inner.range,
                                 expr: inner,
                             }));
                         }
@@ -1511,52 +1653,62 @@ impl<'a> Parser<'a> {
                 }
                 ExprLike::Expr(match delim {
                     StringDelimiter::Quote | StringDelimiter::DoubleQuote => StringExpr {
-                        range: token.range | close_range,
+                        range: first_token.range | close_range,
                         parens: Vec::new(),
-                        open_range: token.range,
+                        open_range: first_token.range,
                         close_range,
                         contents,
                     }
                     .into(),
                     StringDelimiter::Backtick => XStringExpr {
-                        range: token.range | close_range,
+                        range: first_token.range | close_range,
                         parens: Vec::new(),
-                        open_range: token.range,
+                        open_range: first_token.range,
                         close_range,
                         contents,
                     }
                     .into(),
                     StringDelimiter::Slash => RegexpExpr {
-                        range: token.range | close_range,
+                        range: first_token.range | close_range,
                         parens: Vec::new(),
-                        open_range: token.range,
+                        open_range: first_token.range,
                         close_range,
                         contents,
                     }
                     .into(),
                 })
             }
-            TokenKind::KeywordIf => ExprLike::Expr(self.parse_if_chain(diag, lv)),
-            TokenKind::KeywordUnless => ExprLike::Expr(self.parse_unless(diag, lv)),
+            TokenKind::KeywordIf => {
+                let (expr, token_after_expr) = self.parse_if_chain(diag, first_token, lv);
+                next_token = Some(token_after_expr);
+                ExprLike::Expr(expr)
+            }
+            TokenKind::KeywordUnless => {
+                let (expr, token_after_expr) = self.parse_unless(diag, first_token, lv);
+                next_token = Some(token_after_expr);
+                ExprLike::Expr(expr)
+            }
             TokenKind::KeywordWhile | TokenKind::KeywordUntil => {
-                let flip = matches!(token.kind, TokenKind::KeywordUntil);
-                let indent = token.indent;
-                self.bump();
-                let cond = self.parse_expr_lv_spelled_and_or(diag, lv);
-                let do_token = self.fill_token(diag, LexerState::End);
-                match do_token.kind {
+                let flip = matches!(first_token.kind, TokenKind::KeywordUntil);
+                let indent = first_token.indent;
+                let cond_first_token = self.lexer.lex(diag, LexerState::Begin);
+                let (cond, token_after_cond) =
+                    self.parse_expr_lv_spelled_and_or(diag, cond_first_token, lv);
+                let token_after_do = match token_after_cond.kind {
                     TokenKind::Semicolon | TokenKind::Newline | TokenKind::KeywordDo => {
-                        self.bump();
+                        self.lexer.lex(diag, LexerState::Begin)
                     }
                     _ => {
                         diag.push(Diagnostic {
-                            range: do_token.range,
+                            range: token_after_cond.range,
                             message: format!("expected 'do', ';', or newline"),
                         });
+                        token_after_cond
                     }
-                }
-                let body = self.parse_stmt_list(
+                };
+                let (body, token_after_body) = self.parse_stmt_list(
                     diag,
+                    token_after_do,
                     lv,
                     BailCtx {
                         end_style: EndStyle::End,
@@ -1564,19 +1716,16 @@ impl<'a> Parser<'a> {
                         ..Default::default()
                     },
                 );
-                let end_token = self.fill_token(diag, LexerState::End).clone();
-                if matches!(end_token.kind, TokenKind::KeywordEnd) {
-                    self.bump();
-                } else {
+                if !matches!(token_after_body.kind, TokenKind::KeywordEnd) {
                     diag.push(Diagnostic {
-                        range: end_token.range,
+                        range: token_after_body.range,
                         message: format!("expected 'end'"),
                     });
                 }
                 if flip {
                     ExprLike::Expr(
                         UntilExpr {
-                            range: token.range | *body.outer_range() | end_token.range,
+                            range: first_token.range | *body.outer_range() | token_after_body.range,
                             parens: Vec::new(),
 
                             cond: Box::new(cond),
@@ -1587,7 +1736,7 @@ impl<'a> Parser<'a> {
                 } else {
                     ExprLike::Expr(
                         WhileExpr {
-                            range: token.range | *body.outer_range() | end_token.range,
+                            range: first_token.range | *body.outer_range() | token_after_body.range,
                             parens: Vec::new(),
 
                             cond: Box::new(cond),
@@ -1598,35 +1747,36 @@ impl<'a> Parser<'a> {
                 }
             }
             TokenKind::LParen => {
-                let open_range = token.range;
-                self.bump();
-                self.fill_token(diag, LexerState::BeginLabelable);
-                let expr = self.parse_stmt_list(
+                let open_range = first_token.range;
+                let expr_first_token = self.lexer.lex(diag, LexerState::BeginLabelable);
+                let (expr, token_after_expr) = self.parse_stmt_list(
                     diag,
+                    expr_first_token,
                     lv,
                     BailCtx {
                         end_style: EndStyle::RParen,
-                        indent: token.indent,
+                        indent: first_token.indent,
                         ..Default::default()
                     },
                 );
+                let mut last_token = token_after_expr;
                 let close_range = loop {
-                    let token = self.fill_token(diag, LexerState::End).clone();
-                    match token.kind {
+                    match last_token.kind {
                         TokenKind::RParen => {
-                            self.bump();
-                            break token.range;
+                            let range = last_token.range;
+                            last_token = self.lexer.lex(diag, LexerState::End);
+                            break range;
                         }
                         TokenKind::EOF => {
                             diag.push(Diagnostic {
-                                range: token.range,
+                                range: last_token.range,
                                 message: format!("unexpected end of file"),
                             });
-                            break token.range;
+                            break last_token.range;
                         }
                         _ => {
                             diag.push(Diagnostic {
-                                range: token.range,
+                                range: last_token.range,
                                 message: format!("unexpected token"),
                             });
                         }
@@ -1660,50 +1810,62 @@ impl<'a> Parser<'a> {
                         .into(),
                     );
                 }
+                next_token = Some(last_token);
                 ExprLike::Expr(expr)
             }
             _ => {
-                self.bump();
                 diag.push(Diagnostic {
-                    range: token.range,
+                    range: first_token.range,
                     message: format!("unexpected token"),
                 });
                 ExprLike::Expr(
                     ErrorExpr {
-                        range: token.range,
+                        range: first_token.range,
                         parens: Vec::new(),
                     }
                     .into(),
                 )
             }
-        }
+        };
+        let next_token = if let Some(next_token) = next_token {
+            next_token
+        } else {
+            self.lexer.lex(diag, LexerState::End)
+        };
+        (expr, next_token)
     }
 
-    fn parse_if_chain(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> Expr {
-        let if_token = self.fill_token(diag, LexerState::Begin).clone();
-        self.bump();
-        let cond = self.parse_expr_lv_spelled_and_or(diag, lv);
-        let then_token = self.fill_token(diag, LexerState::End);
-        match then_token.kind {
+    fn parse_if_chain(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        first_token: Token,
+        lv: &mut LVCtx,
+    ) -> (Expr, Token) {
+        let if_token = first_token;
+        let cond_first_token = self.lexer.lex(diag, LexerState::Begin);
+        let (cond, token_after_cond) =
+            self.parse_expr_lv_spelled_and_or(diag, cond_first_token, lv);
+        let body_first_token = match token_after_cond.kind {
             TokenKind::Semicolon | TokenKind::Newline => {
-                self.bump();
-                let then_token = self.fill_token(diag, LexerState::Begin);
-                if matches!(then_token.kind, TokenKind::KeywordThen) {
-                    self.bump();
+                let token_after_cond2 = self.lexer.lex(diag, LexerState::Begin);
+                if matches!(token_after_cond2.kind, TokenKind::KeywordThen) {
+                    self.lexer.lex(diag, LexerState::Begin)
+                } else {
+                    token_after_cond2
                 }
             }
-            TokenKind::KeywordThen => {
-                self.bump();
-            }
+            TokenKind::KeywordThen => self.lexer.lex(diag, LexerState::Begin),
             _ => {
                 diag.push(Diagnostic {
-                    range: then_token.range,
+                    range: token_after_cond.range,
                     message: format!("expected 'then'"),
                 });
+                token_after_cond
             }
-        }
-        let then = self.parse_stmt_list(
+        };
+        let (then, token_after_then_body) = self.parse_stmt_list(
             diag,
+            body_first_token,
             lv,
             BailCtx {
                 end_style: EndStyle::EndOrElse,
@@ -1711,26 +1873,25 @@ impl<'a> Parser<'a> {
                 ..Default::default()
             },
         );
-        let else_token = self.fill_token(diag, LexerState::End).clone();
-        match else_token.kind {
+        match token_after_then_body.kind {
             TokenKind::KeywordElse => {
-                self.bump();
-                let else_ = self.parse_stmt_list(
+                let else_first_token = self.lexer.lex(diag, LexerState::Begin);
+                let (else_, token_after_else) = self.parse_stmt_list(
                     diag,
+                    else_first_token,
                     lv,
                     BailCtx {
                         end_style: EndStyle::End,
-                        indent: else_token.indent,
+                        indent: token_after_then_body.indent,
                         ..Default::default()
                     },
                 );
-                let end_token = self.fill_token(diag, LexerState::End).clone();
-                if !matches!(end_token.kind, TokenKind::KeywordEnd) {
+                if !matches!(token_after_else.kind, TokenKind::KeywordEnd) {
                     diag.push(Diagnostic {
-                        range: end_token.range,
+                        range: token_after_else.range,
                         message: format!("expected 'end'"),
                     });
-                    return IfExpr {
+                    let expr = IfExpr {
                         range: if_token.range | *else_.outer_range(),
                         parens: Vec::new(),
 
@@ -1739,21 +1900,25 @@ impl<'a> Parser<'a> {
                         else_: Box::new(else_),
                     }
                     .into();
+                    let last_token = self.lexer.lex(diag, LexerState::End);
+                    return (expr, last_token);
                 }
-                self.bump();
-                IfExpr {
-                    range: if_token.range | end_token.range,
+                let expr = IfExpr {
+                    range: if_token.range | token_after_else.range,
                     parens: Vec::new(),
 
                     cond: Box::new(cond),
                     then: Box::new(then),
                     else_: Box::new(else_),
                 }
-                .into()
+                .into();
+                let last_token = self.lexer.lex(diag, LexerState::End);
+                (expr, last_token)
             }
             TokenKind::KeywordElsif => {
-                let else_ = self.parse_if_chain(diag, lv);
-                IfExpr {
+                let (else_, token_after_else) =
+                    self.parse_if_chain(diag, token_after_then_body, lv);
+                let expr = IfExpr {
                     range: if_token.range | *else_.outer_range(),
                     parens: Vec::new(),
 
@@ -1761,20 +1926,22 @@ impl<'a> Parser<'a> {
                     then: Box::new(then),
                     else_: Box::new(else_),
                 }
-                .into()
+                .into();
+                (expr, token_after_else)
             }
             _ => {
-                let end_range = if matches!(else_token.kind, TokenKind::KeywordEnd) {
-                    self.bump();
-                    else_token.range
-                } else {
-                    diag.push(Diagnostic {
-                        range: else_token.range,
-                        message: format!("expected 'end', 'else', or 'elsif'"),
-                    });
-                    DUMMY_RANGE
-                };
-                IfExpr {
+                let (end_range, last_token) =
+                    if matches!(token_after_then_body.kind, TokenKind::KeywordEnd) {
+                        let token = self.lexer.lex(diag, LexerState::End);
+                        (token_after_then_body.range, token)
+                    } else {
+                        diag.push(Diagnostic {
+                            range: token_after_then_body.range,
+                            message: format!("expected 'end', 'else', or 'elsif'"),
+                        });
+                        (DUMMY_RANGE, token_after_then_body)
+                    };
+                let expr = IfExpr {
                     range: if_token.range | *then.outer_range() | end_range,
                     parens: Vec::new(),
 
@@ -1789,36 +1956,43 @@ impl<'a> Parser<'a> {
                         .into(),
                     ),
                 }
-                .into()
+                .into();
+                (expr, last_token)
             }
         }
     }
 
-    fn parse_unless(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> Expr {
-        let unless_token = self.fill_token(diag, LexerState::Begin).clone();
-        self.bump();
-        let cond = self.parse_expr_lv_spelled_and_or(diag, lv);
-        let then_token = self.fill_token(diag, LexerState::End).clone();
-        match then_token.kind {
+    fn parse_unless(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        first_token: Token,
+        lv: &mut LVCtx,
+    ) -> (Expr, Token) {
+        let unless_token = first_token;
+        let cond_first_token = self.lexer.lex(diag, LexerState::Begin);
+        let (cond, token_after_cond) =
+            self.parse_expr_lv_spelled_and_or(diag, cond_first_token, lv);
+        let body_first_token = match token_after_cond.kind {
             TokenKind::Semicolon | TokenKind::Newline => {
-                self.bump();
-                let then_token = self.fill_token(diag, LexerState::Begin);
-                if matches!(then_token.kind, TokenKind::KeywordThen) {
-                    self.bump();
+                let token_after_cond2 = self.lexer.lex(diag, LexerState::Begin);
+                if matches!(token_after_cond2.kind, TokenKind::KeywordThen) {
+                    self.lexer.lex(diag, LexerState::Begin)
+                } else {
+                    token_after_cond2
                 }
             }
-            TokenKind::KeywordThen => {
-                self.bump();
-            }
+            TokenKind::KeywordThen => self.lexer.lex(diag, LexerState::Begin),
             _ => {
                 diag.push(Diagnostic {
-                    range: then_token.range,
+                    range: token_after_cond.range,
                     message: format!("expected 'then'"),
                 });
+                token_after_cond
             }
-        }
-        let then = self.parse_stmt_list(
+        };
+        let (then, token_after_then_body) = self.parse_stmt_list(
             diag,
+            body_first_token,
             lv,
             BailCtx {
                 end_style: EndStyle::EndOrElse,
@@ -1826,26 +2000,25 @@ impl<'a> Parser<'a> {
                 ..Default::default()
             },
         );
-        let else_token = self.fill_token(diag, LexerState::End).clone();
-        match else_token.kind {
+        match token_after_then_body.kind {
             TokenKind::KeywordElse => {
-                self.bump();
-                let else_ = self.parse_stmt_list(
+                let else_first_token = self.lexer.lex(diag, LexerState::Begin);
+                let (else_, token_after_else) = self.parse_stmt_list(
                     diag,
+                    else_first_token,
                     lv,
                     BailCtx {
                         end_style: EndStyle::End,
-                        indent: else_token.indent,
+                        indent: token_after_then_body.indent,
                         ..Default::default()
                     },
                 );
-                let end_token = self.fill_token(diag, LexerState::End).clone();
-                if !matches!(end_token.kind, TokenKind::KeywordEnd) {
+                if !matches!(token_after_else.kind, TokenKind::KeywordEnd) {
                     diag.push(Diagnostic {
-                        range: end_token.range,
+                        range: token_after_else.range,
                         message: format!("expected 'end'"),
                     });
-                    return IfExpr {
+                    let expr = IfExpr {
                         range: unless_token.range | *else_.outer_range(),
                         parens: Vec::new(),
 
@@ -1854,25 +2027,29 @@ impl<'a> Parser<'a> {
                         else_: Box::new(then),
                     }
                     .into();
+                    let last_token = self.lexer.lex(diag, LexerState::End);
+                    return (expr, last_token);
                 }
-                self.bump();
-                IfExpr {
-                    range: unless_token.range | end_token.range,
+                let expr = IfExpr {
+                    range: unless_token.range | token_after_else.range,
                     parens: Vec::new(),
 
                     cond: Box::new(cond),
                     then: Box::new(else_),
                     else_: Box::new(then),
                 }
-                .into()
+                .into();
+                let last_token = self.lexer.lex(diag, LexerState::End);
+                (expr, last_token)
             }
             TokenKind::KeywordElsif => {
                 diag.push(Diagnostic {
-                    range: else_token.range,
+                    range: token_after_then_body.range,
                     message: format!("'unless' cannot have 'elsif'"),
                 });
-                let else_ = self.parse_if_chain(diag, lv);
-                IfExpr {
+                let (else_, token_after_else) =
+                    self.parse_if_chain(diag, token_after_then_body, lv);
+                let expr = IfExpr {
                     range: unless_token.range | *else_.outer_range(),
                     parens: Vec::new(),
 
@@ -1880,21 +2057,23 @@ impl<'a> Parser<'a> {
                     then: Box::new(else_),
                     else_: Box::new(then),
                 }
-                .into()
+                .into();
+                (expr, token_after_else)
             }
             _ => {
-                let end_range = if matches!(else_token.kind, TokenKind::KeywordEnd) {
-                    self.bump();
-                    else_token.range
-                } else {
-                    diag.push(Diagnostic {
-                        range: else_token.range,
-                        message: format!("expected 'end', 'else', or 'elsif'"),
-                    });
-                    DUMMY_RANGE
-                };
-                IfExpr {
-                    range: then_token.range | *then.outer_range() | end_range,
+                let (end_range, last_token) =
+                    if matches!(token_after_then_body.kind, TokenKind::KeywordEnd) {
+                        let token = self.lexer.lex(diag, LexerState::End);
+                        (token_after_then_body.range, token)
+                    } else {
+                        diag.push(Diagnostic {
+                            range: token_after_then_body.range,
+                            message: format!("expected 'end', 'else', or 'elsif'"),
+                        });
+                        (DUMMY_RANGE, token_after_then_body)
+                    };
+                let expr = IfExpr {
+                    range: unless_token.range | *then.outer_range() | end_range,
                     parens: Vec::new(),
 
                     cond: Box::new(cond),
@@ -1908,7 +2087,8 @@ impl<'a> Parser<'a> {
                     ),
                     else_: Box::new(then),
                 }
-                .into()
+                .into();
+                (expr, last_token)
             }
         }
     }
@@ -1916,28 +2096,31 @@ impl<'a> Parser<'a> {
     fn parse_cmd_args(
         &mut self,
         diag: &mut Vec<Diagnostic>,
+        first_token: Token,
         lv: &mut LVCtx,
-    ) -> (Vec<Expr>, CodeRange) {
-        let first_arg = self.parse_expr_lv_cmd(diag, lv);
+    ) -> (Vec<Expr>, CodeRange, Token) {
+        let (first_arg, mut last_token) = self.parse_expr_lv_cmd(diag, first_token, lv);
         let mut args_range = *first_arg.outer_range();
         let mut args = vec![first_arg];
         loop {
-            let token = self.fill_token(diag, LexerState::End);
+            let token = last_token;
             match token.kind {
                 TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
                     diag.push(Diagnostic {
                         range: token.range,
                         message: format!("unexpected token"),
                     });
+                    last_token = token;
                     break;
                 }
                 TokenKind::Newline | TokenKind::Semicolon | TokenKind::EOF => {
+                    last_token = token;
                     break;
                 }
                 TokenKind::Comma => {
-                    self.bump();
-                    self.fill_token(diag, LexerState::BeginLabelable);
-                    let arg = self.parse_expr_lv_cmd(diag, lv);
+                    let arg_first_token = self.lexer.lex(diag, LexerState::BeginLabelable);
+                    let (arg, arg_next_token) = self.parse_expr_lv_cmd(diag, arg_first_token, lv);
+                    last_token = arg_next_token;
                     args_range |= *arg.outer_range();
                     args.push(arg);
                 }
@@ -1946,28 +2129,29 @@ impl<'a> Parser<'a> {
                         range: token.range,
                         message: format!("unexpected token"),
                     });
+                    last_token = token;
                     break;
                 }
             }
         }
-        (args, args_range)
+        (args, args_range, last_token)
     }
 
     fn parse_paren_args(
         &mut self,
         diag: &mut Vec<Diagnostic>,
+        first_token: Token,
         lv: &mut LVCtx,
-    ) -> (Vec<Expr>, CodeRange) {
-        // Bump the first `(`
-        let token = self.bump();
+    ) -> (Vec<Expr>, CodeRange, Token) {
         let mut args = Vec::<Expr>::new();
-        let mut args_range = token.range;
+        let mut args_range = first_token.range;
+        let mut last_token = self.lexer.lex(diag, LexerState::BeginLabelable);
         loop {
-            let token = self.fill_token(diag, LexerState::BeginLabelable).clone();
+            let token = last_token;
             match token.kind {
                 TokenKind::RParen => {
-                    self.bump();
                     args_range |= token.range;
+                    last_token = self.lexer.lex(diag, LexerState::End);
                     break;
                 }
                 TokenKind::EOF => {
@@ -1976,38 +2160,41 @@ impl<'a> Parser<'a> {
                         message: format!("unexpected end of file"),
                     });
                     args_range |= token.range;
+                    last_token = token;
                     break;
                 }
                 _ => {
-                    let arg = self.parse_expr_lv_cmd(diag, lv);
+                    let (arg, token_after_arg) = self.parse_expr_lv_cmd(diag, token, lv);
                     args.push(arg);
-                    let token = self.fill_token(diag, LexerState::End);
-                    match token.kind {
+                    match token_after_arg.kind {
                         TokenKind::Comma => {
-                            self.bump();
+                            last_token = self.lexer.lex(diag, LexerState::BeginLabelable);
                         }
-                        TokenKind::EOF | TokenKind::RParen => {}
+                        TokenKind::EOF | TokenKind::RParen => {
+                            last_token = token_after_arg;
+                        }
                         _ => {
                             diag.push(Diagnostic {
-                                range: token.range,
+                                range: token_after_arg.range,
                                 message: format!("unexpected token"),
                             });
+                            last_token = token_after_arg;
                         }
                     }
                 }
             }
         }
-        (args, args_range)
+        (args, args_range, last_token)
     }
 
     fn parse_whole_type(&mut self, diag: &mut Vec<Diagnostic>) -> Type {
-        let ty = self.parse_type(diag);
-        let token = self.fill_token(diag, LexerState::End);
-        match token.kind {
+        let first_token = self.lexer.lex(diag, LexerState::Begin);
+        let (ty, next_token) = self.parse_type(diag, first_token);
+        match next_token.kind {
             TokenKind::EOF => {}
             _ => {
                 diag.push(Diagnostic {
-                    range: token.range,
+                    range: next_token.range,
                     message: format!("unexpected token"),
                 });
             }
@@ -2015,65 +2202,98 @@ impl<'a> Parser<'a> {
         ty
     }
 
-    fn parse_type(&mut self, diag: &mut Vec<Diagnostic>) -> Type {
-        let token = self.fill_token(diag, LexerState::Begin).clone();
-        self.bump();
-        match token.kind {
-            TokenKind::KeywordNil => NilType { range: token.range }.into(),
-            TokenKind::KeywordFalse => FalseType { range: token.range }.into(),
-            TokenKind::KeywordTrue => TrueType { range: token.range }.into(),
+    fn parse_type(&mut self, diag: &mut Vec<Diagnostic>, first_token: Token) -> (Type, Token) {
+        let typ = match first_token.kind {
+            TokenKind::KeywordNil => NilType {
+                range: first_token.range,
+            }
+            .into(),
+            TokenKind::KeywordFalse => FalseType {
+                range: first_token.range,
+            }
+            .into(),
+            TokenKind::KeywordTrue => TrueType {
+                range: first_token.range,
+            }
+            .into(),
             TokenKind::Const => {
-                let s = self.select(token.range);
+                let s = self.select(first_token.range);
                 match s.as_bytes() {
-                    b"NilClass" => NilType { range: token.range }.into(),
-                    b"FalseClass" => FalseType { range: token.range }.into(),
-                    b"TrueClass" => TrueType { range: token.range }.into(),
-                    b"Integer" => IntegerType { range: token.range }.into(),
-                    b"String" => StringType { range: token.range }.into(),
-                    b"Regexp" => RegexpType { range: token.range }.into(),
+                    b"NilClass" => NilType {
+                        range: first_token.range,
+                    }
+                    .into(),
+                    b"FalseClass" => FalseType {
+                        range: first_token.range,
+                    }
+                    .into(),
+                    b"TrueClass" => TrueType {
+                        range: first_token.range,
+                    }
+                    .into(),
+                    b"Integer" => IntegerType {
+                        range: first_token.range,
+                    }
+                    .into(),
+                    b"String" => StringType {
+                        range: first_token.range,
+                    }
+                    .into(),
+                    b"Regexp" => RegexpType {
+                        range: first_token.range,
+                    }
+                    .into(),
                     _ => {
                         diag.push(Diagnostic {
-                            range: token.range,
+                            range: first_token.range,
                             message: format!("unexpected token"),
                         });
-                        ErrorType { range: token.range }.into()
+                        ErrorType {
+                            range: first_token.range,
+                        }
+                        .into()
                     }
                 }
             }
             _ => {
                 diag.push(Diagnostic {
-                    range: token.range,
+                    range: first_token.range,
                     message: format!("unexpected token"),
                 });
-                ErrorType { range: token.range }.into()
+                ErrorType {
+                    range: first_token.range,
+                }
+                .into()
             }
-        }
+        };
+        let next_token = self.lexer.lex(diag, LexerState::End);
+        (typ, next_token)
     }
 
-    fn fill_token(&mut self, diag: &mut Vec<Diagnostic>, state: LexerState) -> &Token {
-        if self.next_token.is_none() {
-            let token = self.lexer.lex(diag, state);
-            self.next_token = Some(token);
-        }
-        self.next_token.as_ref().unwrap()
-    }
+    // fn fill_token(&mut self, diag: &mut Vec<Diagnostic>, state: LexerState) -> &Token {
+    //     if self.next_token.is_none() {
+    //         let token = self.lexer.lex(diag, state);
+    //         self.next_token = Some(token);
+    //     }
+    //     self.next_token.as_ref().unwrap()
+    // }
 
-    #[track_caller]
-    fn bump(&mut self) -> Token {
-        if matches!(
-            self.next_token,
-            Some(Token {
-                kind: TokenKind::EOF,
-                ..
-            })
-        ) {
-            self.next_token.clone().unwrap()
-        } else if let Some(next_token) = self.next_token.take() {
-            next_token
-        } else {
-            panic!("bump: no token to bump");
-        }
-    }
+    // #[track_caller]
+    // fn bump(&mut self) -> Token {
+    //     if matches!(
+    //         self.next_token,
+    //         Some(Token {
+    //             kind: TokenKind::EOF,
+    //             ..
+    //         })
+    //     ) {
+    //         self.next_token.clone().unwrap()
+    //     } else if let Some(next_token) = self.next_token.take() {
+    //         next_token
+    //     } else {
+    //         panic!("bump: no token to bump");
+    //     }
+    // }
 
     // fn peek(&mut self) -> Token {
     //     if let Some(token) = self.next_token {

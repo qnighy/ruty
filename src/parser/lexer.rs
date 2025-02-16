@@ -654,6 +654,7 @@ pub(super) struct Lexer<'a> {
     input: EStrRef<'a>,
     pos: usize,
     indent: usize,
+    eof_token: Option<Token>,
 }
 
 impl<'a> Lexer<'a> {
@@ -662,6 +663,7 @@ impl<'a> Lexer<'a> {
             input,
             pos: 0,
             indent: 0,
+            eof_token: None,
         };
         this.reset_indent();
         this
@@ -680,6 +682,9 @@ impl<'a> Lexer<'a> {
     }
 
     pub(super) fn lex(&mut self, diag: &mut Vec<Diagnostic>, state: LexerState) -> Token {
+        if let Some(eof_token) = &self.eof_token {
+            return eof_token.clone();
+        }
         let space_before = self.lex_space(diag, state);
         let start = self.pos;
         let kind = match self.peek_byte() {
@@ -1427,6 +1432,13 @@ impl<'a> Lexer<'a> {
             }
         };
         let end = self.pos;
+        if matches!(kind, TokenKind::EOF) {
+            self.eof_token = Some(Token {
+                kind: kind.clone(),
+                range: CodeRange { start, end },
+                indent: self.indent,
+            });
+        }
         Token {
             kind,
             range: CodeRange { start, end },
@@ -2502,7 +2514,18 @@ impl<'a> Lexer<'a> {
         _diag: &mut Vec<Diagnostic>,
         state: StringState,
     ) -> Token {
+        if let Some(eof_token) = &self.eof_token {
+            return eof_token.clone();
+        }
         if self.pos >= self.bytes().len() {
+            self.eof_token = Some(Token {
+                kind: TokenKind::EOF,
+                range: CodeRange {
+                    start: self.pos,
+                    end: self.pos,
+                },
+                indent: self.indent,
+            });
             return Token {
                 kind: TokenKind::EOF,
                 range: CodeRange {
