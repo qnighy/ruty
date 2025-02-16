@@ -14,14 +14,14 @@ use crate::{
 
 const TAB_WIDTH: usize = 8;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Token {
     pub(super) kind: TokenKind,
     pub(super) range: CodeRange,
     pub(super) indent: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum TokenKind {
     /// `__ENCODING__`, namely `keyword__ENCODING__`
     KeywordCapitalDoubleUnderscoreEncoding,
@@ -749,7 +749,7 @@ impl<'a> Lexer<'a> {
                 };
                 let s_bytes = &self.bytes()[start..self.pos];
                 let s = EStrRef::from_bytes(s_bytes, self.input.encoding());
-                if let Some(kwd) = KEYWORDS.get(s_bytes).copied() {
+                if let Some(kwd) = KEYWORDS.get(s_bytes) {
                     match kwd {
                         TokenKind::EOF => {
                             if self.is_beginning_of_line(start) && self.is_end_of_line(self.pos) {
@@ -771,7 +771,7 @@ impl<'a> Lexer<'a> {
                         TokenKind::KeywordUntil if state.prefer_modifier_if() => {
                             TokenKind::KeywordUntilInfix
                         }
-                        _ => kwd,
+                        _ => kwd.clone(),
                     }
                 } else if is_label {
                     // is_label wins over is_method_name so that `foo?:` is a label

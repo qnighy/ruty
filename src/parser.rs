@@ -103,7 +103,7 @@ impl<'a> Parser<'a> {
         let mut stmts = Vec::<Stmt>::new();
         let mut range = DUMMY_RANGE;
         loop {
-            let token = self.fill_token(diag, LexerState::Begin);
+            let token = self.fill_token(diag, LexerState::Begin).clone();
             match token.kind {
                 _ if bail.should_bail(&token) => break,
                 TokenKind::Semicolon | TokenKind::Newline => {
@@ -209,7 +209,7 @@ impl<'a> Parser<'a> {
         let mut lhs = self.parse_expr_lv_spelled_and_or(diag, lv);
         let mut count = 0;
         loop {
-            let token = self.fill_token(diag, LexerState::End);
+            let token = self.fill_token(diag, LexerState::End).clone();
             match token.kind {
                 TokenKind::KeywordIfInfix
                 | TokenKind::KeywordUnlessInfix
@@ -287,7 +287,7 @@ impl<'a> Parser<'a> {
     fn parse_expr_lv_spelled_and_or(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> Expr {
         let mut lhs = self.parse_expr_lv_cmd(diag, lv);
         loop {
-            let token = self.fill_token(diag, LexerState::End);
+            let token = self.fill_token(diag, LexerState::End).clone();
             match token.kind {
                 TokenKind::KeywordAnd | TokenKind::KeywordOr => {
                     self.bump();
@@ -320,7 +320,7 @@ impl<'a> Parser<'a> {
 
     fn parse_expr_lv_cmd(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> Expr {
         let lhs = self.parse_expr_lv_assignment(diag, lv, PrecCtx::default());
-        let token = self.fill_token(diag, LexerState::End);
+        let token = self.fill_token(diag, LexerState::End).clone();
         if is_cmdarg_begin(&token) {
             let (args, args_range) = self.parse_cmd_args(diag, lv);
             let lhs = lhs.callify();
@@ -597,7 +597,7 @@ impl<'a> Parser<'a> {
         let mut lhs = self.parse_expr_lv_ineq(diag, lv, prec);
         let mut count = 0;
         loop {
-            let token = self.fill_token(diag, LexerState::End);
+            let token = self.fill_token(diag, LexerState::End).clone();
             match token.kind {
                 TokenKind::EqEq
                 | TokenKind::ExclEq
@@ -656,7 +656,7 @@ impl<'a> Parser<'a> {
     ) -> ExprLike {
         let mut lhs = self.parse_expr_lv_bitwise_or(diag, lv, prec);
         loop {
-            let token = self.fill_token(diag, LexerState::End);
+            let token = self.fill_token(diag, LexerState::End).clone();
             match token.kind {
                 TokenKind::Lt | TokenKind::LtEq | TokenKind::Gt | TokenKind::GtEq => {
                     let meth = match token.kind {
@@ -701,7 +701,7 @@ impl<'a> Parser<'a> {
     ) -> ExprLike {
         let mut lhs = self.parse_expr_lv_bitwise_and(diag, lv, prec);
         loop {
-            let token = self.fill_token(diag, LexerState::End);
+            let token = self.fill_token(diag, LexerState::End).clone();
             match token.kind {
                 TokenKind::Vert | TokenKind::Caret => {
                     let meth = match token.kind {
@@ -747,7 +747,7 @@ impl<'a> Parser<'a> {
     ) -> ExprLike {
         let mut lhs = self.parse_expr_lv_shift(diag, lv, prec);
         loop {
-            let token = self.fill_token(diag, LexerState::End);
+            let token = self.fill_token(diag, LexerState::End).clone();
             match token.kind {
                 TokenKind::Amp => {
                     let meth = match token.kind {
@@ -789,7 +789,7 @@ impl<'a> Parser<'a> {
     ) -> ExprLike {
         let mut lhs = self.parse_expr_lv_additive(diag, lv, prec);
         loop {
-            let token = self.fill_token(diag, LexerState::End);
+            let token = self.fill_token(diag, LexerState::End).clone();
             match token.kind {
                 TokenKind::LtLt | TokenKind::GtGt => {
                     let meth = match token.kind {
@@ -832,7 +832,7 @@ impl<'a> Parser<'a> {
     ) -> ExprLike {
         let mut lhs = self.parse_expr_lv_multiplicative(diag, lv, prec);
         loop {
-            let token = self.fill_token(diag, LexerState::End);
+            let token = self.fill_token(diag, LexerState::End).clone();
             match token.kind {
                 TokenKind::Plus | TokenKind::Minus => {
                     let meth = match token.kind {
@@ -875,7 +875,7 @@ impl<'a> Parser<'a> {
     ) -> ExprLike {
         let mut lhs = self.parse_expr_lv_exponential(diag, lv, prec);
         loop {
-            let token = self.fill_token(diag, LexerState::End);
+            let token = self.fill_token(diag, LexerState::End).clone();
             match token.kind {
                 TokenKind::Star | TokenKind::Slash | TokenKind::Percent => {
                     let meth = match token.kind {
@@ -918,7 +918,7 @@ impl<'a> Parser<'a> {
         prec: PrecCtx,
     ) -> ExprLike {
         let lhs = self.parse_expr_lv_unary(diag, lv, prec);
-        let token = self.fill_token(diag, LexerState::End);
+        let token = self.fill_token(diag, LexerState::End).clone();
         match token.kind {
             TokenKind::StarStar => {
                 let meth = match token.kind {
@@ -1000,7 +1000,7 @@ impl<'a> Parser<'a> {
         lv: &mut LVCtx,
         prec: PrecCtx,
     ) -> ExprLike {
-        let token = self.fill_token(diag, LexerState::Begin);
+        let token = self.fill_token(diag, LexerState::Begin).clone();
         match token.kind {
             TokenKind::Plus
             | TokenKind::PlusPrefix
@@ -1047,7 +1047,7 @@ impl<'a> Parser<'a> {
     ) -> ExprLike {
         let lhs = self.parse_expr_lv_call_like(diag, lv);
         if prec.invalid_command {
-            let token = self.fill_token(diag, LexerState::End);
+            let token = self.fill_token(diag, LexerState::End).clone();
             if is_cmdarg_begin(&token) {
                 diag.push(Diagnostic {
                     range: token.range,
@@ -1078,7 +1078,7 @@ impl<'a> Parser<'a> {
     fn parse_expr_lv_call_like(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> ExprLike {
         let mut lhs = self.parse_expr_lv_primary(diag, lv);
         loop {
-            let token = self.fill_token(diag, LexerState::End);
+            let token = self.fill_token(diag, LexerState::End).clone();
             match token.kind {
                 TokenKind::LParen => {
                     let (args, args_range) = self.parse_paren_args(diag, lv);
@@ -1197,7 +1197,7 @@ impl<'a> Parser<'a> {
                     let optional = matches!(token.kind, TokenKind::AmpDot);
                     let const_like = matches!(token.kind, TokenKind::ColonColon);
                     self.bump();
-                    let token = self.fill_token(diag, LexerState::MethForCall);
+                    let token = self.fill_token(diag, LexerState::MethForCall).clone();
                     match token.kind {
                         TokenKind::LParen => {
                             // expr.(args)
@@ -1293,7 +1293,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr_lv_primary(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> ExprLike {
-        let token = self.fill_token(diag, LexerState::Begin);
+        let token = self.fill_token(diag, LexerState::Begin).clone();
         match token.kind {
             TokenKind::KeywordNil => {
                 self.bump();
@@ -1456,12 +1456,13 @@ impl<'a> Parser<'a> {
                             break;
                         }
                         TokenKind::EOF => {
+                            let token_range = token.range;
                             self.next_token = Some(token);
                             diag.push(Diagnostic {
-                                range: token.range,
+                                range: token_range,
                                 message: format!("unexpected end of file"),
                             });
-                            close_range = token.range;
+                            close_range = token_range;
                             break;
                         }
                         TokenKind::StringContent => {
@@ -1483,7 +1484,7 @@ impl<'a> Parser<'a> {
                                     ..Default::default()
                                 },
                             );
-                            let token = self.fill_token(diag, LexerState::End);
+                            let token = self.fill_token(diag, LexerState::End).clone();
                             if let TokenKind::RBrace = token.kind {
                                 self.bump();
                             } else {
@@ -1563,7 +1564,7 @@ impl<'a> Parser<'a> {
                         ..Default::default()
                     },
                 );
-                let end_token = self.fill_token(diag, LexerState::End);
+                let end_token = self.fill_token(diag, LexerState::End).clone();
                 if matches!(end_token.kind, TokenKind::KeywordEnd) {
                     self.bump();
                 } else {
@@ -1610,7 +1611,7 @@ impl<'a> Parser<'a> {
                     },
                 );
                 let close_range = loop {
-                    let token = self.fill_token(diag, LexerState::End);
+                    let token = self.fill_token(diag, LexerState::End).clone();
                     match token.kind {
                         TokenKind::RParen => {
                             self.bump();
@@ -1679,7 +1680,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_if_chain(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> Expr {
-        let if_token = self.fill_token(diag, LexerState::Begin);
+        let if_token = self.fill_token(diag, LexerState::Begin).clone();
         self.bump();
         let cond = self.parse_expr_lv_spelled_and_or(diag, lv);
         let then_token = self.fill_token(diag, LexerState::End);
@@ -1710,7 +1711,7 @@ impl<'a> Parser<'a> {
                 ..Default::default()
             },
         );
-        let else_token = self.fill_token(diag, LexerState::End);
+        let else_token = self.fill_token(diag, LexerState::End).clone();
         match else_token.kind {
             TokenKind::KeywordElse => {
                 self.bump();
@@ -1723,7 +1724,7 @@ impl<'a> Parser<'a> {
                         ..Default::default()
                     },
                 );
-                let end_token = self.fill_token(diag, LexerState::End);
+                let end_token = self.fill_token(diag, LexerState::End).clone();
                 if !matches!(end_token.kind, TokenKind::KeywordEnd) {
                     diag.push(Diagnostic {
                         range: end_token.range,
@@ -1794,10 +1795,10 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_unless(&mut self, diag: &mut Vec<Diagnostic>, lv: &mut LVCtx) -> Expr {
-        let unless_token = self.fill_token(diag, LexerState::Begin);
+        let unless_token = self.fill_token(diag, LexerState::Begin).clone();
         self.bump();
         let cond = self.parse_expr_lv_spelled_and_or(diag, lv);
-        let then_token = self.fill_token(diag, LexerState::End);
+        let then_token = self.fill_token(diag, LexerState::End).clone();
         match then_token.kind {
             TokenKind::Semicolon | TokenKind::Newline => {
                 self.bump();
@@ -1825,7 +1826,7 @@ impl<'a> Parser<'a> {
                 ..Default::default()
             },
         );
-        let else_token = self.fill_token(diag, LexerState::End);
+        let else_token = self.fill_token(diag, LexerState::End).clone();
         match else_token.kind {
             TokenKind::KeywordElse => {
                 self.bump();
@@ -1838,7 +1839,7 @@ impl<'a> Parser<'a> {
                         ..Default::default()
                     },
                 );
-                let end_token = self.fill_token(diag, LexerState::End);
+                let end_token = self.fill_token(diag, LexerState::End).clone();
                 if !matches!(end_token.kind, TokenKind::KeywordEnd) {
                     diag.push(Diagnostic {
                         range: end_token.range,
@@ -1958,12 +1959,11 @@ impl<'a> Parser<'a> {
         lv: &mut LVCtx,
     ) -> (Vec<Expr>, CodeRange) {
         // Bump the first `(`
-        let token = self.next_token.unwrap();
-        self.bump();
+        let token = self.bump();
         let mut args = Vec::<Expr>::new();
         let mut args_range = token.range;
         loop {
-            let token = self.fill_token(diag, LexerState::BeginLabelable);
+            let token = self.fill_token(diag, LexerState::BeginLabelable).clone();
             match token.kind {
                 TokenKind::RParen => {
                     self.bump();
@@ -2016,7 +2016,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_type(&mut self, diag: &mut Vec<Diagnostic>) -> Type {
-        let token = self.fill_token(diag, LexerState::Begin);
+        let token = self.fill_token(diag, LexerState::Begin).clone();
         self.bump();
         match token.kind {
             TokenKind::KeywordNil => NilType { range: token.range }.into(),
@@ -2050,30 +2050,28 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn fill_token(&mut self, diag: &mut Vec<Diagnostic>, state: LexerState) -> Token {
-        if let Some(token) = self.next_token {
-            token
-        } else {
+    fn fill_token(&mut self, diag: &mut Vec<Diagnostic>, state: LexerState) -> &Token {
+        if self.next_token.is_none() {
             let token = self.lexer.lex(diag, state);
             self.next_token = Some(token);
-            token
         }
+        self.next_token.as_ref().unwrap()
     }
 
-    fn bump(&mut self) {
-        match self.next_token {
+    #[track_caller]
+    fn bump(&mut self) -> Token {
+        if matches!(
+            self.next_token,
             Some(Token {
                 kind: TokenKind::EOF,
                 ..
-            }) => {
-                // do nothing
-            }
-            Some(_) => {
-                self.next_token = None;
-            }
-            None => {
-                panic!("bump: no token to bump");
-            }
+            })
+        ) {
+            self.next_token.clone().unwrap()
+        } else if let Some(next_token) = self.next_token.take() {
+            next_token
+        } else {
+            panic!("bump: no token to bump");
         }
     }
 
@@ -2132,7 +2130,7 @@ impl BailCtx {
             | TokenKind::KeywordElse
             | TokenKind::KeywordElsif
             | TokenKind::EOF => {
-                let exact_match = match (self.end_style, token.kind) {
+                let exact_match = match (self.end_style, &token.kind) {
                     (EndStyle::RParen, TokenKind::RParen)
                     | (EndStyle::RBracket, TokenKind::RBracket)
                     | (EndStyle::RBrace, TokenKind::RBrace)
