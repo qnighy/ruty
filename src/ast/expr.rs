@@ -1,7 +1,7 @@
 use ordered_float::NotNan;
 
 use crate::{
-    ast::{CodeRange, Paren, Stmt, TypeAnnotation, WriteTarget},
+    ast::{ArgList, CodeRange, Paren, Stmt, TypeAnnotation, WriteTarget},
     EString,
 };
 
@@ -269,8 +269,7 @@ pub struct CallExpr {
     pub receiver: Box<Expr>,
     pub method: EString,
     pub method_range: CodeRange,
-    // TODO: support complex args
-    pub args: Vec<Expr>,
+    pub args: ArgList,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

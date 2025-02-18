@@ -1,4 +1,4 @@
-use crate::ast::{CodeRange, ConstReceiver, Expr, Program, StringContent, WriteTarget};
+use crate::ast::{Arg, CodeRange, ConstReceiver, Expr, Program, StringContent, WriteTarget};
 
 pub fn erase_type(src: &[u8], program: &Program) -> Vec<u8> {
     let mut ranges = Vec::new();
@@ -59,8 +59,8 @@ fn collect_ranges_expr(ranges: &mut Vec<CodeRange>, expr: &Expr) {
         Expr::SourceLine(_) => {}
         Expr::Call(expr) => {
             collect_ranges_expr(ranges, &expr.receiver);
-            for arg in &expr.args {
-                collect_ranges_expr(ranges, arg);
+            for arg in &expr.args.args {
+                collect_ranges_arg(ranges, arg);
             }
         }
         Expr::Write(expr) => {
@@ -89,6 +89,14 @@ fn collect_ranges_expr(ranges: &mut Vec<CodeRange>, expr: &Expr) {
             collect_ranges_expr(ranges, &expr.body);
         }
         Expr::Error(_) => {}
+    }
+}
+
+fn collect_ranges_arg(ranges: &mut Vec<CodeRange>, args: &Arg) {
+    match args {
+        Arg::Expr(expr) => {
+            collect_ranges_expr(ranges, &expr.expr);
+        }
     }
 }
 

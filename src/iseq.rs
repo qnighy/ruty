@@ -5,7 +5,7 @@
 use std::collections::{BTreeSet, HashMap};
 
 use crate::{
-    ast::{CodeRange, ConstReceiver, Expr, NumericValue, Program, WriteTarget, DUMMY_RANGE},
+    ast::{Arg, CodeRange, ConstReceiver, Expr, NumericValue, Program, WriteTarget, DUMMY_RANGE},
     Diagnostic, EString,
 };
 
@@ -334,8 +334,9 @@ fn compile_expr(
                     |iseq, diag| {
                         let arg_ids = expr
                             .args
+                            .args
                             .iter()
-                            .map(|arg| compile_expr(iseq, arg, locals_map, diag))
+                            .map(|Arg::Expr(arg)| compile_expr(iseq, &arg.expr, locals_map, diag))
                             .collect();
                         iseq.push(Instr {
                             kind: InstrKind::Call {
@@ -362,8 +363,9 @@ fn compile_expr(
                 let receiver_id = compile_expr(iseq, &expr.receiver, locals_map, diag);
                 let arg_ids = expr
                     .args
+                    .args
                     .iter()
-                    .map(|arg| compile_expr(iseq, arg, locals_map, diag))
+                    .map(|Arg::Expr(arg)| compile_expr(iseq, &arg.expr, locals_map, diag))
                     .collect();
                 iseq.push(Instr {
                     kind: InstrKind::Call {

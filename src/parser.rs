@@ -4,12 +4,12 @@ use std::{collections::HashMap, mem::take};
 
 use crate::{
     ast::{
-        AndExpr, CallExpr, CallStyle, CodeRange, ConstExpr, ConstReceiver, ErrorExpr, ErrorType,
-        ErrorWriteTarget, Expr, FalseExpr, FalseType, IfExpr, ImplicitParen, IntegerType,
-        InterpolationContent, LocalVariableExpr, LocalVariableWriteTarget, NilExpr, NilStyle,
-        NilType, NumericExpr, OrExpr, Paren, ParenParen, Program, RegexpExpr, RegexpType, SelfExpr,
-        SeqExpr, SourceEncodingExpr, SourceFileExpr, SourceLineExpr, Stmt, StmtSep, StmtSepKind,
-        StringContent, StringExpr, StringType, TextContent, TrueExpr, TrueType, Type,
+        AndExpr, Arg, ArgList, CallExpr, CallStyle, CodeRange, ConstExpr, ConstReceiver, ErrorExpr,
+        ErrorType, ErrorWriteTarget, Expr, ExprArg, FalseExpr, FalseType, IfExpr, ImplicitParen,
+        IntegerType, InterpolationContent, LocalVariableExpr, LocalVariableWriteTarget, NilExpr,
+        NilStyle, NilType, NumericExpr, OrExpr, Paren, ParenParen, Program, RegexpExpr, RegexpType,
+        SelfExpr, SeqExpr, SourceEncodingExpr, SourceFileExpr, SourceLineExpr, Stmt, StmtSep,
+        StmtSepKind, StringContent, StringExpr, StringType, TextContent, TrueExpr, TrueType, Type,
         TypeAnnotation, UntilExpr, WhileExpr, WriteExpr, WriteTarget, XStringExpr, DUMMY_RANGE,
     },
     encoding::EStrRef,
@@ -350,8 +350,7 @@ impl<'a> Parser<'a> {
             self.parse_expr_lv_assignment(diag, first_token, lv, PrecCtx::default());
         if is_cmdarg_begin(&token_after_lhs) {
             let method_range = token_after_lhs.range;
-            let (args, args_range, token_after_args) =
-                self.parse_cmd_args(diag, token_after_lhs, lv);
+            let (args, token_after_args) = self.parse_cmd_args(diag, token_after_lhs, lv);
             let lhs = lhs.callify();
             let expr = match lhs {
                 ExprLike::ArglessCall {
@@ -363,7 +362,7 @@ impl<'a> Parser<'a> {
                     method,
                     method_range,
                 } => CallExpr {
-                    range: range | args_range,
+                    range: range | *args.outer_range(),
                     parens: Vec::new(),
 
                     style,
@@ -376,13 +375,15 @@ impl<'a> Parser<'a> {
                 }
                 .into(),
                 ExprLike::NotOp { range } => {
-                    if args.len() > 1 {
+                    if args.args.len() > 1 {
                         diag.push(Diagnostic {
-                            range: args_range,
+                            range: args.range,
                             message: format!("too many arguments"),
                         });
                     }
-                    let arg = { args }.swap_remove(0);
+                    let args_range = *args.outer_range();
+                    let Arg::Expr(arg) = { args.args }.swap_remove(0);
+                    let arg = *arg.expr;
                     CallExpr {
                         range: range | args_range,
                         parens: Vec::new(),
@@ -393,7 +394,11 @@ impl<'a> Parser<'a> {
                         receiver: Box::new(arg),
                         method: symbol("!"),
                         method_range,
-                        args: vec![],
+                        args: ArgList {
+                            range: DUMMY_RANGE,
+                            paren: None,
+                            args: vec![],
+                        },
                     }
                     .into()
                 }
@@ -404,7 +409,7 @@ impl<'a> Parser<'a> {
                     });
                     let lhs = lhs.into_expr(diag);
                     CallExpr {
-                        range: *lhs.outer_range() | args_range,
+                        range: *lhs.outer_range() | *args.outer_range(),
                         parens: Vec::new(),
 
                         style: CallStyle::CallOp,
@@ -592,8 +597,7 @@ impl<'a> Parser<'a> {
             match token.kind {
                 TokenKind::LParen => {
                     let method_range = token.range;
-                    let (args, args_range, token_after_args) =
-                        self.parse_paren_args(diag, token, lv);
+                    let (args, token_after_args) = self.parse_paren_args(diag, token, lv);
                     lhs = lhs.callify();
                     match lhs {
                         ExprLike::ArglessCall {
@@ -606,7 +610,7 @@ impl<'a> Parser<'a> {
                             method_range,
                         } => {
                             lhs = ExprLike::BlocklessCall {
-                                range: range | args_range,
+                                range: range | *args.outer_range(),
                                 style,
                                 private,
                                 optional,
@@ -617,11 +621,11 @@ impl<'a> Parser<'a> {
                             };
                         }
                         ExprLike::NotOp { range } => {
-                            if args.len() == 0 {
+                            if args.args.len() == 0 {
                                 // `not()` is `nil.!()` (but why!?!?)
                                 lhs = ExprLike::Expr(
                                     CallExpr {
-                                        range: range | args_range,
+                                        range: range | *args.outer_range(),
                                         parens: Vec::new(),
 
                                         style: CallStyle::SpelloutUnOp,
@@ -646,19 +650,25 @@ impl<'a> Parser<'a> {
                                         ),
                                         method: symbol("!"),
                                         method_range,
-                                        args: vec![],
+                                        args: ArgList {
+                                            range: DUMMY_RANGE,
+                                            paren: None,
+                                            args: vec![],
+                                        },
                                     }
                                     .into(),
                                 );
                             } else {
                                 // TODO: also check against `not(expr,)` etc.
-                                if args.len() > 1 {
+                                if args.args.len() > 1 {
                                     diag.push(Diagnostic {
-                                        range: args_range,
+                                        range: args.range,
                                         message: format!("too many arguments"),
                                     });
                                 }
-                                let arg = { args }.swap_remove(0);
+                                let args_range = *args.outer_range();
+                                let Arg::Expr(arg) = { args.args }.swap_remove(0);
+                                let arg = *arg.expr;
                                 lhs = ExprLike::Expr(
                                     CallExpr {
                                         range: range | args_range,
@@ -670,7 +680,11 @@ impl<'a> Parser<'a> {
                                         receiver: Box::new(arg),
                                         method: symbol("!"),
                                         method_range,
-                                        args: vec![],
+                                        args: ArgList {
+                                            range: DUMMY_RANGE,
+                                            paren: None,
+                                            args: vec![],
+                                        },
                                     }
                                     .into(),
                                 );
@@ -684,7 +698,7 @@ impl<'a> Parser<'a> {
                             let lhs_expr = lhs.into_expr(diag);
                             lhs = ExprLike::Expr(
                                 CallExpr {
-                                    range: *lhs_expr.outer_range() | args_range,
+                                    range: *lhs_expr.outer_range() | *args.outer_range(),
                                     parens: Vec::new(),
 
                                     style: CallStyle::CallOp,
@@ -714,11 +728,11 @@ impl<'a> Parser<'a> {
                         TokenKind::LParen => {
                             let method_range = token_after_dot.range;
                             // expr.(args)
-                            let (args, args_range, token_after_args) =
+                            let (args, token_after_args) =
                                 self.parse_paren_args(diag, token_after_dot, lv);
                             let lhs_expr = lhs.into_expr(diag);
                             lhs = ExprLike::BlocklessCall {
-                                range: *lhs_expr.outer_range() | args_range,
+                                range: *lhs_expr.outer_range() | *args.outer_range(),
                                 style: CallStyle::Dot,
                                 private,
                                 optional,
@@ -1461,10 +1475,18 @@ impl<'a> Parser<'a> {
         diag: &mut Vec<Diagnostic>,
         first_token: Token,
         lv: &mut LVCtx,
-    ) -> (Vec<Expr>, CodeRange, Token) {
+    ) -> (ArgList, Token) {
         let (first_arg, mut last_token) = self.parse_expr_lv_cmd(diag, first_token, lv);
-        let mut args_range = *first_arg.outer_range();
-        let mut args = vec![first_arg];
+        let mut args = ArgList {
+            range: *first_arg.outer_range(),
+            paren: None,
+            args: vec![ExprArg {
+                range: *first_arg.outer_range(),
+                comma: None,
+                expr: Box::new(first_arg),
+            }
+            .into()],
+        };
         loop {
             let token = last_token;
             match token.kind {
@@ -1481,11 +1503,19 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 TokenKind::Comma => {
+                    *args.args.last_mut().unwrap().comma_mut() = Some(token.range);
                     let arg_first_token = self.lexer.lex(diag, LexerState::BeginLabelable);
                     let (arg, arg_next_token) = self.parse_expr_lv_cmd(diag, arg_first_token, lv);
                     last_token = arg_next_token;
-                    args_range |= *arg.outer_range();
-                    args.push(arg);
+                    args.range |= *arg.outer_range();
+                    args.args.push(
+                        ExprArg {
+                            range: *arg.outer_range(),
+                            comma: None,
+                            expr: Box::new(arg),
+                        }
+                        .into(),
+                    );
                 }
                 _ => {
                     diag.push(Diagnostic {
@@ -1497,7 +1527,7 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        (args, args_range, last_token)
+        (args, last_token)
     }
 
     fn parse_paren_args(
@@ -1505,15 +1535,20 @@ impl<'a> Parser<'a> {
         diag: &mut Vec<Diagnostic>,
         first_token: Token,
         lv: &mut LVCtx,
-    ) -> (Vec<Expr>, CodeRange, Token) {
-        let mut args = Vec::<Expr>::new();
-        let mut args_range = first_token.range;
+    ) -> (ArgList, Token) {
+        let mut args = ArgList {
+            range: DUMMY_RANGE,
+            paren: None,
+            args: Vec::new(),
+        };
+        let paren_open_range = first_token.range;
+        let mut paren_close_range = DUMMY_RANGE;
         let mut last_token = self.lexer.lex(diag, LexerState::BeginLabelable);
         loop {
             let token = last_token;
             match token.kind {
                 TokenKind::RParen => {
-                    args_range |= token.range;
+                    paren_close_range = token.range;
                     last_token = self.lexer.lex(diag, LexerState::End);
                     break;
                 }
@@ -1522,15 +1557,23 @@ impl<'a> Parser<'a> {
                         range: token.range,
                         message: format!("unexpected end of file"),
                     });
-                    args_range |= token.range;
                     last_token = token;
                     break;
                 }
                 _ => {
                     let (arg, token_after_arg) = self.parse_expr_lv_cmd(diag, token, lv);
-                    args.push(arg);
+                    args.args.push(
+                        ExprArg {
+                            range: *arg.outer_range(),
+                            comma: None,
+                            expr: Box::new(arg),
+                        }
+                        .into(),
+                    );
                     match token_after_arg.kind {
                         TokenKind::Comma => {
+                            *args.args.last_mut().unwrap().comma_mut() =
+                                Some(token_after_arg.range);
                             last_token = self.lexer.lex(diag, LexerState::BeginLabelable);
                         }
                         TokenKind::EOF | TokenKind::RParen => {
@@ -1547,7 +1590,17 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        (args, args_range, last_token)
+        args.paren = Some(
+            ParenParen {
+                range: paren_open_range | args.range | paren_close_range,
+                open_range: paren_open_range,
+                separator_prefix: Vec::new(),
+                separator_suffix: Vec::new(),
+                close_range: paren_close_range,
+            }
+            .into(),
+        );
+        (args, last_token)
     }
 
     fn parse_whole_type(&mut self, diag: &mut Vec<Diagnostic>) -> Type {
@@ -1924,7 +1977,16 @@ impl StackElem {
                         parens: Vec::new(),
 
                         receiver: Box::new(lhs),
-                        args: vec![rhs],
+                        args: ArgList {
+                            range: *rhs.outer_range(),
+                            paren: None,
+                            args: vec![ExprArg {
+                                range: *rhs.outer_range(),
+                                comma: None,
+                                expr: Box::new(rhs),
+                            }
+                            .into()],
+                        },
                         style: CallStyle::BinOp,
                         private: false,
                         optional: false,
@@ -1951,7 +2013,11 @@ impl StackElem {
                     parens: Vec::new(),
 
                     receiver: Box::new(rhs),
-                    args: Vec::new(),
+                    args: ArgList {
+                        range: DUMMY_RANGE,
+                        paren: None,
+                        args: Vec::new(),
+                    },
                     style: CallStyle::UnOp,
                     private: false,
                     optional: false,
@@ -2143,7 +2209,7 @@ enum ExprLike {
         receiver: Box<Expr>,
         method: EString,
         method_range: CodeRange,
-        args: Vec<Expr>,
+        args: ArgList,
     },
 }
 
@@ -2181,7 +2247,11 @@ impl ExprLike {
                 ),
                 method: name,
                 method_range: range,
-                args: vec![],
+                args: ArgList {
+                    range: DUMMY_RANGE,
+                    paren: None,
+                    args: vec![],
+                },
             }
             .into(),
             ExprLike::Const {
@@ -2217,7 +2287,11 @@ impl ExprLike {
                     ),
                     method: symbol("!"),
                     method_range: range,
-                    args: vec![],
+                    args: ArgList {
+                        range: DUMMY_RANGE,
+                        paren: None,
+                        args: vec![],
+                    },
                 }
                 .into()
             }
@@ -2238,7 +2312,11 @@ impl ExprLike {
                 receiver,
                 method,
                 method_range,
-                args: vec![],
+                args: ArgList {
+                    range: DUMMY_RANGE,
+                    paren: None,
+                    args: vec![],
+                },
             }
             .into(),
             ExprLike::BlocklessCall {
@@ -2696,9 +2774,10 @@ mod tests {
                 }
                 fmt_name(f, &expr.method)?;
                 write!(f, "(")?;
-                for (i, arg) in expr.args.iter().enumerate() {
+                for (i, Arg::Expr(arg)) in expr.args.args.iter().enumerate() {
+                    let arg = &arg.expr;
                     fmt_expr(f, arg, 10)?;
-                    if i + 1 < expr.args.len() {
+                    if i + 1 < expr.args.args.len() {
                         write!(f, ", ")?;
                     }
                 }
@@ -3435,7 +3514,20 @@ mod tests {
                     ),
                     method: symbol("foo"),
                     method_range: pos_in(src, b"foo", 0),
-                    args: vec![],
+                    args: ArgList {
+                        range: DUMMY_RANGE,
+                        paren: Some(
+                            ParenParen {
+                                range: pos_in(src, b"()", 0),
+                                open_range: pos_in(src, b"(", 0),
+                                separator_prefix: vec![],
+                                separator_suffix: vec![],
+                                close_range: pos_in(src, b")", 0),
+                            }
+                            .into()
+                        ),
+                        args: vec![]
+                    },
                 }
                 .into(),
                 vec![],
@@ -3481,22 +3573,40 @@ mod tests {
                     ),
                     method: symbol("foo"),
                     method_range: pos_in(src, b"foo", 0),
-                    args: vec![
-                        NumericExpr {
-                            range: pos_in(src, b"1", 0),
-                            parens: vec![],
-                            value: NumericValue::Integer(1),
-                            imaginary: false,
-                        }
-                        .into(),
-                        NumericExpr {
-                            range: pos_in(src, b"2", 0),
-                            parens: vec![],
-                            value: NumericValue::Integer(2),
-                            imaginary: false,
-                        }
-                        .into(),
-                    ],
+                    args: ArgList {
+                        range: pos_in(src, b"1, 2", 0),
+                        paren: None,
+                        args: vec![
+                            ExprArg {
+                                range: pos_in(src, b"1", 0),
+                                comma: Some(pos_in(src, b",", 0)),
+                                expr: Box::new(
+                                    NumericExpr {
+                                        range: pos_in(src, b"1", 0),
+                                        parens: vec![],
+                                        value: NumericValue::Integer(1),
+                                        imaginary: false,
+                                    }
+                                    .into()
+                                ),
+                            }
+                            .into(),
+                            ExprArg {
+                                range: pos_in(src, b"2", 0),
+                                comma: None,
+                                expr: Box::new(
+                                    NumericExpr {
+                                        range: pos_in(src, b"2", 0),
+                                        parens: vec![],
+                                        value: NumericValue::Integer(2),
+                                        imaginary: false,
+                                    }
+                                    .into(),
+                                ),
+                            }
+                            .into(),
+                        ]
+                    },
                 }
                 .into(),
                 vec![],
@@ -3560,7 +3670,20 @@ mod tests {
                     ),
                     method: symbol("foo"),
                     method_range: pos_in(src, b"foo", 0),
-                    args: vec![],
+                    args: ArgList {
+                        range: DUMMY_RANGE,
+                        paren: Some(
+                            ParenParen {
+                                range: pos_in(src, b"()", 0),
+                                open_range: pos_in(src, b"(", 0),
+                                separator_prefix: vec![],
+                                separator_suffix: vec![],
+                                close_range: pos_in(src, b")", 0),
+                            }
+                            .into()
+                        ),
+                        args: vec![]
+                    },
                 }
                 .into(),
                 vec![],
@@ -3587,7 +3710,11 @@ mod tests {
                     ),
                     method: symbol("foo"),
                     method_range: pos_in(src, b"foo", 0),
-                    args: vec![],
+                    args: ArgList {
+                        range: DUMMY_RANGE,
+                        paren: None,
+                        args: vec![]
+                    },
                 }
                 .into(),
                 vec![],
@@ -3618,22 +3745,40 @@ mod tests {
                     ),
                     method: symbol("foo"),
                     method_range: pos_in(src, b"foo", 0),
-                    args: vec![
-                        NumericExpr {
-                            range: pos_in(src, b"1", 0),
-                            parens: vec![],
-                            value: NumericValue::Integer(1),
-                            imaginary: false,
-                        }
-                        .into(),
-                        NumericExpr {
-                            range: pos_in(src, b"2", 0),
-                            parens: vec![],
-                            value: NumericValue::Integer(2),
-                            imaginary: false,
-                        }
-                        .into(),
-                    ],
+                    args: ArgList {
+                        range: pos_in(src, b"1, 2", 0),
+                        paren: None,
+                        args: vec![
+                            ExprArg {
+                                range: pos_in(src, b"1", 0),
+                                comma: Some(pos_in(src, b",", 0)),
+                                expr: Box::new(
+                                    NumericExpr {
+                                        range: pos_in(src, b"1", 0),
+                                        parens: vec![],
+                                        value: NumericValue::Integer(1),
+                                        imaginary: false,
+                                    }
+                                    .into()
+                                ),
+                            }
+                            .into(),
+                            ExprArg {
+                                range: pos_in(src, b"2", 0),
+                                comma: None,
+                                expr: Box::new(
+                                    NumericExpr {
+                                        range: pos_in(src, b"2", 0),
+                                        parens: vec![],
+                                        value: NumericValue::Integer(2),
+                                        imaginary: false,
+                                    }
+                                    .into(),
+                                ),
+                            }
+                            .into(),
+                        ]
+                    },
                 }
                 .into(),
                 vec![],
@@ -3660,7 +3805,11 @@ mod tests {
                     ),
                     method: symbol("foo"),
                     method_range: pos_in(src, b"foo", 0),
-                    args: vec![],
+                    args: ArgList {
+                        range: DUMMY_RANGE,
+                        paren: None,
+                        args: vec![]
+                    },
                 }
                 .into(),
                 vec![],
@@ -3773,37 +3922,70 @@ mod tests {
                                     ),
                                     method: symbol("*"),
                                     method_range: pos_in(src, b"*", 0),
-                                    args: vec![LocalVariableExpr {
+                                    args: ArgList {
                                         range: pos_in(src, b"y", 0),
-                                        parens: vec![],
-                                        name: symbol("y"),
-                                        type_annotation: None,
-                                    }
-                                    .into()],
+                                        paren: None,
+                                        args: vec![ExprArg {
+                                            range: pos_in(src, b"y", 0),
+                                            comma: None,
+                                            expr: Box::new(
+                                                LocalVariableExpr {
+                                                    range: pos_in(src, b"y", 0),
+                                                    parens: vec![],
+                                                    name: symbol("y"),
+                                                    type_annotation: None,
+                                                }
+                                                .into()
+                                            ),
+                                        }
+                                        .into()],
+                                    },
                                 }
                                 .into()
                             ),
                             method: symbol("/"),
                             method_range: pos_in(src, b"/", 0),
-                            args: vec![LocalVariableExpr {
+                            args: ArgList {
                                 range: pos_in(src, b"z", 0),
-                                parens: vec![],
-                                name: symbol("z"),
-                                type_annotation: None,
-                            }
-                            .into()],
+                                paren: None,
+                                args: vec![ExprArg {
+                                    range: pos_in(src, b"z", 0),
+                                    comma: None,
+                                    expr: Box::new(
+                                        LocalVariableExpr {
+                                            range: pos_in(src, b"z", 0),
+                                            parens: vec![],
+                                            name: symbol("z"),
+                                            type_annotation: None,
+                                        }
+                                        .into()
+                                    ),
+                                }
+                                .into(),],
+                            },
                         }
                         .into()
                     ),
                     method: symbol("%"),
                     method_range: pos_in(src, b"%", 0),
-                    args: vec![LocalVariableExpr {
+                    args: ArgList {
                         range: pos_in(src, b"w", 0),
-                        parens: vec![],
-                        name: symbol("w"),
-                        type_annotation: None,
-                    }
-                    .into()],
+                        paren: None,
+                        args: vec![ExprArg {
+                            range: pos_in(src, b"w", 0),
+                            comma: None,
+                            expr: Box::new(
+                                LocalVariableExpr {
+                                    range: pos_in(src, b"w", 0),
+                                    parens: vec![],
+                                    name: symbol("w"),
+                                    type_annotation: None,
+                                }
+                                .into()
+                            ),
+                        }
+                        .into()],
+                    },
                 }
                 .into(),
                 vec![],
@@ -3838,44 +4020,77 @@ mod tests {
                             ),
                             method: symbol("**"),
                             method_range: pos_in(src, b"**", 0),
-                            args: vec![LocalVariableExpr {
+                            args: ArgList {
                                 range: pos_in(src, b"y", 0),
-                                parens: vec![],
-                                name: symbol("y"),
-                                type_annotation: None,
-                            }
-                            .into()],
+                                paren: None,
+                                args: vec![ExprArg {
+                                    range: pos_in(src, b"y", 0),
+                                    comma: None,
+                                    expr: Box::new(
+                                        LocalVariableExpr {
+                                            range: pos_in(src, b"y", 0),
+                                            parens: vec![],
+                                            name: symbol("y"),
+                                            type_annotation: None,
+                                        }
+                                        .into()
+                                    ),
+                                }
+                                .into()],
+                            },
                         }
                         .into()
                     ),
                     method: symbol("*"),
                     method_range: pos_in(src, b"*", 2),
-                    args: vec![CallExpr {
+                    args: ArgList {
                         range: pos_in(src, b"z ** w", 0),
-                        parens: vec![],
-                        style: CallStyle::BinOp,
-                        private: false,
-                        optional: false,
-                        receiver: Box::new(
-                            LocalVariableExpr {
-                                range: pos_in(src, b"z", 0),
-                                parens: vec![],
-                                name: symbol("z"),
-                                type_annotation: None,
-                            }
-                            .into()
-                        ),
-                        method: symbol("**"),
-                        method_range: pos_in(src, b"**", 1),
-                        args: vec![LocalVariableExpr {
-                            range: pos_in(src, b"w", 0),
-                            parens: vec![],
-                            name: symbol("w"),
-                            type_annotation: None,
+                        paren: None,
+                        args: vec![ExprArg {
+                            range: pos_in(src, b"z ** w", 0),
+                            comma: None,
+                            expr: Box::new(
+                                CallExpr {
+                                    range: pos_in(src, b"z ** w", 0),
+                                    parens: vec![],
+                                    style: CallStyle::BinOp,
+                                    private: false,
+                                    optional: false,
+                                    receiver: Box::new(
+                                        LocalVariableExpr {
+                                            range: pos_in(src, b"z", 0),
+                                            parens: vec![],
+                                            name: symbol("z"),
+                                            type_annotation: None,
+                                        }
+                                        .into()
+                                    ),
+                                    method: symbol("**"),
+                                    method_range: pos_in(src, b"**", 1),
+                                    args: ArgList {
+                                        range: pos_in(src, b"w", 0),
+                                        paren: None,
+                                        args: vec![ExprArg {
+                                            range: pos_in(src, b"w", 0),
+                                            comma: None,
+                                            expr: Box::new(
+                                                LocalVariableExpr {
+                                                    range: pos_in(src, b"w", 0),
+                                                    parens: vec![],
+                                                    name: symbol("w"),
+                                                    type_annotation: None,
+                                                }
+                                                .into()
+                                            ),
+                                        }
+                                        .into()],
+                                    },
+                                }
+                                .into()
+                            )
                         }
-                        .into()],
-                    }
-                    .into()],
+                        .into()]
+                    },
                 }
                 .into(),
                 vec![],
@@ -3906,32 +4121,54 @@ mod tests {
                     ),
                     method: symbol("**"),
                     method_range: pos_in(src, b"**", 0),
-                    args: vec![CallExpr {
+                    args: ArgList {
                         range: pos_in(src, b"y ** z", 0),
-                        parens: vec![],
-                        style: CallStyle::BinOp,
-                        private: false,
-                        optional: false,
-                        receiver: Box::new(
-                            LocalVariableExpr {
-                                range: pos_in(src, b"y", 0),
-                                parens: vec![],
-                                name: symbol("y"),
-                                type_annotation: None,
-                            }
-                            .into()
-                        ),
-                        method: symbol("**"),
-                        method_range: pos_in(src, b"**", 1),
-                        args: vec![LocalVariableExpr {
-                            range: pos_in(src, b"z", 0),
-                            parens: vec![],
-                            name: symbol("z"),
-                            type_annotation: None,
+                        paren: None,
+                        args: vec![ExprArg {
+                            range: pos_in(src, b"y ** z", 0),
+                            comma: None,
+                            expr: Box::new(
+                                CallExpr {
+                                    range: pos_in(src, b"y ** z", 0),
+                                    parens: vec![],
+                                    style: CallStyle::BinOp,
+                                    private: false,
+                                    optional: false,
+                                    receiver: Box::new(
+                                        LocalVariableExpr {
+                                            range: pos_in(src, b"y", 0),
+                                            parens: vec![],
+                                            name: symbol("y"),
+                                            type_annotation: None,
+                                        }
+                                        .into()
+                                    ),
+                                    method: symbol("**"),
+                                    method_range: pos_in(src, b"**", 1),
+                                    args: ArgList {
+                                        range: pos_in(src, b"z", 0),
+                                        paren: None,
+                                        args: vec![ExprArg {
+                                            range: pos_in(src, b"z", 0),
+                                            comma: None,
+                                            expr: Box::new(
+                                                LocalVariableExpr {
+                                                    range: pos_in(src, b"z", 0),
+                                                    parens: vec![],
+                                                    name: symbol("z"),
+                                                    type_annotation: None,
+                                                }
+                                                .into()
+                                            ),
+                                        }
+                                        .into()],
+                                    },
+                                }
+                                .into()
+                            ),
                         }
-                        .into()],
-                    }
-                    .into()],
+                        .into()]
+                    },
                 }
                 .into(),
                 vec![],
@@ -3965,32 +4202,51 @@ mod tests {
                             ),
                             method: symbol("+@"),
                             method_range: pos_in(src, b"+", 0),
-                            args: vec![],
+                            args: ArgList {
+                                range: DUMMY_RANGE,
+                                paren: None,
+                                args: vec![]
+                            },
                         }
                         .into()
                     ),
                     method: symbol("**"),
                     method_range: pos_in(src, b"**", 0),
-                    args: vec![CallExpr {
+                    args: ArgList {
                         range: pos_in(src, b"+y", 0),
-                        parens: vec![],
-                        style: CallStyle::UnOp,
-                        private: false,
-                        optional: false,
-                        receiver: Box::new(
-                            LocalVariableExpr {
-                                range: pos_in(src, b"y", 0),
-                                parens: vec![],
-                                name: symbol("y"),
-                                type_annotation: None,
-                            }
-                            .into()
-                        ),
-                        method: symbol("+@"),
-                        method_range: pos_in(src, b"+", 1),
-                        args: vec![],
-                    }
-                    .into()],
+                        paren: None,
+                        args: vec![ExprArg {
+                            range: pos_in(src, b"+y", 0),
+                            comma: None,
+                            expr: Box::new(
+                                CallExpr {
+                                    range: pos_in(src, b"+y", 0),
+                                    parens: vec![],
+                                    style: CallStyle::UnOp,
+                                    private: false,
+                                    optional: false,
+                                    receiver: Box::new(
+                                        LocalVariableExpr {
+                                            range: pos_in(src, b"y", 0),
+                                            parens: vec![],
+                                            name: symbol("y"),
+                                            type_annotation: None,
+                                        }
+                                        .into()
+                                    ),
+                                    method: symbol("+@"),
+                                    method_range: pos_in(src, b"+", 1),
+                                    args: ArgList {
+                                        range: DUMMY_RANGE,
+                                        paren: None,
+                                        args: vec![]
+                                    },
+                                }
+                                .into()
+                            ),
+                        }
+                        .into()],
+                    },
                 }
                 .into(),
                 vec![],
@@ -4028,51 +4284,81 @@ mod tests {
                             ),
                             method: symbol("**"),
                             method_range: pos_in(src, b"**", 0),
-                            args: vec![CallExpr {
+                            args: ArgList {
                                 range: pos_in(src, b"-y ** z", 0),
-                                parens: vec![],
-                                style: CallStyle::UnOp,
-                                private: false,
-                                optional: false,
-                                receiver: Box::new(
-                                    CallExpr {
-                                        range: pos_in(src, b"y ** z", 0),
-                                        parens: vec![],
-                                        style: CallStyle::BinOp,
-                                        private: false,
-                                        optional: false,
-                                        receiver: Box::new(
-                                            LocalVariableExpr {
-                                                range: pos_in(src, b"y", 0),
-                                                parens: vec![],
-                                                name: symbol("y"),
-                                                type_annotation: None,
-                                            }
-                                            .into()
-                                        ),
-                                        method: symbol("**"),
-                                        method_range: pos_in(src, b"**", 1),
-                                        args: vec![LocalVariableExpr {
-                                            range: pos_in(src, b"z", 0),
+                                paren: None,
+                                args: vec![ExprArg {
+                                    range: pos_in(src, b"-y ** z", 0),
+                                    comma: None,
+                                    expr: Box::new(
+                                        CallExpr {
+                                            range: pos_in(src, b"-y ** z", 0),
                                             parens: vec![],
-                                            name: symbol("z"),
-                                            type_annotation: None,
+                                            style: CallStyle::UnOp,
+                                            private: false,
+                                            optional: false,
+                                            receiver: Box::new(
+                                                CallExpr {
+                                                    range: pos_in(src, b"y ** z", 0),
+                                                    parens: vec![],
+                                                    style: CallStyle::BinOp,
+                                                    private: false,
+                                                    optional: false,
+                                                    receiver: Box::new(
+                                                        LocalVariableExpr {
+                                                            range: pos_in(src, b"y", 0),
+                                                            parens: vec![],
+                                                            name: symbol("y"),
+                                                            type_annotation: None,
+                                                        }
+                                                        .into()
+                                                    ),
+                                                    method: symbol("**"),
+                                                    method_range: pos_in(src, b"**", 1),
+                                                    args: ArgList {
+                                                        range: pos_in(src, b"z", 0),
+                                                        paren: None,
+                                                        args: vec![ExprArg {
+                                                            range: pos_in(src, b"z", 0),
+                                                            comma: None,
+                                                            expr: Box::new(
+                                                                LocalVariableExpr {
+                                                                    range: pos_in(src, b"z", 0),
+                                                                    parens: vec![],
+                                                                    name: symbol("z"),
+                                                                    type_annotation: None,
+                                                                }
+                                                                .into()
+                                                            )
+                                                        }
+                                                        .into()]
+                                                    },
+                                                }
+                                                .into()
+                                            ),
+                                            method: symbol("-@"),
+                                            method_range: pos_in(src, b"-", 1),
+                                            args: ArgList {
+                                                range: DUMMY_RANGE,
+                                                paren: None,
+                                                args: vec![]
+                                            },
                                         }
-                                        .into()],
-                                    }
-                                    .into()
-                                ),
-                                method: symbol("-@"),
-                                method_range: pos_in(src, b"-", 1),
-                                args: vec![],
-                            }
-                            .into()],
+                                        .into()
+                                    )
+                                }
+                                .into()]
+                            },
                         }
                         .into()
                     ),
                     method: symbol("-@"),
                     method_range: pos_in(src, b"-", 0),
-                    args: vec![],
+                    args: ArgList {
+                        range: DUMMY_RANGE,
+                        paren: None,
+                        args: vec![]
+                    },
                 }
                 .into(),
                 vec![],
@@ -4103,7 +4389,11 @@ mod tests {
                     ),
                     method: symbol("+@"),
                     method_range: pos_in(src, b"+", 0),
-                    args: vec![],
+                    args: ArgList {
+                        range: DUMMY_RANGE,
+                        paren: None,
+                        args: vec![]
+                    },
                 }
                 .into(),
                 vec![],
@@ -4131,7 +4421,11 @@ mod tests {
                     ),
                     method: symbol("-@"),
                     method_range: pos_in(src, b"-", 0),
-                    args: vec![],
+                    args: ArgList {
+                        range: DUMMY_RANGE,
+                        paren: None,
+                        args: vec![]
+                    },
                 }
                 .into(),
                 vec![],
@@ -4159,7 +4453,11 @@ mod tests {
                     ),
                     method: symbol("!"),
                     method_range: pos_in(src, b"!", 0),
-                    args: vec![],
+                    args: ArgList {
+                        range: DUMMY_RANGE,
+                        paren: None,
+                        args: vec![]
+                    },
                 }
                 .into(),
                 vec![],
@@ -4187,7 +4485,11 @@ mod tests {
                     ),
                     method: symbol("~"),
                     method_range: pos_in(src, b"~", 0),
-                    args: vec![],
+                    args: ArgList {
+                        range: DUMMY_RANGE,
+                        paren: None,
+                        args: vec![]
+                    },
                 }
                 .into(),
                 vec![],
@@ -4236,25 +4538,41 @@ mod tests {
                                             ),
                                             method: symbol("~"),
                                             method_range: pos_in(src, b"~", 0),
-                                            args: vec![],
+                                            args: ArgList {
+                                                range: DUMMY_RANGE,
+                                                paren: None,
+                                                args: vec![]
+                                            },
                                         }
                                         .into()
                                     ),
                                     method: symbol("+@"),
                                     method_range: pos_in(src, b"+", 0),
-                                    args: vec![],
+                                    args: ArgList {
+                                        range: DUMMY_RANGE,
+                                        paren: None,
+                                        args: vec![]
+                                    },
                                 }
                                 .into()
                             ),
                             method: symbol("-@"),
                             method_range: pos_in(src, b"-", 0),
-                            args: vec![],
+                            args: ArgList {
+                                range: DUMMY_RANGE,
+                                paren: None,
+                                args: vec![]
+                            },
                         }
                         .into()
                     ),
                     method: symbol("!"),
                     method_range: pos_in(src, b"!", 0),
-                    args: vec![],
+                    args: ArgList {
+                        range: DUMMY_RANGE,
+                        paren: None,
+                        args: vec![]
+                    },
                 }
                 .into(),
                 vec![],
