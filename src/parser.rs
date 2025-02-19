@@ -580,7 +580,6 @@ impl<'a> Parser<'a> {
         StackParser {
             parser: self,
             stack: Vec::new(),
-            top: None,
         }
         .parse(diag, first_token, lv)
     }
@@ -1731,7 +1730,6 @@ impl<'a> Parser<'a> {
 struct StackParser<'a, 'b> {
     parser: &'b mut Parser<'a>,
     stack: Vec<StackElem>,
-    top: Option<ExprLike>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1765,7 +1763,6 @@ const PREC_LOGICAL_OR: usize = 18;
 const PREC_LOWEST: usize = 100;
 
 impl<'a, 'b> StackParser<'a, 'b> {
-    // fn parse_expr_lv_logical_or
     fn parse(
         &mut self,
         diag: &mut Vec<Diagnostic>,
@@ -1774,94 +1771,110 @@ impl<'a, 'b> StackParser<'a, 'b> {
     ) -> (ExprLike, Token) {
         let mut last_token = first_token;
         loop {
-            if let Some(top) = self.top.take() {
-                match last_token.kind {
-                    TokenKind::VertVert
-                    | TokenKind::AmpAmp
-                    | TokenKind::EqEq
+            match self.parse_step(diag, last_token, lv) {
+                Ok(v) => return v,
+                Err(SuspendParse { next_token }) => last_token = next_token,
+            }
+        }
+    }
+
+    fn parse_step(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        first_token: Token,
+        lv: &mut LVCtx,
+    ) -> Result<(ExprLike, Token), SuspendParse> {
+        match first_token.kind {
+            TokenKind::Plus
+            | TokenKind::PlusPrefix
+            | TokenKind::Minus
+            | TokenKind::MinusPrefix
+            | TokenKind::Excl
+            | TokenKind::Tilde => {
+                let op_prec = PREC_UNARY;
+                self.stack.push(StackElem::PartialPrefixOp {
+                    op_token: first_token,
+                    op_prec,
+                });
+                let next_token = self.parser.lexer.lex(diag, LexerState::Begin);
+                Err(SuspendParse { next_token })
+            }
+            _ => {
+                let (expr, next_token) = self.parser.parse_expr_lv_call_like(diag, first_token, lv);
+                self.continue_parse(diag, expr, next_token, lv)
+            }
+        }
+    }
+
+    fn continue_parse(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        last_expr: ExprLike,
+        first_token: Token,
+        lv: &mut LVCtx,
+    ) -> Result<(ExprLike, Token), SuspendParse> {
+        match first_token.kind {
+            TokenKind::VertVert
+            | TokenKind::AmpAmp
+            | TokenKind::EqEq
+            | TokenKind::ExclEq
+            | TokenKind::EqMatch
+            | TokenKind::ExclTilde
+            | TokenKind::EqEqEq
+            | TokenKind::LtEqGt
+            | TokenKind::Lt
+            | TokenKind::LtEq
+            | TokenKind::Gt
+            | TokenKind::GtEq
+            | TokenKind::Vert
+            | TokenKind::Caret
+            | TokenKind::Amp
+            | TokenKind::LtLt
+            | TokenKind::GtGt
+            | TokenKind::Plus
+            | TokenKind::Minus
+            | TokenKind::Star
+            | TokenKind::Slash
+            | TokenKind::Percent
+            | TokenKind::StarStar => {
+                let op_prec = match first_token.kind {
+                    TokenKind::VertVert => PREC_LOGICAL_OR,
+                    TokenKind::AmpAmp => PREC_LOGICAL_AND,
+                    TokenKind::EqEq
                     | TokenKind::ExclEq
                     | TokenKind::EqMatch
                     | TokenKind::ExclTilde
                     | TokenKind::EqEqEq
-                    | TokenKind::LtEqGt
-                    | TokenKind::Lt
-                    | TokenKind::LtEq
-                    | TokenKind::Gt
-                    | TokenKind::GtEq
-                    | TokenKind::Vert
-                    | TokenKind::Caret
-                    | TokenKind::Amp
-                    | TokenKind::LtLt
-                    | TokenKind::GtGt
-                    | TokenKind::Plus
-                    | TokenKind::Minus
-                    | TokenKind::Star
-                    | TokenKind::Slash
-                    | TokenKind::Percent
-                    | TokenKind::StarStar => {
-                        let op_prec = match last_token.kind {
-                            TokenKind::VertVert => PREC_LOGICAL_OR,
-                            TokenKind::AmpAmp => PREC_LOGICAL_AND,
-                            TokenKind::EqEq
-                            | TokenKind::ExclEq
-                            | TokenKind::EqMatch
-                            | TokenKind::ExclTilde
-                            | TokenKind::EqEqEq
-                            | TokenKind::LtEqGt => PREC_EQUALITY,
-                            TokenKind::Lt | TokenKind::LtEq | TokenKind::Gt | TokenKind::GtEq => {
-                                PREC_INEQUALITY
-                            }
-                            TokenKind::Vert | TokenKind::Caret => PREC_BITWISE_OR,
-                            TokenKind::Amp => PREC_BITWISE_AND,
-                            TokenKind::LtLt | TokenKind::GtGt => PREC_SHIFT,
-                            TokenKind::Plus | TokenKind::Minus => PREC_ADDITIVE,
-                            TokenKind::Star | TokenKind::Slash | TokenKind::Percent => {
-                                PREC_MULTIPLICATIVE
-                            }
-                            TokenKind::StarStar => PREC_EXPONENTIAL,
-                            _ => unreachable!(),
-                        };
-                        let next_state = if matches!(last_token.kind, TokenKind::Vert) {
-                            LexerState::BeginLabelable
-                        } else {
-                            LexerState::Begin
-                        };
-                        let lhs = self.reduce(diag, top, op_prec).into_expr(diag);
-                        self.stack.push(StackElem::PartialBinaryOp {
-                            lhs,
-                            op_token: last_token,
-                            op_prec,
-                        });
-                        last_token = self.parser.lexer.lex(diag, next_state);
+                    | TokenKind::LtEqGt => PREC_EQUALITY,
+                    TokenKind::Lt | TokenKind::LtEq | TokenKind::Gt | TokenKind::GtEq => {
+                        PREC_INEQUALITY
                     }
-                    _ => {
-                        let top = self.reduce(diag, top, PREC_LOWEST);
-                        assert_eq!(self.stack.len(), 0);
-                        return (top, last_token);
-                    }
-                }
-            } else {
-                match last_token.kind {
-                    TokenKind::Plus
-                    | TokenKind::PlusPrefix
-                    | TokenKind::Minus
-                    | TokenKind::MinusPrefix
-                    | TokenKind::Excl
-                    | TokenKind::Tilde => {
-                        let op_prec = PREC_UNARY;
-                        self.stack.push(StackElem::PartialPrefixOp {
-                            op_token: last_token,
-                            op_prec,
-                        });
-                        last_token = self.parser.lexer.lex(diag, LexerState::Begin);
-                    }
-                    _ => {
-                        let (expr, next_token) =
-                            self.parser.parse_expr_lv_call_like(diag, last_token, lv);
-                        last_token = next_token;
-                        self.top = Some(expr);
-                    }
-                }
+                    TokenKind::Vert | TokenKind::Caret => PREC_BITWISE_OR,
+                    TokenKind::Amp => PREC_BITWISE_AND,
+                    TokenKind::LtLt | TokenKind::GtGt => PREC_SHIFT,
+                    TokenKind::Plus | TokenKind::Minus => PREC_ADDITIVE,
+                    TokenKind::Star | TokenKind::Slash | TokenKind::Percent => PREC_MULTIPLICATIVE,
+                    TokenKind::StarStar => PREC_EXPONENTIAL,
+                    _ => unreachable!(),
+                };
+                let next_state = if matches!(first_token.kind, TokenKind::Vert) {
+                    LexerState::BeginLabelable
+                } else {
+                    LexerState::Begin
+                };
+                let lhs = self.reduce(diag, last_expr, op_prec).into_expr(diag);
+                self.stack.push(StackElem::PartialBinaryOp {
+                    lhs,
+                    op_token: first_token,
+                    op_prec,
+                });
+                let next_token = self.parser.lexer.lex(diag, next_state);
+                Err(SuspendParse { next_token })
+            }
+            _ => {
+                let top = self.reduce(diag, last_expr, PREC_LOWEST);
+                assert_eq!(self.stack.len(), 0);
+                Ok((top, first_token))
             }
         }
     }
@@ -2029,6 +2042,11 @@ impl StackElem {
             }
         }
     }
+}
+
+#[derive(Debug)]
+struct SuspendParse {
+    next_token: Token,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
