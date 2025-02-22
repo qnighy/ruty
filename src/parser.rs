@@ -584,247 +584,6 @@ impl<'a> Parser<'a> {
         .parse(diag, first_token, lv)
     }
 
-    fn parse_expr_lv_call_like(
-        &mut self,
-        diag: &mut Vec<Diagnostic>,
-        first_token: Token,
-        lv: &mut LVCtx,
-    ) -> (ExprLike, Token) {
-        let (mut lhs, mut last_token) = self.parse_expr_lv_primary(diag, first_token, lv);
-        loop {
-            let token = last_token;
-            match token.kind {
-                TokenKind::LParen => {
-                    let method_range = token.range;
-                    let (args, token_after_args) = self.parse_paren_args(diag, token, lv);
-                    lhs = lhs.callify();
-                    match lhs {
-                        ExprLike::ArglessCall {
-                            range,
-                            style,
-                            private,
-                            optional,
-                            receiver,
-                            method,
-                            method_range,
-                        } => {
-                            lhs = ExprLike::BlocklessCall {
-                                range: range | *args.outer_range(),
-                                style,
-                                private,
-                                optional,
-                                receiver,
-                                method,
-                                method_range,
-                                args,
-                            };
-                        }
-                        ExprLike::NotOp { range } => {
-                            if args.args.len() == 0 {
-                                // `not()` is `nil.!()` (but why!?!?)
-                                lhs = ExprLike::Expr(
-                                    CallExpr {
-                                        range: range | *args.outer_range(),
-                                        parens: Vec::new(),
-
-                                        style: CallStyle::SpelloutUnOp,
-                                        private: false,
-                                        optional: false,
-                                        receiver: Box::new(
-                                            NilExpr {
-                                                range: DUMMY_RANGE,
-                                                parens: vec![ParenParen {
-                                                    range,
-                                                    // TODO: put a correct range
-                                                    open_range: DUMMY_RANGE,
-                                                    separator_prefix: vec![],
-                                                    separator_suffix: vec![],
-                                                    // TODO: put a correct range
-                                                    close_range: DUMMY_RANGE,
-                                                }
-                                                .into()],
-                                                style: NilStyle::Implicit,
-                                            }
-                                            .into(),
-                                        ),
-                                        method: symbol("!"),
-                                        method_range,
-                                        args: ArgList {
-                                            range: DUMMY_RANGE,
-                                            paren: None,
-                                            args: vec![],
-                                        },
-                                    }
-                                    .into(),
-                                );
-                            } else {
-                                // TODO: also check against `not(expr,)` etc.
-                                if args.args.len() > 1 {
-                                    diag.push(Diagnostic {
-                                        range: args.range,
-                                        message: format!("too many arguments"),
-                                    });
-                                }
-                                let args_range = *args.outer_range();
-                                let Arg::Expr(arg) = { args.args }.swap_remove(0);
-                                let arg = *arg.expr;
-                                lhs = ExprLike::Expr(
-                                    CallExpr {
-                                        range: range | args_range,
-                                        parens: Vec::new(),
-
-                                        style: CallStyle::SpelloutUnOp,
-                                        private: false,
-                                        optional: false,
-                                        receiver: Box::new(arg),
-                                        method: symbol("!"),
-                                        method_range,
-                                        args: ArgList {
-                                            range: DUMMY_RANGE,
-                                            paren: None,
-                                            args: vec![],
-                                        },
-                                    }
-                                    .into(),
-                                );
-                            }
-                        }
-                        _ => {
-                            diag.push(Diagnostic {
-                                range: method_range,
-                                message: format!("Need a dot to call an expression"),
-                            });
-                            let lhs_expr = lhs.into_expr(diag);
-                            lhs = ExprLike::Expr(
-                                CallExpr {
-                                    range: *lhs_expr.outer_range() | *args.outer_range(),
-                                    parens: Vec::new(),
-
-                                    style: CallStyle::CallOp,
-                                    private: false,
-                                    optional: false,
-                                    receiver: Box::new(lhs_expr),
-                                    method: symbol("call"),
-                                    method_range,
-                                    args,
-                                }
-                                .into(),
-                            );
-                        }
-                    }
-                    last_token = token_after_args;
-                }
-                TokenKind::Dot | TokenKind::AmpDot | TokenKind::ColonColon => {
-                    let private = if let ExprLike::Expr(Expr::Self_(expr)) = &lhs {
-                        expr.parens.is_empty()
-                    } else {
-                        false
-                    };
-                    let optional = matches!(token.kind, TokenKind::AmpDot);
-                    let const_like = matches!(token.kind, TokenKind::ColonColon);
-                    let token_after_dot = self.lexer.lex(diag, LexerState::MethForCall);
-                    match token_after_dot.kind {
-                        TokenKind::LParen => {
-                            let method_range = token_after_dot.range;
-                            // expr.(args)
-                            let (args, token_after_args) =
-                                self.parse_paren_args(diag, token_after_dot, lv);
-                            let lhs_expr = lhs.into_expr(diag);
-                            lhs = ExprLike::BlocklessCall {
-                                range: *lhs_expr.outer_range() | *args.outer_range(),
-                                style: CallStyle::Dot,
-                                private,
-                                optional,
-                                receiver: Box::new(lhs_expr),
-                                method: symbol("call"),
-                                method_range,
-                                args,
-                            };
-                            last_token = token_after_args;
-                        }
-                        TokenKind::Const if const_like => {
-                            // expr::Const
-                            let s = self.select(token_after_dot.range);
-                            let lhs_expr = lhs.into_expr(diag);
-                            lhs = ExprLike::Const {
-                                range: *lhs_expr.outer_range() | token_after_dot.range,
-                                private,
-                                receiver: ConstReceiver::Expr(Box::new(lhs_expr)),
-                                name: s.to_estring().asciified(),
-                            };
-                            last_token = self.lexer.lex(diag, LexerState::FirstArgument);
-                        }
-                        TokenKind::Identifier | TokenKind::Const | TokenKind::MethodName => {
-                            // expr.meth
-                            let s = self.select(token_after_dot.range);
-                            let lhs_expr = lhs.into_expr(diag);
-                            lhs = ExprLike::ArglessCall {
-                                range: *lhs_expr.outer_range() | token_after_dot.range,
-                                style: CallStyle::Dot,
-                                private,
-                                optional,
-                                receiver: Box::new(lhs_expr),
-                                method: s.to_estring().asciified(),
-                                method_range: token_after_dot.range,
-                            };
-                            last_token = self.lexer.lex(diag, LexerState::FirstArgument);
-                        }
-                        _ => {
-                            diag.push(Diagnostic {
-                                range: token_after_dot.range,
-                                message: format!("unexpected token"),
-                            });
-                            let lhs_expr = lhs.into_expr(diag);
-                            lhs = ExprLike::ArglessCall {
-                                range: *lhs_expr.outer_range() | token_after_dot.range,
-                                style: CallStyle::Dot,
-                                private,
-                                optional,
-                                receiver: Box::new(lhs_expr),
-                                method: symbol(""),
-                                method_range: token_after_dot.range,
-                            };
-                            last_token = token_after_dot;
-                        }
-                    }
-                }
-                TokenKind::At => {
-                    let ty_first_token = self.lexer.lex(diag, LexerState::Begin);
-                    let (ty, token_after_ty) = self.parse_type(diag, ty_first_token);
-                    if let ExprLike::Identifier { has_local, .. } = &mut lhs {
-                        *has_local = true;
-                    }
-                    let lhs_expr = lhs.into_expr(diag);
-                    lhs = ExprLike::Expr(match lhs_expr {
-                        Expr::LocalVariable(mut e) => {
-                            let ty_range = *ty.range();
-                            e.type_annotation = Some(TypeAnnotation {
-                                range: token.range | ty_range,
-                                type_: ty,
-                            });
-                            e.range = e.range | ty_range;
-                            e.into()
-                        }
-                        _ => {
-                            diag.push(Diagnostic {
-                                range: token.range | *ty.range(),
-                                message: format!("non-annotatable expression"),
-                            });
-                            lhs_expr
-                        }
-                    });
-                    last_token = token_after_ty;
-                }
-                _ => {
-                    last_token = token;
-                    break;
-                }
-            }
-        }
-
-        (lhs, last_token)
-    }
-
     fn parse_expr_lv_primary(
         &mut self,
         diag: &mut Vec<Diagnostic>,
@@ -1770,10 +1529,19 @@ impl<'a, 'b> StackParser<'a, 'b> {
         lv: &mut LVCtx,
     ) -> (ExprLike, Token) {
         let mut last_token = first_token;
+        let mut last_expr: Option<ExprLike> = None;
         loop {
-            match self.parse_step(diag, last_token, lv) {
+            let result = if let Some(last_expr) = last_expr {
+                self.continue_parse(diag, last_expr, last_token, lv)
+            } else {
+                self.parse_step(diag, last_token, lv)
+            };
+            match result {
                 Ok(v) => return v,
-                Err(SuspendParse { next_token }) => last_token = next_token,
+                Err(SuspendParse { next_token, expr }) => {
+                    last_token = next_token;
+                    last_expr = expr;
+                }
             }
         }
     }
@@ -1797,11 +1565,17 @@ impl<'a, 'b> StackParser<'a, 'b> {
                     op_prec,
                 });
                 let next_token = self.parser.lexer.lex(diag, LexerState::Begin);
-                Err(SuspendParse { next_token })
+                Err(SuspendParse {
+                    next_token,
+                    expr: None,
+                })
             }
             _ => {
-                let (expr, next_token) = self.parser.parse_expr_lv_call_like(diag, first_token, lv);
-                self.continue_parse(diag, expr, next_token, lv)
+                let (expr, next_token) = self.parser.parse_expr_lv_primary(diag, first_token, lv);
+                Err(SuspendParse {
+                    next_token,
+                    expr: Some(expr),
+                })
             }
         }
     }
@@ -1869,7 +1643,249 @@ impl<'a, 'b> StackParser<'a, 'b> {
                     op_prec,
                 });
                 let next_token = self.parser.lexer.lex(diag, next_state);
-                Err(SuspendParse { next_token })
+                Err(SuspendParse {
+                    next_token,
+                    expr: None,
+                })
+            }
+            TokenKind::LParen => {
+                let method_range = first_token.range;
+                let (args, token_after_args) = self.parser.parse_paren_args(diag, first_token, lv);
+                let expr = match last_expr.callify() {
+                    ExprLike::ArglessCall {
+                        range,
+                        style,
+                        private,
+                        optional,
+                        receiver,
+                        method,
+                        method_range,
+                    } => ExprLike::BlocklessCall {
+                        range: range | *args.outer_range(),
+                        style,
+                        private,
+                        optional,
+                        receiver,
+                        method,
+                        method_range,
+                        args,
+                    },
+                    ExprLike::NotOp { range } => {
+                        if args.args.len() == 0 {
+                            // `not()` is `nil.!()` (but why!?!?)
+                            ExprLike::Expr(
+                                CallExpr {
+                                    range: range | *args.outer_range(),
+                                    parens: Vec::new(),
+
+                                    style: CallStyle::SpelloutUnOp,
+                                    private: false,
+                                    optional: false,
+                                    receiver: Box::new(
+                                        NilExpr {
+                                            range: DUMMY_RANGE,
+                                            parens: vec![ParenParen {
+                                                range,
+                                                // TODO: put a correct range
+                                                open_range: DUMMY_RANGE,
+                                                separator_prefix: vec![],
+                                                separator_suffix: vec![],
+                                                // TODO: put a correct range
+                                                close_range: DUMMY_RANGE,
+                                            }
+                                            .into()],
+                                            style: NilStyle::Implicit,
+                                        }
+                                        .into(),
+                                    ),
+                                    method: symbol("!"),
+                                    method_range,
+                                    args: ArgList {
+                                        range: DUMMY_RANGE,
+                                        paren: None,
+                                        args: vec![],
+                                    },
+                                }
+                                .into(),
+                            )
+                        } else {
+                            // TODO: also check against `not(expr,)` etc.
+                            if args.args.len() > 1 {
+                                diag.push(Diagnostic {
+                                    range: args.range,
+                                    message: format!("too many arguments"),
+                                });
+                            }
+                            let args_range = *args.outer_range();
+                            let Arg::Expr(arg) = { args.args }.swap_remove(0);
+                            let arg = *arg.expr;
+                            ExprLike::Expr(
+                                CallExpr {
+                                    range: range | args_range,
+                                    parens: Vec::new(),
+
+                                    style: CallStyle::SpelloutUnOp,
+                                    private: false,
+                                    optional: false,
+                                    receiver: Box::new(arg),
+                                    method: symbol("!"),
+                                    method_range,
+                                    args: ArgList {
+                                        range: DUMMY_RANGE,
+                                        paren: None,
+                                        args: vec![],
+                                    },
+                                }
+                                .into(),
+                            )
+                        }
+                    }
+                    last_expr => {
+                        diag.push(Diagnostic {
+                            range: method_range,
+                            message: format!("Need a dot to call an expression"),
+                        });
+                        let last_expr = last_expr.into_expr(diag);
+                        ExprLike::Expr(
+                            CallExpr {
+                                range: *last_expr.outer_range() | *args.outer_range(),
+                                parens: Vec::new(),
+
+                                style: CallStyle::CallOp,
+                                private: false,
+                                optional: false,
+                                receiver: Box::new(last_expr),
+                                method: symbol("call"),
+                                method_range,
+                                args,
+                            }
+                            .into(),
+                        )
+                    }
+                };
+                Err(SuspendParse {
+                    next_token: token_after_args,
+                    expr: Some(expr),
+                })
+            }
+            TokenKind::Dot | TokenKind::AmpDot | TokenKind::ColonColon => {
+                let private = if let ExprLike::Expr(Expr::Self_(expr)) = &last_expr {
+                    expr.parens.is_empty()
+                } else {
+                    false
+                };
+                let optional = matches!(first_token.kind, TokenKind::AmpDot);
+                let const_like = matches!(first_token.kind, TokenKind::ColonColon);
+                let token_after_dot = self.parser.lexer.lex(diag, LexerState::MethForCall);
+                let (expr, last_token) = match token_after_dot.kind {
+                    TokenKind::LParen => {
+                        let method_range = token_after_dot.range;
+                        // expr.(args)
+                        let (args, token_after_args) =
+                            self.parser.parse_paren_args(diag, token_after_dot, lv);
+                        let last_expr = last_expr.into_expr(diag);
+                        (
+                            ExprLike::BlocklessCall {
+                                range: *last_expr.outer_range() | *args.outer_range(),
+                                style: CallStyle::Dot,
+                                private,
+                                optional,
+                                receiver: Box::new(last_expr),
+                                method: symbol("call"),
+                                method_range,
+                                args,
+                            },
+                            token_after_args,
+                        )
+                    }
+                    TokenKind::Const if const_like => {
+                        // expr::Const
+                        let s = self.parser.select(token_after_dot.range);
+                        let last_expr = last_expr.into_expr(diag);
+                        let last_token = self.parser.lexer.lex(diag, LexerState::FirstArgument);
+                        (
+                            ExprLike::Const {
+                                range: *last_expr.outer_range() | token_after_dot.range,
+                                private,
+                                receiver: ConstReceiver::Expr(Box::new(last_expr)),
+                                name: s.to_estring().asciified(),
+                            },
+                            last_token,
+                        )
+                    }
+                    TokenKind::Identifier | TokenKind::Const | TokenKind::MethodName => {
+                        // expr.meth
+                        let s = self.parser.select(token_after_dot.range);
+                        let last_expr = last_expr.into_expr(diag);
+                        let last_token = self.parser.lexer.lex(diag, LexerState::FirstArgument);
+                        (
+                            ExprLike::ArglessCall {
+                                range: *last_expr.outer_range() | token_after_dot.range,
+                                style: CallStyle::Dot,
+                                private,
+                                optional,
+                                receiver: Box::new(last_expr),
+                                method: s.to_estring().asciified(),
+                                method_range: token_after_dot.range,
+                            },
+                            last_token,
+                        )
+                    }
+                    _ => {
+                        diag.push(Diagnostic {
+                            range: token_after_dot.range,
+                            message: format!("unexpected token"),
+                        });
+                        let last_expr = last_expr.into_expr(diag);
+                        (
+                            ExprLike::ArglessCall {
+                                range: *last_expr.outer_range() | token_after_dot.range,
+                                style: CallStyle::Dot,
+                                private,
+                                optional,
+                                receiver: Box::new(last_expr),
+                                method: symbol(""),
+                                method_range: token_after_dot.range,
+                            },
+                            token_after_dot,
+                        )
+                    }
+                };
+                Err(SuspendParse {
+                    next_token: last_token,
+                    expr: Some(expr),
+                })
+            }
+            TokenKind::At => {
+                let ty_first_token = self.parser.lexer.lex(diag, LexerState::Begin);
+                let (ty, token_after_ty) = self.parser.parse_type(diag, ty_first_token);
+                let mut last_expr = last_expr;
+                if let ExprLike::Identifier { has_local, .. } = &mut last_expr {
+                    *has_local = true;
+                }
+                let lhs_expr = last_expr.into_expr(diag);
+                let expr = ExprLike::Expr(match lhs_expr {
+                    Expr::LocalVariable(mut e) => {
+                        let ty_range = *ty.range();
+                        e.type_annotation = Some(TypeAnnotation {
+                            range: first_token.range | ty_range,
+                            type_: ty,
+                        });
+                        e.range = e.range | ty_range;
+                        e.into()
+                    }
+                    _ => {
+                        diag.push(Diagnostic {
+                            range: first_token.range | *ty.range(),
+                            message: format!("non-annotatable expression"),
+                        });
+                        lhs_expr
+                    }
+                });
+                Err(SuspendParse {
+                    next_token: token_after_ty,
+                    expr: Some(expr),
+                })
             }
             _ => {
                 let top = self.reduce(diag, last_expr, PREC_LOWEST);
@@ -2047,6 +2063,7 @@ impl StackElem {
 #[derive(Debug)]
 struct SuspendParse {
     next_token: Token,
+    expr: Option<ExprLike>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
