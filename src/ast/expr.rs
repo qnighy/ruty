@@ -1,8 +1,8 @@
-use num_bigint::{BigInt, BigUint};
+use num_bigint::BigInt;
 use ordered_float::NotNan;
 
 use crate::{
-    ast::{ArgList, CodeRange, Paren, Stmt, TypeAnnotation, WriteTarget},
+    ast::{ArgList, CodeRange, Decimal, Paren, Stmt, TypeAnnotation, WriteTarget},
     EString,
 };
 
@@ -154,7 +154,7 @@ pub enum NumericValue {
     /// - The first value is the numerator.
     /// - The second value is the denominator, which is always positive.
     /// - The value is always reduced to the simplest form.
-    Rational(BigInt, BigUint),
+    Rational(Decimal),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

@@ -2,6 +2,7 @@
 mod macros;
 
 mod args;
+mod decimal;
 mod expr;
 mod paren;
 mod pos;
@@ -10,6 +11,7 @@ mod types;
 mod write_target;
 
 pub use args::*;
+pub use decimal::*;
 pub use expr::*;
 pub use paren::*;
 pub use pos::*;

@@ -215,7 +215,7 @@ fn compile_expr(
                             live_in: BTreeSet::new(),
                         })
                     }
-                    NumericValue::Rational(_, _) => {
+                    NumericValue::Rational(_) => {
                         diag.push(Diagnostic {
                             range: expr.range,
                             message: "Iseq: Rational literal is not implemented yet".to_owned(),

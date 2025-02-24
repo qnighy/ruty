@@ -4,11 +4,11 @@ use std::{
     sync::LazyLock,
 };
 
-use num_bigint::{BigInt, BigUint};
+use num_bigint::BigInt;
 use ordered_float::NotNan;
 
 use crate::{
-    ast::{CodeRange, NumericValue},
+    ast::{CodeRange, Decimal, NumericValue},
     encoding::{EStrRef, EncodingState},
     Diagnostic,
 };
@@ -3098,12 +3098,12 @@ pub(crate) fn interpret_numeric(mut s: &[u8]) -> (NumericValue, bool) {
         }
     } else if rational && base == 10 {
         // Decimal Rational
-        let mut numerator = BigInt::ZERO;
-        let mut denominator = BigUint::from(1_u32);
+        let mut fraction = BigInt::ZERO;
+        let mut exponent = 0_i32;
         loop {
             match s.get(0).copied().unwrap_or(b'\0') {
                 b'0'..=b'9' => {
-                    numerator = numerator * 10 + (s[0] - b'0') as i32;
+                    fraction = fraction * 10 + (s[0] - b'0') as i32;
                     s = &s[1..];
                 }
                 b'_' => {
@@ -3117,8 +3117,8 @@ pub(crate) fn interpret_numeric(mut s: &[u8]) -> (NumericValue, bool) {
             loop {
                 match s.get(0).copied().unwrap_or(b'\0') {
                     b'0'..=b'9' => {
-                        numerator = numerator * 10 + (s[0] - b'0') as i32;
-                        denominator *= 10_u32;
+                        fraction = fraction * 10 + (s[0] - b'0') as i32;
+                        exponent -= 1;
                         s = &s[1..];
                     }
                     b'_' => {
@@ -3128,7 +3128,8 @@ pub(crate) fn interpret_numeric(mut s: &[u8]) -> (NumericValue, bool) {
                 }
             }
         }
-        NumericValue::Rational(numerator, denominator)
+        let value = Decimal::from_fraction_and_exponent(fraction, exponent);
+        NumericValue::Rational(value)
     } else {
         // Integer
         let mut value = BigInt::ZERO;
@@ -3153,7 +3154,7 @@ pub(crate) fn interpret_numeric(mut s: &[u8]) -> (NumericValue, bool) {
             }
         }
         if rational {
-            NumericValue::Rational(value, BigUint::from(1_u32))
+            NumericValue::Rational(Decimal::from(value))
         } else {
             NumericValue::Integer(value)
         }
@@ -3162,7 +3163,7 @@ pub(crate) fn interpret_numeric(mut s: &[u8]) -> (NumericValue, bool) {
         match value {
             NumericValue::Integer(v) => NumericValue::Integer(-v),
             NumericValue::Float(v) => NumericValue::Float(-v),
-            NumericValue::Rational(n, d) => NumericValue::Rational(-n, d),
+            NumericValue::Rational(v) => NumericValue::Rational(-v),
         }
     } else {
         value
@@ -3172,6 +3173,8 @@ pub(crate) fn interpret_numeric(mut s: &[u8]) -> (NumericValue, bool) {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use crate::{ast::pos_in, Encoding};
 
     use super::*;
@@ -7248,7 +7251,7 @@ mod tests {
         assert_eq!(
             interpret_numeric(b"123.75r"),
             (
-                NumericValue::Rational(BigInt::from(12375), BigUint::from(100_u32)),
+                NumericValue::Rational(Decimal::from_str("123.75").unwrap()),
                 false
             )
         );
@@ -7259,7 +7262,7 @@ mod tests {
         assert_eq!(
             interpret_numeric(b"-123.75r"),
             (
-                NumericValue::Rational(BigInt::from(-12375), BigUint::from(100_u32)),
+                NumericValue::Rational(Decimal::from_str("-123.75").unwrap()),
                 false
             )
         );

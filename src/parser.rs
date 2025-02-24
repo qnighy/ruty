@@ -2911,8 +2911,8 @@ mod tests {
                     NumericValue::Float(value) => {
                         write!(f, "{:?}", f64::from(value))?;
                     }
-                    NumericValue::Rational(ref num, ref den) => {
-                        write!(f, "({}r/{})", num, den)?;
+                    NumericValue::Rational(ref value) => {
+                        write!(f, "{}r", value)?;
                     }
                 }
                 if expr.imaginary {
