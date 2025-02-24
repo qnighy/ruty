@@ -218,6 +218,7 @@ mod tests {
 
     use super::*;
 
+    use num_bigint::BigInt;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
 
@@ -249,7 +250,12 @@ mod tests {
                 num_locals: 2,
                 instructions: vec![
                     i(InstrKind::Entry, &[]),
-                    i(InstrKind::LoadConstInteger { value: 42 }, &[]),
+                    i(
+                        InstrKind::LoadConstInteger {
+                            value: BigInt::from(42)
+                        },
+                        &[]
+                    ),
                     i(
                         InstrKind::WriteLocal {
                             local_id: 1,
@@ -272,7 +278,12 @@ mod tests {
                 num_locals: 3,
                 instructions: vec![
                     i(InstrKind::Entry, &[]),
-                    i(InstrKind::LoadConstInteger { value: 42 }, &[]),
+                    i(
+                        InstrKind::LoadConstInteger {
+                            value: BigInt::from(42)
+                        },
+                        &[]
+                    ),
                     i(
                         InstrKind::WriteLocal {
                             local_id: 1,
@@ -299,7 +310,12 @@ mod tests {
                 num_locals: 3,
                 instructions: vec![
                     i(InstrKind::Entry, &[]),
-                    i(InstrKind::LoadConstInteger { value: 42 }, &[]),
+                    i(
+                        InstrKind::LoadConstInteger {
+                            value: BigInt::from(42)
+                        },
+                        &[]
+                    ),
                     i(
                         InstrKind::WriteLocal {
                             local_id: 1,
@@ -315,7 +331,12 @@ mod tests {
                         },
                         &[]
                     ),
-                    i(InstrKind::LoadConstInteger { value: 42 }, &[]),
+                    i(
+                        InstrKind::LoadConstInteger {
+                            value: BigInt::from(42)
+                        },
+                        &[]
+                    ),
                     i(InstrKind::Return { value_id: 5 }, &[Var::Expr(5)]),
                 ],
             }
@@ -330,7 +351,12 @@ mod tests {
                 num_locals: 1,
                 instructions: vec![
                     i(InstrKind::Entry, &[]),
-                    i(InstrKind::LoadConstInteger { value: 1 }, &[]),
+                    i(
+                        InstrKind::LoadConstInteger {
+                            value: BigInt::from(1)
+                        },
+                        &[]
+                    ),
                     i(
                         InstrKind::Branch {
                             branch_type: BranchType::Truthy,
@@ -341,10 +367,20 @@ mod tests {
                         &[Var::Expr(1)]
                     ),
                     i(InstrKind::Label { from: vec![2] }, &[]),
-                    i(InstrKind::LoadConstInteger { value: 2 }, &[]),
+                    i(
+                        InstrKind::LoadConstInteger {
+                            value: BigInt::from(2)
+                        },
+                        &[]
+                    ),
                     i(InstrKind::JumpValue { to: 9, value_id: 4 }, &[Var::Expr(4)]),
                     i(InstrKind::Label { from: vec![2] }, &[]),
-                    i(InstrKind::LoadConstInteger { value: 3 }, &[]),
+                    i(
+                        InstrKind::LoadConstInteger {
+                            value: BigInt::from(3)
+                        },
+                        &[]
+                    ),
                     i(InstrKind::JumpValue { to: 9, value_id: 7 }, &[Var::Expr(7)]),
                     i(InstrKind::Label { from: vec![5, 8] }, &[Var::Expr(9)]),
                     i(InstrKind::Return { value_id: 9 }, &[Var::Expr(9)]),

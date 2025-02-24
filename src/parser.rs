@@ -2805,6 +2805,7 @@ where
 mod tests {
     use std::fmt;
 
+    use num_bigint::BigInt;
     #[allow(unused)]
     use pretty_assertions::{assert_eq, assert_ne};
 
@@ -2904,13 +2905,13 @@ mod tests {
             }
             Expr::Numeric(expr) => {
                 match expr.value {
-                    NumericValue::Integer(value) => {
+                    NumericValue::Integer(ref value) => {
                         write!(f, "{}", value)?;
                     }
                     NumericValue::Float(value) => {
                         write!(f, "{:?}", f64::from(value))?;
                     }
-                    NumericValue::Rational(num, den) => {
+                    NumericValue::Rational(ref num, ref den) => {
                         write!(f, "({}r/{})", num, den)?;
                     }
                 }
@@ -3474,7 +3475,7 @@ mod tests {
                 NumericExpr {
                     range: pos_in(src, b"42", 0),
                     parens: vec![],
-                    value: NumericValue::Integer(42),
+                    value: NumericValue::Integer(BigInt::from(42)),
                     imaginary: false,
                 }
                 .into(),
@@ -3786,7 +3787,7 @@ mod tests {
                                     NumericExpr {
                                         range: pos_in(src, b"1", 0),
                                         parens: vec![],
-                                        value: NumericValue::Integer(1),
+                                        value: NumericValue::Integer(BigInt::from(1)),
                                         imaginary: false,
                                     }
                                     .into()
@@ -3800,7 +3801,7 @@ mod tests {
                                     NumericExpr {
                                         range: pos_in(src, b"2", 0),
                                         parens: vec![],
-                                        value: NumericValue::Integer(2),
+                                        value: NumericValue::Integer(BigInt::from(2)),
                                         imaginary: false,
                                     }
                                     .into(),
@@ -3958,7 +3959,7 @@ mod tests {
                                     NumericExpr {
                                         range: pos_in(src, b"1", 0),
                                         parens: vec![],
-                                        value: NumericValue::Integer(1),
+                                        value: NumericValue::Integer(BigInt::from(1)),
                                         imaginary: false,
                                     }
                                     .into()
@@ -3972,7 +3973,7 @@ mod tests {
                                     NumericExpr {
                                         range: pos_in(src, b"2", 0),
                                         parens: vec![],
-                                        value: NumericValue::Integer(2),
+                                        value: NumericValue::Integer(BigInt::from(2)),
                                         imaginary: false,
                                     }
                                     .into(),
@@ -4040,7 +4041,7 @@ mod tests {
                         NumericExpr {
                             range: pos_in(src, b"42", 0),
                             parens: vec![],
-                            value: NumericValue::Integer(42),
+                            value: NumericValue::Integer(BigInt::from(42)),
                             imaginary: false,
                         }
                         .into()
@@ -4075,7 +4076,7 @@ mod tests {
                         NumericExpr {
                             range: pos_in(src, b"42", 0),
                             parens: vec![],
-                            value: NumericValue::Integer(42),
+                            value: NumericValue::Integer(BigInt::from(42)),
                             imaginary: false,
                         }
                         .into()
@@ -4901,7 +4902,7 @@ mod tests {
                                                 NumericExpr {
                                                     range: pos_in(src, b"0", 0),
                                                     parens: vec![],
-                                                    value: NumericValue::Integer(0),
+                                                    value: NumericValue::Integer(BigInt::from(0)),
                                                     imaginary: false,
                                                 }
                                                 .into()

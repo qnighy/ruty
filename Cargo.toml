@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.95"
 bit-vec = "0.8.0"
+num-bigint = "0.4.6"
 ordered-float = "4.6.0"
 
 [dev-dependencies]

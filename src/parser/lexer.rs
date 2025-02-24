@@ -4,6 +4,7 @@ use std::{
     sync::LazyLock,
 };
 
+use num_bigint::{BigInt, BigUint};
 use ordered_float::NotNan;
 
 use crate::{
@@ -3097,8 +3098,8 @@ pub(crate) fn interpret_numeric(mut s: &[u8]) -> (NumericValue, bool) {
         }
     } else if rational && base == 10 {
         // Decimal Rational
-        let mut numerator = 0;
-        let mut denominator = 1;
+        let mut numerator = BigInt::ZERO;
+        let mut denominator = BigUint::from(1_u32);
         loop {
             match s.get(0).copied().unwrap_or(b'\0') {
                 b'0'..=b'9' => {
@@ -3117,7 +3118,7 @@ pub(crate) fn interpret_numeric(mut s: &[u8]) -> (NumericValue, bool) {
                 match s.get(0).copied().unwrap_or(b'\0') {
                     b'0'..=b'9' => {
                         numerator = numerator * 10 + (s[0] - b'0') as i32;
-                        denominator *= 10;
+                        denominator *= 10_u32;
                         s = &s[1..];
                     }
                     b'_' => {
@@ -3130,7 +3131,7 @@ pub(crate) fn interpret_numeric(mut s: &[u8]) -> (NumericValue, bool) {
         NumericValue::Rational(numerator, denominator)
     } else {
         // Integer
-        let mut value = 0;
+        let mut value = BigInt::ZERO;
         loop {
             match s.get(0).copied().unwrap_or(b'\0') {
                 b'0'..=b'9' => {
@@ -3152,7 +3153,7 @@ pub(crate) fn interpret_numeric(mut s: &[u8]) -> (NumericValue, bool) {
             }
         }
         if rational {
-            NumericValue::Rational(value, 1)
+            NumericValue::Rational(value, BigUint::from(1_u32))
         } else {
             NumericValue::Integer(value)
         }
@@ -7190,7 +7191,7 @@ mod tests {
     fn test_interpret_numeric_integer_simple() {
         assert_eq!(
             interpret_numeric(b"123"),
-            (NumericValue::Integer(123), false)
+            (NumericValue::Integer(BigInt::from(123)), false)
         );
     }
 
@@ -7198,7 +7199,7 @@ mod tests {
     fn test_interpret_numeric_integer_positive() {
         assert_eq!(
             interpret_numeric(b"+123"),
-            (NumericValue::Integer(123), false)
+            (NumericValue::Integer(BigInt::from(123)), false)
         );
     }
 
@@ -7206,7 +7207,7 @@ mod tests {
     fn test_interpret_numeric_integer_negative() {
         assert_eq!(
             interpret_numeric(b"-123"),
-            (NumericValue::Integer(-123), false)
+            (NumericValue::Integer(BigInt::from(-123)), false)
         );
     }
 
@@ -7214,7 +7215,7 @@ mod tests {
     fn test_interpret_numeric_integer_underscore() {
         assert_eq!(
             interpret_numeric(b"1_2_3"),
-            (NumericValue::Integer(123), false)
+            (NumericValue::Integer(BigInt::from(123)), false)
         );
     }
 
@@ -7246,7 +7247,10 @@ mod tests {
     fn test_interpret_numeric_rational_with_point() {
         assert_eq!(
             interpret_numeric(b"123.75r"),
-            (NumericValue::Rational(12375, 100), false)
+            (
+                NumericValue::Rational(BigInt::from(12375), BigUint::from(100_u32)),
+                false
+            )
         );
     }
 
@@ -7254,7 +7258,10 @@ mod tests {
     fn test_interpret_numeric_rational_negative() {
         assert_eq!(
             interpret_numeric(b"-123.75r"),
-            (NumericValue::Rational(-12375, 100), false)
+            (
+                NumericValue::Rational(BigInt::from(-12375), BigUint::from(100_u32)),
+                false
+            )
         );
     }
 }

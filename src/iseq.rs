@@ -4,6 +4,8 @@
 
 use std::collections::{BTreeSet, HashMap};
 
+use num_bigint::BigInt;
+
 use crate::{
     ast::{Arg, CodeRange, ConstReceiver, Expr, NumericValue, Program, WriteTarget, DUMMY_RANGE},
     Diagnostic, EString,
@@ -63,7 +65,7 @@ pub(crate) enum InstrKind {
     LoadConstTrue,
     LoadConstFalse,
     LoadConstInteger {
-        value: i32,
+        value: BigInt,
     },
     LoadConstString {
         value: EString,
@@ -195,8 +197,10 @@ fn compile_expr(
                 })
             } else {
                 match expr.value {
-                    NumericValue::Integer(value) => iseq.push(Instr {
-                        kind: InstrKind::LoadConstInteger { value },
+                    NumericValue::Integer(ref value) => iseq.push(Instr {
+                        kind: InstrKind::LoadConstInteger {
+                            value: value.clone(),
+                        },
                         range: expr.range,
                         live_in: BTreeSet::new(),
                     }),
@@ -684,7 +688,9 @@ mod tests {
                 num_locals: 1,
                 instructions: vec![
                     i(InstrKind::Entry),
-                    i(InstrKind::LoadConstInteger { value: 42 }),
+                    i(InstrKind::LoadConstInteger {
+                        value: BigInt::from(42)
+                    }),
                     i(InstrKind::Return { value_id: 1 }),
                 ],
             }
@@ -699,7 +705,9 @@ mod tests {
                 num_locals: 2,
                 instructions: vec![
                     i(InstrKind::Entry),
-                    i(InstrKind::LoadConstInteger { value: 42 }),
+                    i(InstrKind::LoadConstInteger {
+                        value: BigInt::from(42)
+                    }),
                     i(InstrKind::WriteLocal {
                         local_id: 1,
                         value_id: 1,
@@ -837,7 +845,9 @@ mod tests {
                 instructions: vec![
                     i(InstrKind::Entry),
                     i(InstrKind::ReadLocal { local_id: 0 }),
-                    i(InstrKind::LoadConstInteger { value: 1 }),
+                    i(InstrKind::LoadConstInteger {
+                        value: BigInt::from(1)
+                    }),
                     i(InstrKind::Call {
                         receiver_id: 1,
                         method_name: symbol("puts"),
@@ -867,7 +877,9 @@ mod tests {
                     }),
                     // Then...
                     i(InstrKind::Label { from: vec![2] }),
-                    i(InstrKind::LoadConstInteger { value: 1 }),
+                    i(InstrKind::LoadConstInteger {
+                        value: BigInt::from(1)
+                    }),
                     i(InstrKind::Call {
                         receiver_id: 1,
                         method_name: symbol("puts"),
@@ -901,7 +913,9 @@ mod tests {
                 num_locals: 1,
                 instructions: vec![
                     i(InstrKind::Entry),
-                    i(InstrKind::LoadConstInteger { value: 1 }),
+                    i(InstrKind::LoadConstInteger {
+                        value: BigInt::from(1)
+                    }),
                     i(InstrKind::Call {
                         receiver_id: 1,
                         method_name: symbol("to_s"),
@@ -922,7 +936,9 @@ mod tests {
                 num_locals: 1,
                 instructions: vec![
                     i(InstrKind::Entry),
-                    i(InstrKind::LoadConstInteger { value: 1 }),
+                    i(InstrKind::LoadConstInteger {
+                        value: BigInt::from(1)
+                    }),
                     i(InstrKind::Branch {
                         branch_type: BranchType::NotNil,
                         cond_id: 1,
@@ -958,7 +974,9 @@ mod tests {
                 num_locals: 1,
                 instructions: vec![
                     i(InstrKind::Entry),
-                    i(InstrKind::LoadConstInteger { value: 1 }),
+                    i(InstrKind::LoadConstInteger {
+                        value: BigInt::from(1)
+                    }),
                     i(InstrKind::Branch {
                         branch_type: BranchType::Truthy,
                         cond_id: 1,
@@ -967,7 +985,9 @@ mod tests {
                     }),
                     // Then...
                     i(InstrKind::Label { from: vec![2] }),
-                    i(InstrKind::LoadConstInteger { value: 2 }),
+                    i(InstrKind::LoadConstInteger {
+                        value: BigInt::from(2),
+                    }),
                     i(InstrKind::JumpValue { to: 8, value_id: 4 }),
                     // Else...
                     i(InstrKind::Label { from: vec![2] }),
@@ -988,7 +1008,9 @@ mod tests {
                 num_locals: 1,
                 instructions: vec![
                     i(InstrKind::Entry),
-                    i(InstrKind::LoadConstInteger { value: 1 }),
+                    i(InstrKind::LoadConstInteger {
+                        value: BigInt::from(1)
+                    }),
                     i(InstrKind::Branch {
                         branch_type: BranchType::Truthy,
                         cond_id: 1,
@@ -1000,7 +1022,9 @@ mod tests {
                     i(InstrKind::JumpValue { to: 8, value_id: 1 }),
                     // Else...
                     i(InstrKind::Label { from: vec![2] }),
-                    i(InstrKind::LoadConstInteger { value: 2 }),
+                    i(InstrKind::LoadConstInteger {
+                        value: BigInt::from(2)
+                    }),
                     i(InstrKind::JumpValue { to: 8, value_id: 6 }),
                     // After the branch:
                     i(InstrKind::Label { from: vec![4, 7] }),
@@ -1018,7 +1042,9 @@ mod tests {
                 num_locals: 1,
                 instructions: vec![
                     i(InstrKind::Entry),
-                    i(InstrKind::LoadConstInteger { value: 1 }),
+                    i(InstrKind::LoadConstInteger {
+                        value: BigInt::from(1)
+                    }),
                     i(InstrKind::Branch {
                         branch_type: BranchType::Truthy,
                         cond_id: 1,
@@ -1027,11 +1053,15 @@ mod tests {
                     }),
                     // Then...
                     i(InstrKind::Label { from: vec![2] }),
-                    i(InstrKind::LoadConstInteger { value: 2 }),
+                    i(InstrKind::LoadConstInteger {
+                        value: BigInt::from(2),
+                    }),
                     i(InstrKind::JumpValue { to: 9, value_id: 4 }),
                     // Else...
                     i(InstrKind::Label { from: vec![2] }),
-                    i(InstrKind::LoadConstInteger { value: 3 }),
+                    i(InstrKind::LoadConstInteger {
+                        value: BigInt::from(3),
+                    }),
                     i(InstrKind::JumpValue { to: 9, value_id: 7 }),
                     // After the branch:
                     i(InstrKind::Label { from: vec![5, 8] }),
@@ -1052,7 +1082,9 @@ mod tests {
                     i(InstrKind::Jump { to: 2 }),
                     // Condition part
                     i(InstrKind::Label { from: vec![1, 7] }),
-                    i(InstrKind::LoadConstInteger { value: 1 }),
+                    i(InstrKind::LoadConstInteger {
+                        value: BigInt::from(1)
+                    }),
                     i(InstrKind::Branch {
                         branch_type: BranchType::Truthy,
                         cond_id: 3,
@@ -1061,7 +1093,9 @@ mod tests {
                     }),
                     // Loop body
                     i(InstrKind::Label { from: vec![4] }),
-                    i(InstrKind::LoadConstInteger { value: 2 }),
+                    i(InstrKind::LoadConstInteger {
+                        value: BigInt::from(2)
+                    }),
                     i(InstrKind::JumpValue { to: 2, value_id: 6 }),
                     // After the branch
                     i(InstrKind::Label { from: vec![4] }),
@@ -1082,7 +1116,9 @@ mod tests {
                     i(InstrKind::Jump { to: 2 }),
                     // Condition part
                     i(InstrKind::Label { from: vec![1, 7] }),
-                    i(InstrKind::LoadConstInteger { value: 1 }),
+                    i(InstrKind::LoadConstInteger {
+                        value: BigInt::from(1)
+                    }),
                     i(InstrKind::Branch {
                         branch_type: BranchType::Truthy,
                         cond_id: 3,
@@ -1091,7 +1127,9 @@ mod tests {
                     }),
                     // Loop body
                     i(InstrKind::Label { from: vec![4] }),
-                    i(InstrKind::LoadConstInteger { value: 2 }),
+                    i(InstrKind::LoadConstInteger {
+                        value: BigInt::from(2)
+                    }),
                     i(InstrKind::JumpValue { to: 2, value_id: 6 }),
                     // After the branch
                     i(InstrKind::Label { from: vec![4] }),

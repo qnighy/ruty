@@ -1,3 +1,4 @@
+use num_bigint::{BigInt, BigUint};
 use ordered_float::NotNan;
 
 use crate::{
@@ -145,16 +146,15 @@ pub struct NumericExpr {
 pub enum NumericValue {
     // TODO: use BigInt
     /// The value should be an Integer number unless `imaginary` is set.
-    Integer(i32),
+    Integer(BigInt),
     /// The value should be a Float number unless `imaginary` is set.
     Float(NotNan<f64>),
-    // TODO: use BigInt
     /// The value should be a Rational number unless `imaginary` is set.
     ///
     /// - The first value is the numerator.
     /// - The second value is the denominator, which is always positive.
     /// - The value is always reduced to the simplest form.
-    Rational(i32, i32),
+    Rational(BigInt, BigUint),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
