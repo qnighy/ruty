@@ -161,23 +161,43 @@ pub(super) enum TokenKind {
     /// `#@foo` etc., namely `tSTRING_DVAR` followed by the variable name
     StringVarInterpolation,
 
+    /// `<<` etc. One of:
+    ///
+    /// - `||`, namely `tOROP`
+    /// - `&&`, namely `tANDOP`
+    /// - `==`, namely `tEQ`
+    /// - `!=`, namely `tNEQ`
+    /// - `=~`, namely `tMATCH`
+    /// - `!~`, namely `tNMATCH`
+    /// - `===`, namely `tEQQ`
+    /// - `<`, namely `'<'`
+    /// - `<=`, namely `tLEQ`
+    /// - `>`, namely `'>'`
+    /// - `>=`, namely `tGEQ`
+    /// - `|`, namely `'|`
+    /// - `^`, namely `'^'`
+    /// - `&`, namely `'&'`
+    /// - `<<`, namely `tLSHFT`
+    /// - `>>`, namely `tRSHFT`
+    /// - `+`, namely `'+'`
+    /// - `-`, namely `'-'`
+    /// - `*`, namely `'*'`
+    /// - `/`, namely `'/'`
+    /// - `%`, namely `'%'`
+    /// - `**`, namely `tPOW`
+    BinOp(BinOpKind),
+    /// `!` etc. One of:
+    ///
+    /// - `!`, namely `'!'`
+    /// - `~`, namely `'~'`
+    /// - `+`, namely `tUPLUS`
+    /// - `-`, namely `tUMINUS` and `tUMINUS_NUM`
+    UnOp(UnOpKind),
     /// `+=` etc., namely `tOP_ASGN`
-    OpAssign,
+    OpAssign(BinOpKind),
 
-    /// `!`, namely `'!'`
-    Excl,
-    /// `!=`, namely `tNEQ`
-    ExclEq,
-    /// `!~`, namely `tNMATCH`
-    ExclTilde,
-    /// `%`, namely `'%'`
-    Percent,
-    /// `&`, namely `'&'`
-    Amp,
     /// `&` but block argument only, namely `tAMPER`
     AmpPrefix,
-    /// `&&`, namely `tANDOP`
-    AmpAmp,
     /// `&.`, namely `tANDDOT`
     AmpDot,
     /// `(`, namely `'('` and `tLPAREN`
@@ -187,24 +207,12 @@ pub(super) enum TokenKind {
     LParenRestricted,
     /// `)`, namely `')'`
     RParen,
-    /// `*`, namely `'*'`
-    Star,
     /// `*` but argument splat only, namely `tSTAR`
     StarPrefix,
-    /// `**`, namely `tPOW`
-    StarStar,
     /// `**` but keyword argument splat only, namely `tDSTAR`
     StarStarPrefix,
-    /// `+`, namely `'+'`
-    Plus,
-    /// `+` but unary operator only, namely `tUPLUS`
-    PlusPrefix,
     /// `,`, namely `','`
     Comma,
-    /// `-`, namely `'-'`
-    Minus,
-    /// `-` but unary operator only, namely `tUMINUS` and `tUMINUS_NUM`
-    MinusPrefix,
     /// `->`, namely `tLAMBDA`
     Arrow,
     /// `.`, namely `'.'`
@@ -213,8 +221,6 @@ pub(super) enum TokenKind {
     DotDot,
     /// `...`, namely `tDOT3` and `tBDOT3`
     DotDotDot,
-    /// `/`, namely `'/'`
-    Slash,
     /// `:`, namely `':'`
     Colon,
     /// `::`, namely `tCOLON2`
@@ -226,30 +232,10 @@ pub(super) enum TokenKind {
     Semicolon,
     /// EOL in certain contexts, namely `'\n'`
     Newline,
-    /// `<`, namely `'<'`
-    Lt,
-    /// `<<`, namely `tLSHFT`
-    LtLt,
-    /// `<=`, namely `tLEQ`
-    LtEq,
-    /// `<=>`, namely `tCMP`
-    LtEqGt,
     /// `=`, namely `'='`
     Eq,
-    /// `==`, namely `tEQ`
-    EqEq,
-    /// `===`, namely `tEQQ`
-    EqEqEq,
     /// `=>`, namely `tASSOC`
     FatArrow,
-    /// `=~`, namely `tMATCH`
-    EqMatch,
-    /// `>`, namely `'>'`
-    Gt,
-    /// `>=`, namely `tGEQ`
-    GtEq,
-    /// `>>`, namely `tRSHFT`
-    GtGt,
     /// `?`, namely `'?'`
     Question,
     /// `@` (Ruty-specific)
@@ -260,18 +246,10 @@ pub(super) enum TokenKind {
     LBracketPrefix,
     /// `]`, namely `']'`
     RBracket,
-    /// `^`, namely `'^'`
-    Caret,
     /// `{`, namely '{', `tLBRACE`, and `tLBRACE_ARG`
     LBrace,
-    /// `|`, namely `'|'`
-    Vert,
-    /// `||`, namely `tOROP`
-    VertVert,
     /// `}`, namely `'}'`
     RBrace,
-    /// `~`, namely `'~'`
-    Tilde,
     /// End of file, which is one of:
     ///
     /// - The real end of file (0 bytes wide)
@@ -286,6 +264,68 @@ pub(super) enum TokenKind {
     // Indicates a character sequence that the lexer cannot recognize.
     // Always 1 byte or longer.
     Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum BinOpKind {
+    /// `||`
+    LogicalOr,
+    /// `&&`
+    LogicalAnd,
+    /// `==`
+    Eq,
+    /// `!=`
+    NotEq,
+    /// `=~`
+    Match,
+    /// `!~`
+    NotMatch,
+    /// `===`
+    Incl,
+    /// `<=>`
+    Cmp,
+    /// `<`
+    Lt,
+    /// `<=`
+    Le,
+    /// `>`
+    Gt,
+    /// `>=`
+    Ge,
+    /// `|`, also used for block parameter lists
+    BitwiseOr,
+    /// `^`
+    BitwiseXor,
+    /// `&`
+    BitwiseAnd,
+    /// `<<`
+    LShift,
+    /// `>>`
+    RShift,
+    /// `+`
+    Add,
+    /// `-`
+    Sub,
+    /// `*`
+    Mul,
+    /// `/`
+    Div,
+    /// `%`
+    Mod,
+    /// `**`
+    Pow,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum UnOpKind {
+    /// `!`
+    Not,
+    /// `~`
+    BitwiseNot,
+    /// `+`
+    Plus,
+    /// `-`
+    Minus,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -810,7 +850,7 @@ impl<'a> Lexer<'a> {
                 match self.peek_byte() {
                     b'=' => {
                         self.pos += 1;
-                        TokenKind::ExclEq
+                        TokenKind::BinOp(BinOpKind::NotEq)
                     }
                     b'@' if state.extended_method_name() => {
                         self.pos += 1;
@@ -818,9 +858,9 @@ impl<'a> Lexer<'a> {
                     }
                     b'~' => {
                         self.pos += 1;
-                        TokenKind::ExclTilde
+                        TokenKind::BinOp(BinOpKind::NotMatch)
                     }
-                    _ => TokenKind::Excl,
+                    _ => TokenKind::UnOp(UnOpKind::Not),
                 }
             }
             b'"' => {
@@ -962,9 +1002,9 @@ impl<'a> Lexer<'a> {
                 match self.peek_byte() {
                     b'=' => {
                         self.pos += 1;
-                        TokenKind::OpAssign
+                        TokenKind::OpAssign(BinOpKind::Mod)
                     }
-                    _ => TokenKind::Percent,
+                    _ => TokenKind::BinOp(BinOpKind::Mod),
                 }
             }
             // `&`
@@ -980,9 +1020,9 @@ impl<'a> Lexer<'a> {
                         match self.peek_byte() {
                             b'=' => {
                                 self.pos += 1;
-                                TokenKind::OpAssign
+                                TokenKind::OpAssign(BinOpKind::LogicalAnd)
                             }
-                            _ => TokenKind::AmpAmp,
+                            _ => TokenKind::BinOp(BinOpKind::LogicalAnd),
                         }
                     }
                     b'.' => {
@@ -991,13 +1031,13 @@ impl<'a> Lexer<'a> {
                     }
                     b'=' => {
                         self.pos += 1;
-                        TokenKind::OpAssign
+                        TokenKind::OpAssign(BinOpKind::BitwiseAnd)
                     }
                     _ => {
                         if state.prefer_prefix_operator(space_before, self.peek_space()) {
                             TokenKind::AmpPrefix
                         } else {
-                            TokenKind::Amp
+                            TokenKind::BinOp(BinOpKind::BitwiseAnd)
                         }
                     }
                 }
@@ -1030,26 +1070,26 @@ impl<'a> Lexer<'a> {
                         match self.peek_byte() {
                             b'=' => {
                                 self.pos += 1;
-                                TokenKind::OpAssign
+                                TokenKind::OpAssign(BinOpKind::Pow)
                             }
                             _ => {
                                 if state.prefer_prefix_operator(space_before, self.peek_space()) {
                                     TokenKind::StarStarPrefix
                                 } else {
-                                    TokenKind::StarStar
+                                    TokenKind::BinOp(BinOpKind::Pow)
                                 }
                             }
                         }
                     }
                     b'=' => {
                         self.pos += 1;
-                        TokenKind::OpAssign
+                        TokenKind::OpAssign(BinOpKind::Mul)
                     }
                     _ => {
                         if state.prefer_prefix_operator(space_before, self.peek_space()) {
                             TokenKind::StarPrefix
                         } else {
-                            TokenKind::Star
+                            TokenKind::BinOp(BinOpKind::Mul)
                         }
                     }
                 }
@@ -1066,7 +1106,7 @@ impl<'a> Lexer<'a> {
                     }
                     b'=' => {
                         self.pos += 1;
-                        TokenKind::OpAssign
+                        TokenKind::OpAssign(BinOpKind::Add)
                     }
                     _ => {
                         if state.prefer_prefix_operator(space_before, self.peek_space()) {
@@ -1074,10 +1114,10 @@ impl<'a> Lexer<'a> {
                                 // Leave '+' eaten so that lex_numeric need not to check it again
                                 self.lex_numeric(diag)
                             } else {
-                                TokenKind::PlusPrefix
+                                TokenKind::UnOp(UnOpKind::Plus)
                             }
                         } else {
-                            TokenKind::Plus
+                            TokenKind::BinOp(BinOpKind::Add)
                         }
                     }
                 }
@@ -1100,7 +1140,7 @@ impl<'a> Lexer<'a> {
                     }
                     b'=' => {
                         self.pos += 1;
-                        TokenKind::OpAssign
+                        TokenKind::OpAssign(BinOpKind::Sub)
                     }
                     b'>' => {
                         self.pos += 1;
@@ -1108,9 +1148,9 @@ impl<'a> Lexer<'a> {
                     }
                     _ => {
                         if state.prefer_prefix_operator(space_before, self.peek_space()) {
-                            TokenKind::MinusPrefix
+                            TokenKind::UnOp(UnOpKind::Minus)
                         } else {
-                            TokenKind::Minus
+                            TokenKind::BinOp(BinOpKind::Sub)
                         }
                     }
                 }
@@ -1151,9 +1191,9 @@ impl<'a> Lexer<'a> {
                     match self.peek_byte() {
                         b'=' => {
                             self.pos += 1;
-                            TokenKind::OpAssign
+                            TokenKind::OpAssign(BinOpKind::Div)
                         }
-                        _ => TokenKind::Slash,
+                        _ => TokenKind::BinOp(BinOpKind::Div),
                     }
                 }
             }
@@ -1185,9 +1225,9 @@ impl<'a> Lexer<'a> {
                         match self.peek_byte() {
                             b'=' => {
                                 self.pos += 1;
-                                TokenKind::OpAssign
+                                TokenKind::OpAssign(BinOpKind::LShift)
                             }
-                            _ => TokenKind::LtLt,
+                            _ => TokenKind::BinOp(BinOpKind::LShift),
                         }
                     }
                     b'=' => {
@@ -1195,12 +1235,12 @@ impl<'a> Lexer<'a> {
                         match self.peek_byte() {
                             b'>' => {
                                 self.pos += 1;
-                                TokenKind::LtEqGt
+                                TokenKind::BinOp(BinOpKind::Cmp)
                             }
-                            _ => TokenKind::LtEq,
+                            _ => TokenKind::BinOp(BinOpKind::Le),
                         }
                     }
-                    _ => TokenKind::Lt,
+                    _ => TokenKind::BinOp(BinOpKind::Lt),
                 }
             }
             b'=' => {
@@ -1211,9 +1251,9 @@ impl<'a> Lexer<'a> {
                         match self.peek_byte() {
                             b'=' => {
                                 self.pos += 1;
-                                TokenKind::EqEqEq
+                                TokenKind::BinOp(BinOpKind::Incl)
                             }
-                            _ => TokenKind::EqEq,
+                            _ => TokenKind::BinOp(BinOpKind::Eq),
                         }
                     }
                     b'>' => {
@@ -1222,7 +1262,7 @@ impl<'a> Lexer<'a> {
                     }
                     b'~' => {
                         self.pos += 1;
-                        TokenKind::EqMatch
+                        TokenKind::BinOp(BinOpKind::Match)
                     }
                     _ => TokenKind::Eq,
                 }
@@ -1232,19 +1272,19 @@ impl<'a> Lexer<'a> {
                 match self.peek_byte() {
                     b'=' => {
                         self.pos += 1;
-                        TokenKind::GtEq
+                        TokenKind::BinOp(BinOpKind::Ge)
                     }
                     b'>' => {
                         self.pos += 1;
                         match self.peek_byte() {
                             b'=' => {
                                 self.pos += 1;
-                                TokenKind::OpAssign
+                                TokenKind::OpAssign(BinOpKind::RShift)
                             }
-                            _ => TokenKind::GtGt,
+                            _ => TokenKind::BinOp(BinOpKind::RShift),
                         }
                     }
-                    _ => TokenKind::Gt,
+                    _ => TokenKind::BinOp(BinOpKind::Gt),
                 }
             }
             b'?' => {
@@ -1371,9 +1411,9 @@ impl<'a> Lexer<'a> {
                 match self.peek_byte() {
                     b'=' => {
                         self.pos += 1;
-                        TokenKind::OpAssign
+                        TokenKind::OpAssign(BinOpKind::BitwiseXor)
                     }
-                    _ => TokenKind::Caret,
+                    _ => TokenKind::BinOp(BinOpKind::BitwiseXor),
                 }
             }
             b'`' => {
@@ -1396,20 +1436,20 @@ impl<'a> Lexer<'a> {
                         match self.peek_byte() {
                             b'=' => {
                                 self.pos += 1;
-                                TokenKind::OpAssign
+                                TokenKind::OpAssign(BinOpKind::LogicalOr)
                             }
                             _ if state.split_vert_vert() => {
                                 self.pos -= 1;
-                                TokenKind::Vert
+                                TokenKind::BinOp(BinOpKind::BitwiseOr)
                             }
-                            _ => TokenKind::VertVert,
+                            _ => TokenKind::BinOp(BinOpKind::LogicalOr),
                         }
                     }
                     b'=' => {
                         self.pos += 1;
-                        TokenKind::OpAssign
+                        TokenKind::OpAssign(BinOpKind::BitwiseOr)
                     }
-                    _ => TokenKind::Vert,
+                    _ => TokenKind::BinOp(BinOpKind::BitwiseOr),
                 }
             }
             b'}' => {
@@ -1423,7 +1463,7 @@ impl<'a> Lexer<'a> {
                         self.pos += 1;
                         TokenKind::MethodName
                     }
-                    _ => TokenKind::Tilde,
+                    _ => TokenKind::UnOp(UnOpKind::BitwiseNot),
                 }
             }
             _ => {
@@ -3263,60 +3303,36 @@ mod tests {
             TokenKind::StringContent => prev,
             TokenKind::StringInterpolationBegin => LexerState::Begin,
             TokenKind::StringVarInterpolation => LexerState::End,
-            TokenKind::OpAssign => LexerState::Begin,
-            TokenKind::Excl => LexerState::Begin,
-            TokenKind::ExclEq => LexerState::Begin,
-            TokenKind::ExclTilde => LexerState::Begin,
-            TokenKind::Percent => LexerState::Begin,
-            TokenKind::Amp => LexerState::Begin,
+            TokenKind::BinOp(BinOpKind::BitwiseOr) => LexerState::BeginLabelable,
+            TokenKind::BinOp(_) => LexerState::Begin,
+            TokenKind::UnOp(_) => LexerState::Begin,
+            TokenKind::OpAssign(_) => LexerState::Begin,
             TokenKind::AmpPrefix => LexerState::Begin,
-            TokenKind::AmpAmp => LexerState::Begin,
             TokenKind::AmpDot => LexerState::MethForCall,
             TokenKind::LParen => LexerState::BeginLabelable,
             TokenKind::LParenRestricted => LexerState::BeginLabelable,
             TokenKind::RParen => LexerState::End,
-            TokenKind::Star => LexerState::Begin,
             TokenKind::StarPrefix => LexerState::Begin,
-            TokenKind::StarStar => LexerState::Begin,
             TokenKind::StarStarPrefix => LexerState::Begin,
-            TokenKind::Plus => LexerState::Begin,
-            TokenKind::PlusPrefix => LexerState::Begin,
             TokenKind::Comma => LexerState::BeginLabelable,
-            TokenKind::Minus => LexerState::Begin,
-            TokenKind::MinusPrefix => LexerState::Begin,
             TokenKind::Arrow => LexerState::End,
             TokenKind::Dot => LexerState::MethForCall,
             TokenKind::DotDot => LexerState::Begin,
             TokenKind::DotDotDot => LexerState::Begin,
-            TokenKind::Slash => LexerState::Begin,
             TokenKind::Colon => LexerState::Begin,
             TokenKind::ColonColon => LexerState::MethForCall,
             TokenKind::ColonColonPrefix => LexerState::Begin,
             TokenKind::Semicolon => LexerState::Begin,
             TokenKind::Newline => LexerState::Begin,
-            TokenKind::Lt => LexerState::Begin,
-            TokenKind::LtLt => LexerState::Begin,
-            TokenKind::LtEq => LexerState::Begin,
-            TokenKind::LtEqGt => LexerState::Begin,
             TokenKind::Eq => LexerState::Begin,
-            TokenKind::EqEq => LexerState::Begin,
-            TokenKind::EqEqEq => LexerState::Begin,
             TokenKind::FatArrow => LexerState::Begin,
-            TokenKind::EqMatch => LexerState::Begin,
-            TokenKind::Gt => LexerState::Begin,
-            TokenKind::GtEq => LexerState::Begin,
-            TokenKind::GtGt => LexerState::Begin,
             TokenKind::Question => LexerState::Begin,
             TokenKind::At => LexerState::Begin,
             TokenKind::LBracket => LexerState::BeginLabelable,
             TokenKind::LBracketPrefix => LexerState::BeginLabelable,
             TokenKind::RBracket => LexerState::End,
-            TokenKind::Caret => LexerState::Begin,
             TokenKind::LBrace => LexerState::Begin,
-            TokenKind::Vert => LexerState::BeginLabelable,
-            TokenKind::VertVert => LexerState::Begin,
             TokenKind::RBrace => LexerState::End,
-            TokenKind::Tilde => LexerState::Begin,
             TokenKind::EOF => LexerState::Begin,
             TokenKind::Unknown => LexerState::Begin,
         }
@@ -4171,7 +4187,7 @@ mod tests {
         assert_lex("foo123!=", |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
-                token(TokenKind::ExclEq, pos_in(src, b"!=", 0), 0),
+                token(TokenKind::BinOp(BinOpKind::NotEq), pos_in(src, b"!=", 0), 0),
             ]
         });
     }
@@ -4229,7 +4245,7 @@ mod tests {
         assert_lex("foo123=~", |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
-                token(TokenKind::EqMatch, pos_in(src, b"=~", 0), 0),
+                token(TokenKind::BinOp(BinOpKind::Match), pos_in(src, b"=~", 0), 0),
             ]
         });
     }
@@ -4249,7 +4265,7 @@ mod tests {
         assert_lex("foo123==", |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
-                token(TokenKind::EqEq, pos_in(src, b"==", 0), 0),
+                token(TokenKind::BinOp(BinOpKind::Eq), pos_in(src, b"==", 0), 0),
             ]
         });
     }
@@ -4276,8 +4292,8 @@ mod tests {
             |src| {
                 vec![
                     token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
-                    token(TokenKind::EqEq, pos_in(src, b"==", 0), 0),
-                    token(TokenKind::Gt, pos_in(src, b">", 0), 0),
+                    token(TokenKind::BinOp(BinOpKind::Eq), pos_in(src, b"==", 0), 0),
+                    token(TokenKind::BinOp(BinOpKind::Gt), pos_in(src, b">", 0), 0),
                 ]
             },
         );
@@ -5337,14 +5353,22 @@ mod tests {
     #[test]
     fn test_op_assign_pow() {
         assert_lex("**=", |src| {
-            vec![token(TokenKind::OpAssign, pos_in(src, b"**=", 0), 0)]
+            vec![token(
+                TokenKind::OpAssign(BinOpKind::Pow),
+                pos_in(src, b"**=", 0),
+                0,
+            )]
         });
     }
 
     #[test]
     fn test_op_assign_mult() {
         assert_lex("*=", |src| {
-            vec![token(TokenKind::OpAssign, pos_in(src, b"*=", 0), 0)]
+            vec![token(
+                TokenKind::OpAssign(BinOpKind::Mul),
+                pos_in(src, b"*=", 0),
+                0,
+            )]
         });
     }
 
@@ -5360,7 +5384,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::OpAssign, pos_in(src, b"/=", 0), 1)],
+            |src| {
+                vec![token(
+                    TokenKind::OpAssign(BinOpKind::Div),
+                    pos_in(src, b"/=", 0),
+                    1,
+                )]
+            },
         );
     }
 
@@ -5397,7 +5427,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::OpAssign, pos_in(src, b"/=", 0), 0)],
+            |src| {
+                vec![token(
+                    TokenKind::OpAssign(BinOpKind::Div),
+                    pos_in(src, b"/=", 0),
+                    0,
+                )]
+            },
         );
     }
 
@@ -5425,77 +5461,121 @@ mod tests {
     #[test]
     fn test_op_assign_mod() {
         assert_lex("%=", |src| {
-            vec![token(TokenKind::OpAssign, pos_in(src, b"%=", 0), 0)]
+            vec![token(
+                TokenKind::OpAssign(BinOpKind::Mod),
+                pos_in(src, b"%=", 0),
+                0,
+            )]
         });
     }
 
     #[test]
     fn test_op_assign_add() {
         assert_lex("+=", |src| {
-            vec![token(TokenKind::OpAssign, pos_in(src, b"+=", 0), 0)]
+            vec![token(
+                TokenKind::OpAssign(BinOpKind::Add),
+                pos_in(src, b"+=", 0),
+                0,
+            )]
         });
     }
 
     #[test]
     fn test_op_assign_sub() {
         assert_lex("-=", |src| {
-            vec![token(TokenKind::OpAssign, pos_in(src, b"-=", 0), 0)]
+            vec![token(
+                TokenKind::OpAssign(BinOpKind::Sub),
+                pos_in(src, b"-=", 0),
+                0,
+            )]
         });
     }
 
     #[test]
     fn test_op_assign_lshift() {
         assert_lex("<<=", |src| {
-            vec![token(TokenKind::OpAssign, pos_in(src, b"<<=", 0), 0)]
+            vec![token(
+                TokenKind::OpAssign(BinOpKind::LShift),
+                pos_in(src, b"<<=", 0),
+                0,
+            )]
         });
     }
 
     #[test]
     fn test_op_assign_rshift() {
         assert_lex(">>=", |src| {
-            vec![token(TokenKind::OpAssign, pos_in(src, b">>=", 0), 0)]
+            vec![token(
+                TokenKind::OpAssign(BinOpKind::RShift),
+                pos_in(src, b">>=", 0),
+                0,
+            )]
         });
     }
 
     #[test]
     fn test_op_assign_bitwise_and() {
         assert_lex("&=", |src| {
-            vec![token(TokenKind::OpAssign, pos_in(src, b"&=", 0), 0)]
+            vec![token(
+                TokenKind::OpAssign(BinOpKind::BitwiseAnd),
+                pos_in(src, b"&=", 0),
+                0,
+            )]
         });
     }
 
     #[test]
     fn test_op_assign_bitwise_or() {
         assert_lex("|=", |src| {
-            vec![token(TokenKind::OpAssign, pos_in(src, b"|=", 0), 0)]
+            vec![token(
+                TokenKind::OpAssign(BinOpKind::BitwiseOr),
+                pos_in(src, b"|=", 0),
+                0,
+            )]
         });
     }
 
     #[test]
     fn test_op_assign_bitwise_xor() {
         assert_lex("^=", |src| {
-            vec![token(TokenKind::OpAssign, pos_in(src, b"^=", 0), 0)]
+            vec![token(
+                TokenKind::OpAssign(BinOpKind::BitwiseXor),
+                pos_in(src, b"^=", 0),
+                0,
+            )]
         });
     }
 
     #[test]
     fn test_op_assign_logical_and() {
         assert_lex("&&=", |src| {
-            vec![token(TokenKind::OpAssign, pos_in(src, b"&&=", 0), 0)]
+            vec![token(
+                TokenKind::OpAssign(BinOpKind::LogicalAnd),
+                pos_in(src, b"&&=", 0),
+                0,
+            )]
         });
     }
 
     #[test]
     fn test_op_assign_logical_or() {
         assert_lex("||=", |src| {
-            vec![token(TokenKind::OpAssign, pos_in(src, b"||=", 0), 0)]
+            vec![token(
+                TokenKind::OpAssign(BinOpKind::LogicalOr),
+                pos_in(src, b"||=", 0),
+                0,
+            )]
         });
     }
 
     #[test]
     fn test_excl() {
         assert_lex("!", |src| {
-            vec![token(TokenKind::Excl, pos_in(src, b"!", 0), 0)]
+            vec![token(
+                TokenKind::UnOp(UnOpKind::Not),
+                pos_in(src, b"!", 0),
+                0,
+            )]
         });
     }
 
@@ -5528,7 +5608,7 @@ mod tests {
             ],
             |src| {
                 vec![
-                    token(TokenKind::Excl, pos_in(src, b"!", 0), 0),
+                    token(TokenKind::UnOp(UnOpKind::Not), pos_in(src, b"!", 0), 0),
                     token(TokenKind::IvarName, pos_in(src, b"@foo", 0), 0),
                 ]
             },
@@ -5538,21 +5618,33 @@ mod tests {
     #[test]
     fn test_excl_eq() {
         assert_lex("!=", |src| {
-            vec![token(TokenKind::ExclEq, pos_in(src, b"!=", 0), 0)]
+            vec![token(
+                TokenKind::BinOp(BinOpKind::NotEq),
+                pos_in(src, b"!=", 0),
+                0,
+            )]
         });
     }
 
     #[test]
     fn test_excl_tilde() {
         assert_lex("!~", |src| {
-            vec![token(TokenKind::ExclTilde, pos_in(src, b"!~", 0), 0)]
+            vec![token(
+                TokenKind::BinOp(BinOpKind::NotMatch),
+                pos_in(src, b"!~", 0),
+                0,
+            )]
         });
     }
 
     #[test]
     fn test_percent() {
         assert_lex("%", |src| {
-            vec![token(TokenKind::Percent, pos_in(src, b"%", 0), 0)]
+            vec![token(
+                TokenKind::BinOp(BinOpKind::Mod),
+                pos_in(src, b"%", 0),
+                0,
+            )]
         });
     }
 
@@ -5568,7 +5660,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::Amp, pos_in(src, b"&", 0), 1)],
+            |src| {
+                vec![token(
+                    TokenKind::BinOp(BinOpKind::BitwiseAnd),
+                    pos_in(src, b"&", 0),
+                    1,
+                )]
+            },
         );
     }
 
@@ -5599,7 +5697,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::Amp, pos_in(src, b"&", 0), 1)],
+            |src| {
+                vec![token(
+                    TokenKind::BinOp(BinOpKind::BitwiseAnd),
+                    pos_in(src, b"&", 0),
+                    1,
+                )]
+            },
         );
     }
 
@@ -5630,7 +5734,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::Amp, pos_in(src, b"&", 0), 0)],
+            |src| {
+                vec![token(
+                    TokenKind::BinOp(BinOpKind::BitwiseAnd),
+                    pos_in(src, b"&", 0),
+                    0,
+                )]
+            },
         );
     }
 
@@ -5653,7 +5763,11 @@ mod tests {
     #[test]
     fn test_amp_amp() {
         assert_lex("&&", |src| {
-            vec![token(TokenKind::AmpAmp, pos_in(src, b"&&", 0), 0)]
+            vec![token(
+                TokenKind::BinOp(BinOpKind::LogicalAnd),
+                pos_in(src, b"&&", 0),
+                0,
+            )]
         });
     }
 
@@ -5726,7 +5840,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::Star, pos_in(src, b"*", 0), 1)],
+            |src| {
+                vec![token(
+                    TokenKind::BinOp(BinOpKind::Mul),
+                    pos_in(src, b"*", 0),
+                    1,
+                )]
+            },
         );
     }
 
@@ -5757,7 +5877,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::Star, pos_in(src, b"*", 0), 1)],
+            |src| {
+                vec![token(
+                    TokenKind::BinOp(BinOpKind::Mul),
+                    pos_in(src, b"*", 0),
+                    1,
+                )]
+            },
         );
     }
 
@@ -5788,7 +5914,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::Star, pos_in(src, b"*", 0), 0)],
+            |src| {
+                vec![token(
+                    TokenKind::BinOp(BinOpKind::Mul),
+                    pos_in(src, b"*", 0),
+                    0,
+                )]
+            },
         );
     }
 
@@ -5820,7 +5952,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::StarStar, pos_in(src, b"**", 0), 1)],
+            |src| {
+                vec![token(
+                    TokenKind::BinOp(BinOpKind::Pow),
+                    pos_in(src, b"**", 0),
+                    1,
+                )]
+            },
         );
     }
 
@@ -5851,7 +5989,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::StarStar, pos_in(src, b"**", 0), 1)],
+            |src| {
+                vec![token(
+                    TokenKind::BinOp(BinOpKind::Pow),
+                    pos_in(src, b"**", 0),
+                    1,
+                )]
+            },
         );
     }
 
@@ -5882,7 +6026,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::StarStar, pos_in(src, b"**", 0), 0)],
+            |src| {
+                vec![token(
+                    TokenKind::BinOp(BinOpKind::Pow),
+                    pos_in(src, b"**", 0),
+                    0,
+                )]
+            },
         );
     }
 
@@ -5914,7 +6064,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::Plus, pos_in(src, b"+", 0), 1)],
+            |src| {
+                vec![token(
+                    TokenKind::BinOp(BinOpKind::Add),
+                    pos_in(src, b"+", 0),
+                    1,
+                )]
+            },
         );
     }
 
@@ -5930,7 +6086,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::PlusPrefix, pos_in(src, b"+", 0), 1)],
+            |src| {
+                vec![token(
+                    TokenKind::UnOp(UnOpKind::Plus),
+                    pos_in(src, b"+", 0),
+                    1,
+                )]
+            },
         );
     }
 
@@ -5945,7 +6107,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::Plus, pos_in(src, b"+", 0), 1)],
+            |src| {
+                vec![token(
+                    TokenKind::BinOp(BinOpKind::Add),
+                    pos_in(src, b"+", 0),
+                    1,
+                )]
+            },
         );
     }
 
@@ -5960,7 +6128,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::PlusPrefix, pos_in(src, b"+", 0), 1)],
+            |src| {
+                vec![token(
+                    TokenKind::UnOp(UnOpKind::Plus),
+                    pos_in(src, b"+", 0),
+                    1,
+                )]
+            },
         );
     }
 
@@ -5976,7 +6150,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::Plus, pos_in(src, b"+", 0), 0)],
+            |src| {
+                vec![token(
+                    TokenKind::BinOp(BinOpKind::Add),
+                    pos_in(src, b"+", 0),
+                    0,
+                )]
+            },
         );
     }
 
@@ -5992,7 +6172,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::PlusPrefix, pos_in(src, b"+", 0), 0)],
+            |src| {
+                vec![token(
+                    TokenKind::UnOp(UnOpKind::Plus),
+                    pos_in(src, b"+", 0),
+                    0,
+                )]
+            },
         );
     }
 
@@ -6025,7 +6211,7 @@ mod tests {
             ],
             |src| {
                 vec![
-                    token(TokenKind::Plus, pos_in(src, b"+", 0), 0),
+                    token(TokenKind::BinOp(BinOpKind::Add), pos_in(src, b"+", 0), 0),
                     token(TokenKind::IvarName, pos_in(src, b"@foo", 0), 0),
                 ]
             },
@@ -6046,7 +6232,7 @@ mod tests {
             ],
             |src| {
                 vec![
-                    token(TokenKind::PlusPrefix, pos_in(src, b"+", 0), 0),
+                    token(TokenKind::UnOp(UnOpKind::Plus), pos_in(src, b"+", 0), 0),
                     token(TokenKind::IvarName, pos_in(src, b"@foo", 0), 0),
                 ]
             },
@@ -6072,7 +6258,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::Minus, pos_in(src, b"-", 0), 1)],
+            |src| {
+                vec![token(
+                    TokenKind::BinOp(BinOpKind::Sub),
+                    pos_in(src, b"-", 0),
+                    1,
+                )]
+            },
         );
     }
 
@@ -6088,7 +6280,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::MinusPrefix, pos_in(src, b"-", 0), 1)],
+            |src| {
+                vec![token(
+                    TokenKind::UnOp(UnOpKind::Minus),
+                    pos_in(src, b"-", 0),
+                    1,
+                )]
+            },
         );
     }
 
@@ -6103,7 +6301,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::Minus, pos_in(src, b"-", 0), 1)],
+            |src| {
+                vec![token(
+                    TokenKind::BinOp(BinOpKind::Sub),
+                    pos_in(src, b"-", 0),
+                    1,
+                )]
+            },
         );
     }
 
@@ -6118,7 +6322,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::MinusPrefix, pos_in(src, b"-", 0), 1)],
+            |src| {
+                vec![token(
+                    TokenKind::UnOp(UnOpKind::Minus),
+                    pos_in(src, b"-", 0),
+                    1,
+                )]
+            },
         );
     }
 
@@ -6134,7 +6344,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::Minus, pos_in(src, b"-", 0), 0)],
+            |src| {
+                vec![token(
+                    TokenKind::BinOp(BinOpKind::Sub),
+                    pos_in(src, b"-", 0),
+                    0,
+                )]
+            },
         );
     }
 
@@ -6150,7 +6366,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::MinusPrefix, pos_in(src, b"-", 0), 0)],
+            |src| {
+                vec![token(
+                    TokenKind::UnOp(UnOpKind::Minus),
+                    pos_in(src, b"-", 0),
+                    0,
+                )]
+            },
         );
     }
 
@@ -6183,7 +6405,7 @@ mod tests {
             ],
             |src| {
                 vec![
-                    token(TokenKind::Minus, pos_in(src, b"-", 0), 0),
+                    token(TokenKind::BinOp(BinOpKind::Sub), pos_in(src, b"-", 0), 0),
                     token(TokenKind::IvarName, pos_in(src, b"@foo", 0), 0),
                 ]
             },
@@ -6204,7 +6426,7 @@ mod tests {
             ],
             |src| {
                 vec![
-                    token(TokenKind::MinusPrefix, pos_in(src, b"-", 0), 0),
+                    token(TokenKind::UnOp(UnOpKind::Minus), pos_in(src, b"-", 0), 0),
                     token(TokenKind::IvarName, pos_in(src, b"@foo", 0), 0),
                 ]
             },
@@ -6250,7 +6472,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::Slash, pos_in(src, b"/", 0), 1)],
+            |src| {
+                vec![token(
+                    TokenKind::BinOp(BinOpKind::Div),
+                    pos_in(src, b"/", 0),
+                    1,
+                )]
+            },
         );
     }
 
@@ -6285,7 +6513,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::Slash, pos_in(src, b"/", 0), 1)],
+            |src| {
+                vec![token(
+                    TokenKind::BinOp(BinOpKind::Div),
+                    pos_in(src, b"/", 0),
+                    1,
+                )]
+            },
         );
     }
 
@@ -6316,7 +6550,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::Slash, pos_in(src, b"/", 0), 0)],
+            |src| {
+                vec![token(
+                    TokenKind::BinOp(BinOpKind::Div),
+                    pos_in(src, b"/", 0),
+                    0,
+                )]
+            },
         );
     }
 
@@ -6445,28 +6685,44 @@ mod tests {
     #[test]
     fn test_lt() {
         assert_lex("<", |src| {
-            vec![token(TokenKind::Lt, pos_in(src, b"<", 0), 0)]
+            vec![token(
+                TokenKind::BinOp(BinOpKind::Lt),
+                pos_in(src, b"<", 0),
+                0,
+            )]
         });
     }
 
     #[test]
     fn test_lt_lt() {
         assert_lex("<<", |src| {
-            vec![token(TokenKind::LtLt, pos_in(src, b"<<", 0), 0)]
+            vec![token(
+                TokenKind::BinOp(BinOpKind::LShift),
+                pos_in(src, b"<<", 0),
+                0,
+            )]
         });
     }
 
     #[test]
     fn test_lt_eq() {
         assert_lex("<=", |src| {
-            vec![token(TokenKind::LtEq, pos_in(src, b"<=", 0), 0)]
+            vec![token(
+                TokenKind::BinOp(BinOpKind::Le),
+                pos_in(src, b"<=", 0),
+                0,
+            )]
         });
     }
 
     #[test]
     fn test_lt_eq_gt() {
         assert_lex("<=>", |src| {
-            vec![token(TokenKind::LtEqGt, pos_in(src, b"<=>", 0), 0)]
+            vec![token(
+                TokenKind::BinOp(BinOpKind::Cmp),
+                pos_in(src, b"<=>", 0),
+                0,
+            )]
         });
     }
 
@@ -6480,14 +6736,22 @@ mod tests {
     #[test]
     fn test_eq_eq() {
         assert_lex("==", |src| {
-            vec![token(TokenKind::EqEq, pos_in(src, b"==", 0), 0)]
+            vec![token(
+                TokenKind::BinOp(BinOpKind::Eq),
+                pos_in(src, b"==", 0),
+                0,
+            )]
         });
     }
 
     #[test]
     fn test_eq_eq_eq() {
         assert_lex("===", |src| {
-            vec![token(TokenKind::EqEqEq, pos_in(src, b"===", 0), 0)]
+            vec![token(
+                TokenKind::BinOp(BinOpKind::Incl),
+                pos_in(src, b"===", 0),
+                0,
+            )]
         });
     }
 
@@ -6501,28 +6765,44 @@ mod tests {
     #[test]
     fn test_eq_match() {
         assert_lex("=~", |src| {
-            vec![token(TokenKind::EqMatch, pos_in(src, b"=~", 0), 0)]
+            vec![token(
+                TokenKind::BinOp(BinOpKind::Match),
+                pos_in(src, b"=~", 0),
+                0,
+            )]
         });
     }
 
     #[test]
     fn test_gt() {
         assert_lex(">", |src| {
-            vec![token(TokenKind::Gt, pos_in(src, b">", 0), 0)]
+            vec![token(
+                TokenKind::BinOp(BinOpKind::Gt),
+                pos_in(src, b">", 0),
+                0,
+            )]
         });
     }
 
     #[test]
     fn test_gt_eq() {
         assert_lex(">=", |src| {
-            vec![token(TokenKind::GtEq, pos_in(src, b">=", 0), 0)]
+            vec![token(
+                TokenKind::BinOp(BinOpKind::Ge),
+                pos_in(src, b">=", 0),
+                0,
+            )]
         });
     }
 
     #[test]
     fn test_gt_gt() {
         assert_lex(">>", |src| {
-            vec![token(TokenKind::GtGt, pos_in(src, b">>", 0), 0)]
+            vec![token(
+                TokenKind::BinOp(BinOpKind::RShift),
+                pos_in(src, b">>", 0),
+                0,
+            )]
         });
     }
 
@@ -6771,7 +7051,11 @@ mod tests {
     #[test]
     fn test_caret() {
         assert_lex("^", |src| {
-            vec![token(TokenKind::Caret, pos_in(src, b"^", 0), 0)]
+            vec![token(
+                TokenKind::BinOp(BinOpKind::BitwiseXor),
+                pos_in(src, b"^", 0),
+                0,
+            )]
         });
     }
 
@@ -6785,7 +7069,11 @@ mod tests {
     #[test]
     fn test_vert() {
         assert_lex("|", |src| {
-            vec![token(TokenKind::Vert, pos_in(src, b"|", 0), 0)]
+            vec![token(
+                TokenKind::BinOp(BinOpKind::BitwiseOr),
+                pos_in(src, b"|", 0),
+                0,
+            )]
         });
     }
 
@@ -6801,7 +7089,13 @@ mod tests {
                 LexerState::MethOrSymbolForDef,
                 LexerState::MethForCall,
             ],
-            |src| vec![token(TokenKind::VertVert, pos_in(src, b"||", 0), 0)],
+            |src| {
+                vec![token(
+                    TokenKind::BinOp(BinOpKind::LogicalOr),
+                    pos_in(src, b"||", 0),
+                    0,
+                )]
+            },
         );
     }
 
@@ -6819,8 +7113,16 @@ mod tests {
             ],
             |src| {
                 vec![
-                    token(TokenKind::Vert, pos_in(src, b"|", 0), 0),
-                    token(TokenKind::Vert, pos_in(src, b"|", 1), 0),
+                    token(
+                        TokenKind::BinOp(BinOpKind::BitwiseOr),
+                        pos_in(src, b"|", 0),
+                        0,
+                    ),
+                    token(
+                        TokenKind::BinOp(BinOpKind::BitwiseOr),
+                        pos_in(src, b"|", 1),
+                        0,
+                    ),
                 ]
             },
         );
@@ -6836,7 +7138,11 @@ mod tests {
     #[test]
     fn test_tilde() {
         assert_lex("~", |src| {
-            vec![token(TokenKind::Tilde, pos_in(src, b"~", 0), 0)]
+            vec![token(
+                TokenKind::UnOp(UnOpKind::BitwiseNot),
+                pos_in(src, b"~", 0),
+                0,
+            )]
         });
     }
 
@@ -6869,7 +7175,11 @@ mod tests {
             ],
             |src| {
                 vec![
-                    token(TokenKind::Tilde, pos_in(src, b"~", 0), 0),
+                    token(
+                        TokenKind::UnOp(UnOpKind::BitwiseNot),
+                        pos_in(src, b"~", 0),
+                        0,
+                    ),
                     token(TokenKind::IvarName, pos_in(src, b"@foo", 0), 0),
                 ]
             },

@@ -15,7 +15,10 @@ use crate::{
     encoding::EStrRef,
     Diagnostic, EString,
 };
-use lexer::{interpret_numeric, Lexer, LexerState, StringDelimiter, StringState, Token, TokenKind};
+use lexer::{
+    interpret_numeric, BinOpKind, Lexer, LexerState, StringDelimiter, StringState, Token,
+    TokenKind, UnOpKind,
+};
 
 pub fn parse(diag: &mut Vec<Diagnostic>, input: EStrRef<'_>, locals: &[EString]) -> Program {
     let mut parser = Parser::new(input);
@@ -1572,25 +1575,28 @@ fn prec_right_assoc(prec: usize) -> usize {
 }
 fn suffix_token_shift_precedence(token: &Token) -> usize {
     match token.kind {
-        TokenKind::VertVert => prec_left_assoc(PREC_LOGICAL_OR),
-        TokenKind::AmpAmp => prec_left_assoc(PREC_LOGICAL_AND),
-        // TODO: handle non-associativity
-        TokenKind::EqEq
-        | TokenKind::ExclEq
-        | TokenKind::EqMatch
-        | TokenKind::ExclTilde
-        | TokenKind::EqEqEq => prec_left_assoc(PREC_EQUALITY),
-        TokenKind::Lt | TokenKind::LtEq | TokenKind::Gt | TokenKind::GtEq => {
-            prec_left_assoc(PREC_INEQUALITY)
-        }
-        TokenKind::Vert | TokenKind::Caret => prec_left_assoc(PREC_BITWISE_OR),
-        TokenKind::Amp => prec_left_assoc(PREC_BITWISE_AND),
-        TokenKind::LtLt | TokenKind::GtGt => prec_left_assoc(PREC_SHIFT),
-        TokenKind::Plus | TokenKind::Minus => prec_left_assoc(PREC_ADDITIVE),
-        TokenKind::Star | TokenKind::Slash | TokenKind::Percent => {
-            prec_left_assoc(PREC_MULTIPLICATIVE)
-        }
-        TokenKind::StarStar => prec_right_assoc(PREC_EXPONENTIAL),
+        TokenKind::BinOp(ref op) => match op {
+            BinOpKind::LogicalOr => prec_left_assoc(PREC_LOGICAL_OR),
+            BinOpKind::LogicalAnd => prec_left_assoc(PREC_LOGICAL_AND),
+            // TODO: handle non-associativity
+            BinOpKind::Eq
+            | BinOpKind::NotEq
+            | BinOpKind::Match
+            | BinOpKind::NotMatch
+            | BinOpKind::Incl
+            | BinOpKind::Cmp => prec_left_assoc(PREC_EQUALITY),
+            BinOpKind::Lt | BinOpKind::Le | BinOpKind::Gt | BinOpKind::Ge => {
+                prec_left_assoc(PREC_INEQUALITY)
+            }
+            BinOpKind::BitwiseOr | BinOpKind::BitwiseXor => prec_left_assoc(PREC_BITWISE_OR),
+            BinOpKind::BitwiseAnd => prec_left_assoc(PREC_BITWISE_AND),
+            BinOpKind::LShift | BinOpKind::RShift => prec_left_assoc(PREC_SHIFT),
+            BinOpKind::Add | BinOpKind::Sub => prec_left_assoc(PREC_ADDITIVE),
+            BinOpKind::Mul | BinOpKind::Div | BinOpKind::Mod => {
+                prec_left_assoc(PREC_MULTIPLICATIVE)
+            }
+            BinOpKind::Pow => prec_right_assoc(PREC_EXPONENTIAL),
+        },
 
         TokenKind::LParen
         | TokenKind::LBracket
@@ -1661,16 +1667,14 @@ fn suffix_token_shift_precedence(token: &Token) -> usize {
         | TokenKind::StringContent
         | TokenKind::StringInterpolationBegin
         | TokenKind::StringVarInterpolation
-        | TokenKind::OpAssign
-        | TokenKind::Excl
+        | TokenKind::UnOp(_)
+        | TokenKind::OpAssign(_)
         | TokenKind::AmpPrefix
         | TokenKind::LParenRestricted
         | TokenKind::RParen
         | TokenKind::StarPrefix
         | TokenKind::StarStarPrefix
-        | TokenKind::PlusPrefix
         | TokenKind::Comma
-        | TokenKind::MinusPrefix
         | TokenKind::Arrow
         | TokenKind::DotDot
         | TokenKind::DotDotDot
@@ -1678,7 +1682,6 @@ fn suffix_token_shift_precedence(token: &Token) -> usize {
         | TokenKind::ColonColonPrefix
         | TokenKind::Semicolon
         | TokenKind::Newline
-        | TokenKind::LtEqGt
         | TokenKind::Eq
         | TokenKind::FatArrow
         | TokenKind::Question
@@ -1686,7 +1689,6 @@ fn suffix_token_shift_precedence(token: &Token) -> usize {
         | TokenKind::LBracketPrefix
         | TokenKind::RBracket
         | TokenKind::RBrace
-        | TokenKind::Tilde
         | TokenKind::EOF
         | TokenKind::Unknown => PREC_LOWEST,
     }
@@ -1724,12 +1726,7 @@ impl<'a, 'b> StackParser<'a, 'b> {
         lv: &mut LVCtx,
     ) -> Result<(ExprLike, Token), SuspendParse> {
         match first_token.kind {
-            TokenKind::Plus
-            | TokenKind::PlusPrefix
-            | TokenKind::Minus
-            | TokenKind::MinusPrefix
-            | TokenKind::Excl
-            | TokenKind::Tilde => self.parse_un_op_step1(diag, first_token),
+            TokenKind::UnOp(_) => self.parse_un_op_step1(diag, first_token),
             _ => {
                 let (expr, next_token) = self.parser.parse_expr_lv_primary(diag, first_token, lv);
                 Err(SuspendParse {
@@ -1749,29 +1746,7 @@ impl<'a, 'b> StackParser<'a, 'b> {
     ) -> Result<(ExprLike, Token), SuspendParse> {
         let last_expr = self.auto_reduce(diag, last_expr, &first_token);
         match first_token.kind {
-            TokenKind::VertVert
-            | TokenKind::AmpAmp
-            | TokenKind::EqEq
-            | TokenKind::ExclEq
-            | TokenKind::EqMatch
-            | TokenKind::ExclTilde
-            | TokenKind::EqEqEq
-            | TokenKind::LtEqGt
-            | TokenKind::Lt
-            | TokenKind::LtEq
-            | TokenKind::Gt
-            | TokenKind::GtEq
-            | TokenKind::Vert
-            | TokenKind::Caret
-            | TokenKind::Amp
-            | TokenKind::LtLt
-            | TokenKind::GtGt
-            | TokenKind::Plus
-            | TokenKind::Minus
-            | TokenKind::Star
-            | TokenKind::Slash
-            | TokenKind::Percent
-            | TokenKind::StarStar => self.parse_bin_op_step1(diag, last_expr, first_token),
+            TokenKind::BinOp(_) => self.parse_bin_op_step1(diag, last_expr, first_token),
             TokenKind::LParen => self.parse_paren_call_step1(diag, last_expr, first_token, lv),
             TokenKind::Dot | TokenKind::AmpDot | TokenKind::ColonColon => {
                 self.parse_dot_step1(diag, last_expr, first_token, lv)
@@ -1821,24 +1796,26 @@ impl<'a, 'b> StackParser<'a, 'b> {
         next_token: Token,
     ) -> Result<T, SuspendParse> {
         let op_prec = match next_token.kind {
-            TokenKind::VertVert => PREC_LOGICAL_OR,
-            TokenKind::AmpAmp => PREC_LOGICAL_AND,
-            TokenKind::EqEq
-            | TokenKind::ExclEq
-            | TokenKind::EqMatch
-            | TokenKind::ExclTilde
-            | TokenKind::EqEqEq
-            | TokenKind::LtEqGt => PREC_EQUALITY,
-            TokenKind::Lt | TokenKind::LtEq | TokenKind::Gt | TokenKind::GtEq => PREC_INEQUALITY,
-            TokenKind::Vert | TokenKind::Caret => PREC_BITWISE_OR,
-            TokenKind::Amp => PREC_BITWISE_AND,
-            TokenKind::LtLt | TokenKind::GtGt => PREC_SHIFT,
-            TokenKind::Plus | TokenKind::Minus => PREC_ADDITIVE,
-            TokenKind::Star | TokenKind::Slash | TokenKind::Percent => PREC_MULTIPLICATIVE,
-            TokenKind::StarStar => PREC_EXPONENTIAL,
+            TokenKind::BinOp(ref op) => match op {
+                BinOpKind::LogicalOr => PREC_LOGICAL_OR,
+                BinOpKind::LogicalAnd => PREC_LOGICAL_AND,
+                BinOpKind::Eq
+                | BinOpKind::NotEq
+                | BinOpKind::Match
+                | BinOpKind::NotMatch
+                | BinOpKind::Incl
+                | BinOpKind::Cmp => PREC_EQUALITY,
+                BinOpKind::Lt | BinOpKind::Le | BinOpKind::Gt | BinOpKind::Ge => PREC_INEQUALITY,
+                BinOpKind::BitwiseOr | BinOpKind::BitwiseXor => PREC_BITWISE_OR,
+                BinOpKind::BitwiseAnd => PREC_BITWISE_AND,
+                BinOpKind::LShift | BinOpKind::RShift => PREC_SHIFT,
+                BinOpKind::Add | BinOpKind::Sub => PREC_ADDITIVE,
+                BinOpKind::Mul | BinOpKind::Div | BinOpKind::Mod => PREC_MULTIPLICATIVE,
+                BinOpKind::Pow => PREC_EXPONENTIAL,
+            },
             _ => unreachable!(),
         };
-        let next_state = if matches!(next_token.kind, TokenKind::Vert) {
+        let next_state = if matches!(next_token.kind, TokenKind::BinOp(BinOpKind::BitwiseOr)) {
             LexerState::BeginLabelable
         } else {
             LexerState::Begin
@@ -1868,8 +1845,13 @@ impl<'a, 'b> StackParser<'a, 'b> {
             op_prec: _,
         } = cont;
         let rhs = first_expr.into_expr(diag);
-        let expr: Expr = match op_token.kind {
-            TokenKind::VertVert => OrExpr {
+        let op_kind = if let TokenKind::BinOp(ref op) = op_token.kind {
+            op
+        } else {
+            unreachable!()
+        };
+        let expr: Expr = match op_kind {
+            BinOpKind::LogicalOr => OrExpr {
                 range: *lhs.outer_range() | *rhs.outer_range(),
                 parens: Vec::new(),
 
@@ -1877,7 +1859,7 @@ impl<'a, 'b> StackParser<'a, 'b> {
                 rhs: Box::new(rhs),
             }
             .into(),
-            TokenKind::AmpAmp => AndExpr {
+            BinOpKind::LogicalAnd => AndExpr {
                 range: *lhs.outer_range() | *rhs.outer_range(),
                 parens: Vec::new(),
 
@@ -1886,29 +1868,30 @@ impl<'a, 'b> StackParser<'a, 'b> {
             }
             .into(),
             _ => {
-                let method_name = match op_token.kind {
-                    TokenKind::EqEq => "==",
-                    TokenKind::ExclEq => "!=",
-                    TokenKind::EqMatch => "=~",
-                    TokenKind::ExclTilde => "!~",
-                    TokenKind::EqEqEq => "===",
-                    TokenKind::LtEqGt => "<=>",
-                    TokenKind::Lt => "<",
-                    TokenKind::LtEq => "<=",
-                    TokenKind::Gt => ">",
-                    TokenKind::GtEq => ">=",
-                    TokenKind::Vert => "|",
-                    TokenKind::Caret => "^",
-                    TokenKind::Amp => "&",
-                    TokenKind::LtLt => "<<",
-                    TokenKind::GtGt => ">>",
-                    TokenKind::Plus => "+",
-                    TokenKind::Minus => "-",
-                    TokenKind::Star => "*",
-                    TokenKind::Slash => "/",
-                    TokenKind::Percent => "%",
-                    TokenKind::StarStar => "**",
-                    _ => unreachable!(),
+                let method_name = match op_kind {
+                    BinOpKind::LogicalOr => unreachable!(),
+                    BinOpKind::LogicalAnd => unreachable!(),
+                    BinOpKind::Eq => "==",
+                    BinOpKind::NotEq => "!=",
+                    BinOpKind::Match => "=~",
+                    BinOpKind::NotMatch => "!~",
+                    BinOpKind::Incl => "===",
+                    BinOpKind::Cmp => "<=>",
+                    BinOpKind::Lt => "<",
+                    BinOpKind::Le => "<=",
+                    BinOpKind::Gt => ">",
+                    BinOpKind::Ge => ">=",
+                    BinOpKind::BitwiseOr => "|",
+                    BinOpKind::BitwiseXor => "^",
+                    BinOpKind::BitwiseAnd => "&",
+                    BinOpKind::LShift => "<<",
+                    BinOpKind::RShift => ">>",
+                    BinOpKind::Add => "+",
+                    BinOpKind::Sub => "-",
+                    BinOpKind::Mul => "*",
+                    BinOpKind::Div => "/",
+                    BinOpKind::Mod => "%",
+                    BinOpKind::Pow => "**",
                 };
                 let expr = CallExpr {
                     range: *lhs.outer_range() | *rhs.outer_range(),
@@ -1943,8 +1926,13 @@ impl<'a, 'b> StackParser<'a, 'b> {
         diag: &mut Vec<Diagnostic>,
         first_token: Token,
     ) -> Result<T, SuspendParse> {
-        let op_prec = match first_token.kind {
-            TokenKind::MinusPrefix => PREC_UNARY_MINUS,
+        let op_kind = if let TokenKind::UnOp(ref op) = first_token.kind {
+            op
+        } else {
+            unreachable!()
+        };
+        let op_prec = match op_kind {
+            UnOpKind::Minus => PREC_UNARY_MINUS,
             _ => PREC_UNARY,
         };
         self.stack.push(StackElem::UnOpStep1(UnOpStep1 {
@@ -1969,13 +1957,17 @@ impl<'a, 'b> StackParser<'a, 'b> {
             op_token,
             op_prec: _,
         } = cont;
+        let op_kind = if let TokenKind::UnOp(ref op) = op_token.kind {
+            op
+        } else {
+            unreachable!()
+        };
         let rhs = first_expr.into_expr(diag);
-        let method_name = match op_token.kind {
-            TokenKind::Excl => "!",
-            TokenKind::Tilde => "~",
-            TokenKind::PlusPrefix => "+@",
-            TokenKind::MinusPrefix => "-@",
-            _ => unreachable!(),
+        let method_name = match op_kind {
+            UnOpKind::Not => "!",
+            UnOpKind::BitwiseNot => "~",
+            UnOpKind::Plus => "+@",
+            UnOpKind::Minus => "-@",
         };
         let expr = CallExpr {
             range: op_token.range | *rhs.outer_range(),
@@ -2742,17 +2734,14 @@ fn is_cmdarg_begin(token: &Token) -> bool {
         | TokenKind::CharLiteral
         | TokenKind::StringBegin
         | TokenKind::StringBeginLabelable
-        | TokenKind::Excl
+        | TokenKind::UnOp(_)
         | TokenKind::AmpPrefix
         | TokenKind::LParenRestricted
         | TokenKind::StarPrefix
         | TokenKind::StarStarPrefix
-        | TokenKind::PlusPrefix
-        | TokenKind::MinusPrefix
         | TokenKind::Arrow
         | TokenKind::ColonColonPrefix
-        | TokenKind::LBracketPrefix
-        | TokenKind::Tilde => true,
+        | TokenKind::LBracketPrefix => true,
 
         TokenKind::KeywordAnd
         | TokenKind::KeywordElse
@@ -2773,46 +2762,24 @@ fn is_cmdarg_begin(token: &Token) -> bool {
         | TokenKind::StringContent
         | TokenKind::StringInterpolationBegin
         | TokenKind::StringVarInterpolation
-        | TokenKind::OpAssign
-        | TokenKind::ExclEq
-        | TokenKind::ExclTilde
-        | TokenKind::Percent
-        | TokenKind::Amp
-        | TokenKind::AmpAmp
+        | TokenKind::BinOp(_)
+        | TokenKind::OpAssign(_)
         | TokenKind::AmpDot
         | TokenKind::RParen
-        | TokenKind::Star
-        | TokenKind::StarStar
-        | TokenKind::Plus
         | TokenKind::Comma
-        | TokenKind::Minus
         | TokenKind::Dot
         | TokenKind::DotDot
         | TokenKind::DotDotDot
-        | TokenKind::Slash
         | TokenKind::Colon
         | TokenKind::ColonColon
         | TokenKind::Semicolon
         | TokenKind::Newline
-        | TokenKind::Lt
-        | TokenKind::LtLt
-        | TokenKind::LtEq
-        | TokenKind::LtEqGt
         | TokenKind::Eq
-        | TokenKind::EqEq
-        | TokenKind::EqEqEq
         | TokenKind::FatArrow
-        | TokenKind::EqMatch
-        | TokenKind::Gt
-        | TokenKind::GtEq
-        | TokenKind::GtGt
         | TokenKind::Question
         | TokenKind::At
         | TokenKind::LBracket
         | TokenKind::RBracket
-        | TokenKind::Caret
-        | TokenKind::Vert
-        | TokenKind::VertVert
         | TokenKind::RBrace
         | TokenKind::EOF => false,
 
