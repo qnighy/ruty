@@ -3,6 +3,7 @@ use crate::encoding::{
     EncodingState,
 };
 
+#[derive(Debug)]
 pub(in crate::encoding) struct ShiftJisImpl;
 
 impl EncodingImpl for ShiftJisImpl {

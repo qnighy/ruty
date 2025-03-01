@@ -1,5 +1,6 @@
 use crate::encoding::{is_unicode_const_starter, CharPlus, EncNext, EncodingImpl, EncodingState};
 
+#[derive(Debug)]
 pub(in crate::encoding) struct Cesu8Impl;
 
 impl EncodingImpl for Cesu8Impl {

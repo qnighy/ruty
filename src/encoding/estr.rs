@@ -446,24 +446,15 @@ impl<'a> Iterator for Chars<'a> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct CharIndices<'a> {
     bytes: &'a [u8],
     pos: usize,
+    // For Debug impl
+    #[allow(unused)]
     encoding: Encoding,
     enc_impl: &'static dyn EncodingImpl,
     state: EncodingState,
-}
-
-impl<'a> std::fmt::Debug for CharIndices<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("CharIndices")
-            .field("bytes", &self.bytes)
-            .field("pos", &self.pos)
-            .field("encoding", &self.encoding)
-            .field("state", &self.state)
-            .finish()
-    }
 }
 
 impl<'a> Iterator for CharIndices<'a> {

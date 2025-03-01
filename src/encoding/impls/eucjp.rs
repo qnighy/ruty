@@ -3,6 +3,7 @@ use crate::encoding::{
     EncodingState,
 };
 
+#[derive(Debug)]
 pub(in crate::encoding) struct EucJpImpl;
 
 impl EncodingImpl for EucJpImpl {

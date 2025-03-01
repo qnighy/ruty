@@ -4,6 +4,7 @@ const STATE_BOM_BE: EncodingState = EncodingState(1);
 const STATE_BOM_LE: EncodingState = EncodingState(2);
 const STATE_BOM_INVALID: EncodingState = EncodingState(3);
 
+#[derive(Debug)]
 pub(in crate::encoding) struct Utf16Impl<const LE: bool, const BOM: bool>;
 #[allow(unused)]
 pub(in crate::encoding) type Utf16BeImpl = Utf16Impl<false, false>;
