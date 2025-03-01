@@ -16,8 +16,8 @@ use crate::{
     Diagnostic, EString,
 };
 use lexer::{
-    interpret_numeric, BinOpKind, Lexer, LexerState, StringDelimiter, StringState, Token,
-    TokenKind, UnOpKind,
+    BinOpKind, Lexer, LexerState, NumericToken, StringDelimiter, StringState, Token, TokenKind,
+    UnOpKind,
 };
 
 pub fn parse(diag: &mut Vec<Diagnostic>, input: EStrRef<'_>, locals: &[EString]) -> Program {
@@ -701,9 +701,8 @@ impl<'a> Parser<'a> {
                 }
                 .into(),
             ),
-            TokenKind::Numeric => {
-                let s = self.select(first_token.range);
-                let (value, imaginary) = interpret_numeric(s.as_bytes());
+            TokenKind::Numeric(value) => {
+                let NumericToken { value, imaginary } = value;
                 ExprLike::Expr(
                     NumericExpr {
                         range: first_token.range,
@@ -1658,7 +1657,7 @@ fn suffix_token_shift_precedence(token: &Token) -> usize {
         | TokenKind::IvarName
         | TokenKind::CvarName
         | TokenKind::GvarName
-        | TokenKind::Numeric
+        | TokenKind::Numeric(_)
         | TokenKind::CharLiteral
         | TokenKind::StringBegin
         | TokenKind::StringBeginLabelable
@@ -2730,7 +2729,7 @@ fn is_cmdarg_begin(token: &Token) -> bool {
         | TokenKind::IvarName
         | TokenKind::CvarName
         | TokenKind::GvarName
-        | TokenKind::Numeric
+        | TokenKind::Numeric(_)
         | TokenKind::CharLiteral
         | TokenKind::StringBegin
         | TokenKind::StringBeginLabelable

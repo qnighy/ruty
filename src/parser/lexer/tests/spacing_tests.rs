@@ -1,6 +1,11 @@
+use num_bigint::BigInt;
+
 use crate::{
-    ast::pos_in,
-    parser::lexer::{LexerState, TokenKind},
+    ast::{pos_in, NumericValue},
+    parser::{
+        lexer::{LexerState, TokenKind},
+        NumericToken,
+    },
 };
 
 use super::{assert_lex, assert_lex_except, assert_lex_for, token};
@@ -92,59 +97,66 @@ fn test_lex_non_eof_cr_after_end_token() {
     });
 }
 
+fn one() -> NumericToken {
+    NumericToken {
+        value: NumericValue::Integer(BigInt::from(1)),
+        imaginary: false,
+    }
+}
+
 #[test]
 fn test_lex_spaces_space() {
     assert_lex(" 1", |src| {
-        vec![token(TokenKind::Numeric, pos_in(src, b"1", 0), 1)]
+        vec![token(TokenKind::Numeric(one()), pos_in(src, b"1", 0), 1)]
     });
 }
 
 #[test]
 fn test_lex_spaces_tab() {
     assert_lex("\t1", |src| {
-        vec![token(TokenKind::Numeric, pos_in(src, b"1", 0), 8)]
+        vec![token(TokenKind::Numeric(one()), pos_in(src, b"1", 0), 8)]
     });
 }
 
 #[test]
 fn test_lex_spaces_tab_and_space() {
     assert_lex("\t 1", |src| {
-        vec![token(TokenKind::Numeric, pos_in(src, b"1", 0), 9)]
+        vec![token(TokenKind::Numeric(one()), pos_in(src, b"1", 0), 9)]
     });
 }
 
 #[test]
 fn test_lex_spaces_space_and_tab() {
     assert_lex(" \t1", |src| {
-        vec![token(TokenKind::Numeric, pos_in(src, b"1", 0), 8)]
+        vec![token(TokenKind::Numeric(one()), pos_in(src, b"1", 0), 8)]
     });
 }
 
 #[test]
 fn test_lex_spaces_vtab() {
     assert_lex("\x0B1", |src| {
-        vec![token(TokenKind::Numeric, pos_in(src, b"1", 0), 0)]
+        vec![token(TokenKind::Numeric(one()), pos_in(src, b"1", 0), 0)]
     });
 }
 
 #[test]
 fn test_lex_spaces_ff() {
     assert_lex("\x0C1", |src| {
-        vec![token(TokenKind::Numeric, pos_in(src, b"1", 0), 0)]
+        vec![token(TokenKind::Numeric(one()), pos_in(src, b"1", 0), 0)]
     });
 }
 
 #[test]
 fn test_lex_spaces_cr() {
     assert_lex("\r1", |src| {
-        vec![token(TokenKind::Numeric, pos_in(src, b"1", 0), 0)]
+        vec![token(TokenKind::Numeric(one()), pos_in(src, b"1", 0), 0)]
     });
 }
 
 #[test]
 fn test_lex_spaces_multiple() {
     assert_lex("  1", |src| {
-        vec![token(TokenKind::Numeric, pos_in(src, b"1", 0), 2)]
+        vec![token(TokenKind::Numeric(one()), pos_in(src, b"1", 0), 2)]
     });
 }
 
@@ -158,7 +170,7 @@ fn test_lex_spaces_lf() {
             LexerState::WeakFirstArgument,
             LexerState::End,
         ],
-        |src| vec![token(TokenKind::Numeric, pos_in(src, b"1", 0), 0)],
+        |src| vec![token(TokenKind::Numeric(one()), pos_in(src, b"1", 0), 0)],
     );
 }
 

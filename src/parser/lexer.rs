@@ -133,7 +133,7 @@ pub(super) enum TokenKind {
     GvarName,
 
     /// `123` etc., namely `tINTEGER`, `tFLOAT`, `tRATIONAL`, and `tIMAGINARY`
-    Numeric,
+    Numeric(NumericToken),
     /// `?a` etc., namely `tCHAR`
     CharLiteral,
 
@@ -265,6 +265,12 @@ pub(super) enum TokenKind {
     // Indicates a character sequence that the lexer cannot recognize.
     // Always 1 byte or longer.
     Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct NumericToken {
+    pub(super) value: NumericValue,
+    pub(super) imaginary: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2312,7 +2318,7 @@ impl<'a> Lexer<'a> {
                 // Something like `1and` is found and there is a chance
                 // that it is a part of a valid expression like `1and 0`.
                 self.pos = body_end;
-                return TokenKind::Numeric;
+                return TokenKind::Numeric(interpret_numeric(&self.bytes()[start..self.pos]));
             } else if suffix == b""
                 || suffix == b"i"
                 || (!found_e && suffix == b"r")
@@ -2323,12 +2329,12 @@ impl<'a> Lexer<'a> {
                 let has_invalid_cont =
                     self.peek_byte() == b'.' && self.peek_byte_at(1).is_ascii_digit();
                 if !has_invalid_cont {
-                    return TokenKind::Numeric;
+                    return TokenKind::Numeric(interpret_numeric(&self.bytes()[start..self.pos]));
                 }
             }
         }
         self.pos = start;
-        self.lex_erroneous_numeric(diag)
+        self.lex_erroneous_numeric(start, diag)
     }
 
     fn lex_decimal_body(&mut self) -> Result<bool, ()> {
@@ -2375,7 +2381,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn lex_erroneous_numeric(&mut self, diag: &mut Vec<Diagnostic>) -> TokenKind {
+    fn lex_erroneous_numeric(&mut self, start: usize, diag: &mut Vec<Diagnostic>) -> TokenKind {
         // Error recovery. It reconsumes the token to get more intuitive boundary.
 
         // Modified starting point for error reporting
@@ -2547,7 +2553,7 @@ impl<'a> Lexer<'a> {
             range,
             message: msg,
         });
-        TokenKind::Numeric
+        TokenKind::Numeric(interpret_numeric(&self.bytes()[start..self.pos]))
     }
 
     pub(super) fn lex_string_like(
@@ -2968,7 +2974,7 @@ static SUFFIX_KEYWORDS: LazyLock<HashSet<&'static [u8]>> = LazyLock::new(|| {
     ])
 });
 
-pub(crate) fn interpret_numeric(mut s: &[u8]) -> (NumericValue, bool) {
+fn interpret_numeric(mut s: &[u8]) -> NumericToken {
     // Validation is already done by the lexer,
     // so it is just sufficient to loosely parse it.
 
@@ -3168,7 +3174,7 @@ pub(crate) fn interpret_numeric(mut s: &[u8]) -> (NumericValue, bool) {
     } else {
         value
     };
-    (value, imaginary)
+    NumericToken { value, imaginary }
 }
 
 #[cfg(test)]
@@ -3184,7 +3190,10 @@ mod inline_tests {
     fn test_interpret_numeric_integer_simple() {
         assert_eq!(
             interpret_numeric(b"123"),
-            (NumericValue::Integer(BigInt::from(123)), false)
+            NumericToken {
+                value: NumericValue::Integer(BigInt::from(123)),
+                imaginary: false
+            }
         );
     }
 
@@ -3192,7 +3201,10 @@ mod inline_tests {
     fn test_interpret_numeric_integer_positive() {
         assert_eq!(
             interpret_numeric(b"+123"),
-            (NumericValue::Integer(BigInt::from(123)), false)
+            NumericToken {
+                value: NumericValue::Integer(BigInt::from(123)),
+                imaginary: false
+            }
         );
     }
 
@@ -3200,7 +3212,10 @@ mod inline_tests {
     fn test_interpret_numeric_integer_negative() {
         assert_eq!(
             interpret_numeric(b"-123"),
-            (NumericValue::Integer(BigInt::from(-123)), false)
+            NumericToken {
+                value: NumericValue::Integer(BigInt::from(-123)),
+                imaginary: false
+            }
         );
     }
 
@@ -3208,7 +3223,10 @@ mod inline_tests {
     fn test_interpret_numeric_integer_underscore() {
         assert_eq!(
             interpret_numeric(b"1_2_3"),
-            (NumericValue::Integer(BigInt::from(123)), false)
+            NumericToken {
+                value: NumericValue::Integer(BigInt::from(123)),
+                imaginary: false
+            }
         );
     }
 
@@ -3216,7 +3234,10 @@ mod inline_tests {
     fn test_interpret_numeric_float_with_point() {
         assert_eq!(
             interpret_numeric(b"123.75"),
-            (NumericValue::Float(NotNan::new(123.75).unwrap()), false)
+            NumericToken {
+                value: NumericValue::Float(NotNan::new(123.75).unwrap()),
+                imaginary: false
+            }
         );
     }
 
@@ -3224,7 +3245,10 @@ mod inline_tests {
     fn test_interpret_numeric_float_with_exponent() {
         assert_eq!(
             interpret_numeric(b"12375e-2"),
-            (NumericValue::Float(NotNan::new(123.75).unwrap()), false)
+            NumericToken {
+                value: NumericValue::Float(NotNan::new(123.75).unwrap()),
+                imaginary: false
+            }
         );
     }
 
@@ -3232,7 +3256,10 @@ mod inline_tests {
     fn test_interpret_numeric_float_negative() {
         assert_eq!(
             interpret_numeric(b"-123.75"),
-            (NumericValue::Float(NotNan::new(-123.75).unwrap()), false)
+            NumericToken {
+                value: NumericValue::Float(NotNan::new(-123.75).unwrap()),
+                imaginary: false
+            }
         );
     }
 
@@ -3240,10 +3267,10 @@ mod inline_tests {
     fn test_interpret_numeric_rational_with_point() {
         assert_eq!(
             interpret_numeric(b"123.75r"),
-            (
-                NumericValue::Rational(Decimal::from_str("123.75").unwrap()),
-                false
-            )
+            NumericToken {
+                value: NumericValue::Rational(Decimal::from_str("123.75").unwrap()),
+                imaginary: false
+            }
         );
     }
 
@@ -3251,10 +3278,10 @@ mod inline_tests {
     fn test_interpret_numeric_rational_negative() {
         assert_eq!(
             interpret_numeric(b"-123.75r"),
-            (
-                NumericValue::Rational(Decimal::from_str("-123.75").unwrap()),
-                false
-            )
+            NumericToken {
+                value: NumericValue::Rational(Decimal::from_str("-123.75").unwrap()),
+                imaginary: false
+            }
         );
     }
 }
