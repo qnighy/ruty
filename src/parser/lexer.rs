@@ -125,12 +125,8 @@ pub(super) enum TokenKind {
     Label,
     /// `:foo` etc., namely `tSYMBOL` followed by the symbol content
     Symbol,
-    /// `@foo` etc., namely `tIVAR`
-    IvarName,
-    /// `@@foo` etc., namely `tCVAR`
-    CvarName,
-    /// `$foo` etc., namely `tGVAR`, `tNTH_REF`, and `tBACK_REF`
-    GvarName,
+    /// `@foo` etc., namely `tIVAR`, `tCVAR`, `tGVAR`, `tNTH_REF`, and `tBACK_REF`
+    NonLocal(NonLocalKind),
 
     /// `123` etc., namely `tINTEGER`, `tFLOAT`, `tRATIONAL`, and `tIMAGINARY`
     Numeric(NumericToken),
@@ -265,6 +261,16 @@ pub(super) enum TokenKind {
     // Indicates a character sequence that the lexer cannot recognize.
     // Always 1 byte or longer.
     Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum NonLocalKind {
+    /// `@foo`, namely `tIVAR`
+    Ivar,
+    /// `@@foo`, namely `tCVAR`
+    Cvar,
+    /// `$foo` (incl. `$&` and `$1`), namely `tGVAR`, `tNTH_REF`, and `tBACK_REF`
+    Gvar,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -921,12 +927,12 @@ impl<'a> Lexer<'a> {
                                 ),
                             });
                         }
-                        TokenKind::GvarName
+                        TokenKind::NonLocal(NonLocalKind::Gvar)
                     }
                     b'!' | b'"' | b'$' | b'&' | b'\'' | b'*' | b'+' | b',' | b'.' | b'/' | b':'
                     | b';' | b'<' | b'=' | b'>' | b'?' | b'@' | b'\\' | b'`' | b'~' => {
                         self.pos += 1;
-                        TokenKind::GvarName
+                        TokenKind::NonLocal(NonLocalKind::Gvar)
                     }
                     b'0'..=b'9' => {
                         // Lexically speaking `$0` behaves similarly to `$1`
@@ -944,7 +950,7 @@ impl<'a> Lexer<'a> {
                         if cont.is_empty() || SUFFIX_KEYWORDS.contains(cont) {
                             // Split legit pair like `$1and 0`
                             self.pos = num_end;
-                            TokenKind::GvarName
+                            TokenKind::NonLocal(NonLocalKind::Gvar)
                         } else {
                             // Otherwise treat the whole token as an invalid global variable
                             // like `$123foo`
@@ -955,7 +961,7 @@ impl<'a> Lexer<'a> {
                                 },
                                 message: format!("Global variable name cannot start with a digit"),
                             });
-                            TokenKind::GvarName
+                            TokenKind::NonLocal(NonLocalKind::Gvar)
                         }
                     }
                     b'-' => {
@@ -1009,7 +1015,7 @@ impl<'a> Lexer<'a> {
                                 ),
                             });
                         }
-                        TokenKind::GvarName
+                        TokenKind::NonLocal(NonLocalKind::Gvar)
                     }
                     _ => {
                         diag.push(Diagnostic {
@@ -1019,7 +1025,7 @@ impl<'a> Lexer<'a> {
                             },
                             message: format!("Invalid global variable name"),
                         });
-                        TokenKind::GvarName
+                        TokenKind::NonLocal(NonLocalKind::Gvar)
                     }
                 }
             }
@@ -1364,7 +1370,7 @@ impl<'a> Lexer<'a> {
                                 ),
                             });
                         }
-                        TokenKind::IvarName
+                        TokenKind::NonLocal(NonLocalKind::Ivar)
                     }
                     b'@' => {
                         self.pos += 1;
@@ -1395,7 +1401,7 @@ impl<'a> Lexer<'a> {
                                         ),
                                     });
                                 }
-                                TokenKind::CvarName
+                                TokenKind::NonLocal(NonLocalKind::Cvar)
                             }
                             _ => {
                                 self.pos -= 1;

@@ -1,6 +1,6 @@
 use crate::{
     ast::pos_in,
-    parser::lexer::{BinOpKind, LexerState, TokenKind, UnOpKind},
+    parser::lexer::{BinOpKind, LexerState, NonLocalKind, TokenKind, UnOpKind},
 };
 
 use super::{assert_lex, assert_lex_except, assert_lex_for, token};
@@ -199,7 +199,11 @@ fn test_excl_at_separate() {
         |src| {
             vec![
                 token(TokenKind::UnOp(UnOpKind::Not), pos_in(src, b"!", 0), 0),
-                token(TokenKind::IvarName, pos_in(src, b"@foo", 0), 0),
+                token(
+                    TokenKind::NonLocal(NonLocalKind::Ivar),
+                    pos_in(src, b"@foo", 0),
+                    0,
+                ),
             ]
         },
     );
@@ -640,7 +644,11 @@ fn test_tilde_at_separate() {
                     pos_in(src, b"~", 0),
                     0,
                 ),
-                token(TokenKind::IvarName, pos_in(src, b"@foo", 0), 0),
+                token(
+                    TokenKind::NonLocal(NonLocalKind::Ivar),
+                    pos_in(src, b"@foo", 0),
+                    0,
+                ),
             ]
         },
     );
