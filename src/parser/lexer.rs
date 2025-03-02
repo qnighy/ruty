@@ -696,6 +696,32 @@ impl StringDelimiter {
     }
 }
 
+macro_rules! ident_start {
+    () => {
+        b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'\x80'..
+    };
+}
+macro_rules! ident_continue {
+    () => {
+        b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'\x80'..
+    };
+}
+macro_rules! space_inline {
+    () => {
+        b'\t' | b'\x0B' | b'\x0C' | b'\r' | b' '
+    };
+}
+macro_rules! space {
+    () => {
+        b'\t' | b'\n' | b'\x0B' | b'\x0C' | b'\r' | b' '
+    };
+}
+macro_rules! eof_char {
+    () => {
+        b'\0' | b'\x04' | b'\x1A'
+    };
+}
+
 #[derive(Debug)]
 pub(super) struct Lexer<'a> {
     input: EStrRef<'a>,
@@ -735,7 +761,7 @@ impl<'a> Lexer<'a> {
         let space_before = self.lex_space(diag, state);
         let start = self.pos;
         let kind = match self.peek_byte() {
-            b'\0' | b'\x04' | b'\x1A' => {
+            eof_char!() => {
                 if self.pos < self.bytes().len() {
                     self.pos += 1;
                 }
@@ -767,7 +793,7 @@ impl<'a> Lexer<'a> {
                     indent: orig_indent,
                 };
             }
-            b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'\x80'.. => {
+            ident_start!() => {
                 self.scan_ident();
                 let is_method_name = match self.peek_byte() {
                     b'!' | b'?' if self.peek_byte_at(1) != b'=' => {
@@ -878,7 +904,7 @@ impl<'a> Lexer<'a> {
             b'$' => {
                 self.pos += 1;
                 match self.peek_byte() {
-                    b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'\x80'.. => {
+                    ident_start!() => {
                         self.scan_ident();
                         let s = EStrRef::from_bytes(
                             &self.bytes()[start..self.pos],
@@ -1293,8 +1319,8 @@ impl<'a> Lexer<'a> {
                     TokenKind::Question
                 } else {
                     match self.peek_byte() {
-                        b'\t' | b'\n' | b'\x0B' | b'\x0C' | b'\r' | b' ' => TokenKind::Question,
-                        b if is_ident_continue(b) => {
+                        space!() => TokenKind::Question,
+                        ident_continue!() => {
                             let char_start = self.pos;
                             self.scan_ident();
                             // TODO: fix char count
@@ -1312,8 +1338,8 @@ impl<'a> Lexer<'a> {
             b'@' => {
                 self.pos += 1;
                 match self.peek_byte() {
-                    b if is_ident_continue(b) => {
-                        let is_numeric = b.is_ascii_digit();
+                    ident_continue!() => {
+                        let is_numeric = self.peek_byte().is_ascii_digit();
                         self.scan_ident();
                         let s = EStrRef::from_bytes(
                             &self.bytes()[start..self.pos],
@@ -1343,8 +1369,8 @@ impl<'a> Lexer<'a> {
                     b'@' => {
                         self.pos += 1;
                         match self.peek_byte() {
-                            b if is_ident_continue(b) => {
-                                let is_numeric = b.is_ascii_digit();
+                            ident_continue!() => {
+                                let is_numeric = self.peek_byte().is_ascii_digit();
                                 self.scan_ident();
                                 let s = EStrRef::from_bytes(
                                     &self.bytes()[start..self.pos],
@@ -1487,10 +1513,10 @@ impl<'a> Lexer<'a> {
         self.pos += 1;
 
         match self.peek_byte() {
-            b'\0' | b'\x04' | b'\x1A' | b'\t' | b'\n' | b'\x0B' | b'\x0C' | b'\r' | b' ' | b'#' => {
+            space!() | eof_char!() | b'#' => {
                 return TokenKind::Colon;
             }
-            b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'\x80'.. => {
+            ident_continue!() => {
                 let is_numeric = self.peek_byte().is_ascii_digit();
                 self.scan_ident();
                 match self.peek_byte() {
@@ -1551,7 +1577,7 @@ impl<'a> Lexer<'a> {
             b'$' => {
                 self.pos += 1;
                 match self.peek_byte() {
-                    b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'\x80'.. => {
+                    ident_start!() => {
                         self.scan_ident();
                         let s = EStrRef::from_bytes(
                             &self.bytes()[start..self.pos],
@@ -2034,8 +2060,8 @@ impl<'a> Lexer<'a> {
             b'@' => {
                 self.pos += 1;
                 match self.peek_byte() {
-                    b if is_ident_continue(b) => {
-                        let is_numeric = b.is_ascii_digit();
+                    ident_continue!() => {
+                        let is_numeric = self.peek_byte().is_ascii_digit();
                         self.scan_ident();
                         let s = EStrRef::from_bytes(
                             &self.bytes()[start..self.pos],
@@ -2062,8 +2088,8 @@ impl<'a> Lexer<'a> {
                     b'@' => {
                         self.pos += 1;
                         match self.peek_byte() {
-                            b if is_ident_continue(b) => {
-                                let is_numeric = b.is_ascii_digit();
+                            ident_continue!() => {
+                                let is_numeric = self.peek_byte().is_ascii_digit();
                                 self.scan_ident();
                                 let s = EStrRef::from_bytes(
                                     &self.bytes()[start..self.pos],
@@ -2691,14 +2717,14 @@ impl<'a> Lexer<'a> {
             b'{' => true,
             b'@' => match self.peek_byte_at(2) {
                 b'@' => match self.peek_byte_at(3) {
-                    b'A'..=b'Z' | b'a'..=b'z' | b'_' | b'\x80'.. => true,
+                    ident_start!() => true,
                     _ => false,
                 },
-                b'A'..=b'Z' | b'a'..=b'z' | b'_' | b'\x80'.. => true,
+                ident_start!() => true,
                 _ => false,
             },
             b'$' => match self.peek_byte_at(2) {
-                b'A'..=b'Z' | b'a'..=b'z' | b'_' | b'\x80'.. => true,
+                ident_start!() => true,
                 _ => false,
             },
             _ => false,
@@ -2710,7 +2736,7 @@ impl<'a> Lexer<'a> {
         loop {
             if self.peek_byte() >= 0x80 {
                 break;
-            } else if is_ident_continue(self.peek_byte()) {
+            } else if matches!(self.peek_byte(), ident_continue!()) {
                 self.pos += 1;
             } else {
                 return;
@@ -2720,13 +2746,13 @@ impl<'a> Lexer<'a> {
         let enc = self.input.encoding();
         if enc.is_ascii_substring_compatible() {
             // Fast path for ASCII-substring-compatible encodings
-            while is_ident_continue(self.peek_byte()) {
+            while matches!(self.peek_byte(), ident_continue!()) {
                 self.pos += 1;
             }
             return;
         }
 
-        while is_ident_continue(self.peek_byte()) {
+        while matches!(self.peek_byte(), ident_continue!()) {
             if self.peek_byte() < 0x80 {
                 self.pos += 1;
             } else {
@@ -2753,7 +2779,7 @@ impl<'a> Lexer<'a> {
                     self.pos += 1;
                     self.reset_indent();
                 }
-                b'\t' | b'\x0B' | b'\x0C' | b'\r' | b' ' => {
+                space_inline!() => {
                     self.pos += 1;
                 }
                 b'\\' => {
@@ -2788,7 +2814,7 @@ impl<'a> Lexer<'a> {
 
         loop {
             match self.peek_byte() {
-                b'\t' | b'\x0B' | b'\x0C' | b'\r' | b' ' => {
+                space_inline!() => {
                     self.pos += 1;
                 }
                 b'#' => {
@@ -2846,7 +2872,7 @@ impl<'a> Lexer<'a> {
     fn skip_line(&mut self) {
         loop {
             match self.peek_byte() {
-                b'\0' | b'\x04' | b'\x1A' | b'\n' => {
+                eof_char!() | b'\n' => {
                     break;
                 }
                 _ => {
@@ -2858,7 +2884,7 @@ impl<'a> Lexer<'a> {
 
     fn peek_space(&self) -> bool {
         match self.peek_byte() {
-            b'\t' | b'\n' | b'\x0B' | b'\x0C' | b'\r' | b' ' => true,
+            space!() => true,
             _ => false,
         }
     }
@@ -2879,13 +2905,6 @@ impl<'a> Lexer<'a> {
             || self.bytes()[pos] == b'\n'
             || (self.bytes()[pos] == b'\r' && self.bytes().get(pos + 1).copied() == Some(b'\n'))
     }
-}
-
-// fn is_ident_start(b: u8) -> bool {
-//     b.is_ascii_alphabetic() || b == b'_' || b >= 0x80
-// }
-fn is_ident_continue(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || b == b'_' || b >= 0x80
 }
 
 static KEYWORDS: LazyLock<HashMap<&'static [u8], TokenKind>> = LazyLock::new(|| {
