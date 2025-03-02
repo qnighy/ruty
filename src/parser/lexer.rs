@@ -907,128 +907,7 @@ impl<'a> Lexer<'a> {
             b'#' => {
                 unreachable!("Should have been skipped by lex_space");
             }
-            b'$' => {
-                self.pos += 1;
-                match self.peek_byte() {
-                    ident_start!() => {
-                        self.scan_ident();
-                        let s = EStrRef::from_bytes(
-                            &self.bytes()[start..self.pos],
-                            self.input.encoding(),
-                        );
-                        if !s.is_valid() {
-                            diag.push(Diagnostic {
-                                range: CodeRange {
-                                    start,
-                                    end: self.pos,
-                                },
-                                message: format!(
-                                    "The global variable name contains invalid characters"
-                                ),
-                            });
-                        }
-                        TokenKind::NonLocal(NonLocalKind::Gvar)
-                    }
-                    b'!' | b'"' | b'$' | b'&' | b'\'' | b'*' | b'+' | b',' | b'.' | b'/' | b':'
-                    | b';' | b'<' | b'=' | b'>' | b'?' | b'@' | b'\\' | b'`' | b'~' => {
-                        self.pos += 1;
-                        TokenKind::NonLocal(NonLocalKind::Gvar)
-                    }
-                    b'0'..=b'9' => {
-                        // Lexically speaking `$0` behaves similarly to `$1`
-                        // except that `$00` is not allowed.
-                        if self.peek_byte() == b'0' {
-                            self.pos += 1;
-                        } else {
-                            while self.peek_byte().is_ascii_digit() {
-                                self.pos += 1;
-                            }
-                        }
-                        let num_end = self.pos;
-                        self.scan_ident();
-                        let cont = &self.bytes()[num_end..self.pos];
-                        if cont.is_empty() || SUFFIX_KEYWORDS.contains(cont) {
-                            // Split legit pair like `$1and 0`
-                            self.pos = num_end;
-                            TokenKind::NonLocal(NonLocalKind::Gvar)
-                        } else {
-                            // Otherwise treat the whole token as an invalid global variable
-                            // like `$123foo`
-                            diag.push(Diagnostic {
-                                range: CodeRange {
-                                    start,
-                                    end: self.pos,
-                                },
-                                message: format!("Global variable name cannot start with a digit"),
-                            });
-                            TokenKind::NonLocal(NonLocalKind::Gvar)
-                        }
-                    }
-                    b'-' => {
-                        self.pos += 1;
-                        let ident_start = self.pos;
-                        self.scan_ident();
-                        let s = EStrRef::from_bytes(
-                            &self.bytes()[ident_start..self.pos],
-                            self.input.encoding(),
-                        );
-                        if s.is_valid() {
-                            let mut iter = s.char_indices();
-                            if iter.next().is_none() {
-                                // empty (i.e. `$-` alone)
-                                diag.push(Diagnostic {
-                                    range: CodeRange {
-                                        start: ident_start,
-                                        end: self.pos,
-                                    },
-                                    message: format!("A letter must follow `$-`"),
-                                });
-                            } else if let Some((r, _)) = iter.next() {
-                                let pos = r.start;
-                                // More than one character
-                                let cont = &s.as_bytes()[pos..];
-                                if SUFFIX_KEYWORDS.contains(cont) {
-                                    // Split legit pair like `$-aand 0`
-                                    self.pos = ident_start + pos;
-                                } else {
-                                    // Otherwise treat the whole token as an invalid global variable
-                                    // like `$-foo`
-                                    diag.push(Diagnostic {
-                                        range: CodeRange {
-                                            start: ident_start,
-                                            end: self.pos,
-                                        },
-                                        message: format!("Only a single letter can follow `$-`"),
-                                    });
-                                }
-                            } else {
-                                // One character. Okay!
-                            }
-                        } else {
-                            diag.push(Diagnostic {
-                                range: CodeRange {
-                                    start: ident_start,
-                                    end: self.pos,
-                                },
-                                message: format!(
-                                    "The global variable name contains invalid characters"
-                                ),
-                            });
-                        }
-                        TokenKind::NonLocal(NonLocalKind::Gvar)
-                    }
-                    _ => {
-                        diag.push(Diagnostic {
-                            range: CodeRange {
-                                start,
-                                end: self.pos,
-                            },
-                            message: format!("Invalid global variable name"),
-                        });
-                        TokenKind::NonLocal(NonLocalKind::Gvar)
-                    }
-                }
-            }
+            b'$' => self.lex_non_local(diag),
             b'%' => {
                 self.pos += 1;
                 match self.peek_byte() {
@@ -1341,77 +1220,11 @@ impl<'a> Lexer<'a> {
                     }
                 }
             }
-            b'@' => {
+            b'@' if !matches!(self.peek_byte_at(1), ident_continue!() | b'@') => {
                 self.pos += 1;
-                match self.peek_byte() {
-                    ident_continue!() => {
-                        let is_numeric = self.peek_byte().is_ascii_digit();
-                        self.scan_ident();
-                        let s = EStrRef::from_bytes(
-                            &self.bytes()[start..self.pos],
-                            self.input.encoding(),
-                        );
-                        if is_numeric {
-                            diag.push(Diagnostic {
-                                range: CodeRange {
-                                    start,
-                                    end: self.pos,
-                                },
-                                message: format!("Invalid instance variable name"),
-                            });
-                        } else if !s.is_valid() {
-                            diag.push(Diagnostic {
-                                range: CodeRange {
-                                    start,
-                                    end: self.pos,
-                                },
-                                message: format!(
-                                    "The instance variable name contains invalid characters"
-                                ),
-                            });
-                        }
-                        TokenKind::NonLocal(NonLocalKind::Ivar)
-                    }
-                    b'@' => {
-                        self.pos += 1;
-                        match self.peek_byte() {
-                            ident_continue!() => {
-                                let is_numeric = self.peek_byte().is_ascii_digit();
-                                self.scan_ident();
-                                let s = EStrRef::from_bytes(
-                                    &self.bytes()[start..self.pos],
-                                    self.input.encoding(),
-                                );
-                                if is_numeric {
-                                    diag.push(Diagnostic {
-                                        range: CodeRange {
-                                            start,
-                                            end: self.pos,
-                                        },
-                                        message: format!("Invalid class variable name"),
-                                    });
-                                } else if !s.is_valid() {
-                                    diag.push(Diagnostic {
-                                        range: CodeRange {
-                                            start,
-                                            end: self.pos,
-                                        },
-                                        message: format!(
-                                            "The class variable name contains invalid characters"
-                                        ),
-                                    });
-                                }
-                                TokenKind::NonLocal(NonLocalKind::Cvar)
-                            }
-                            _ => {
-                                self.pos -= 1;
-                                TokenKind::At
-                            }
-                        }
-                    }
-                    _ => TokenKind::At,
-                }
+                TokenKind::At
             }
+            b'@' => self.lex_non_local(diag),
             b'[' => {
                 self.pos += 1;
                 if state.extended_method_name() && self.peek_byte() == b']' {
@@ -1581,116 +1394,7 @@ impl<'a> Lexer<'a> {
                 return TokenKind::StringBegin;
             }
             b'$' => {
-                self.pos += 1;
-                match self.peek_byte() {
-                    ident_start!() => {
-                        self.scan_ident();
-                        let s = EStrRef::from_bytes(
-                            &self.bytes()[start..self.pos],
-                            self.input.encoding(),
-                        );
-                        if !s.is_valid() {
-                            diag.push(Diagnostic {
-                                range: CodeRange {
-                                    start,
-                                    end: self.pos,
-                                },
-                                message: format!("The symbol contains invalid characters"),
-                            });
-                        }
-                    }
-                    b'!' | b'"' | b'$' | b'&' | b'\'' | b'*' | b'+' | b',' | b'.' | b'/' | b':'
-                    | b';' | b'<' | b'=' | b'>' | b'?' | b'@' | b'\\' | b'`' | b'~' => {
-                        self.pos += 1;
-                    }
-                    b'0'..=b'9' => {
-                        // Lexically speaking `$0` behaves similarly to `$1`
-                        // except that `$00` is not allowed.
-                        if self.peek_byte() == b'0' {
-                            self.pos += 1;
-                        } else {
-                            while self.peek_byte().is_ascii_digit() {
-                                self.pos += 1;
-                            }
-                        }
-                        let num_end = self.pos;
-                        self.scan_ident();
-                        let cont = &self.bytes()[num_end..self.pos];
-                        if cont.is_empty() || SUFFIX_KEYWORDS.contains(cont) {
-                            // Split legit pair like `:$1and 0`
-                            self.pos = num_end;
-                        } else {
-                            // Otherwise treat the whole token as an invalid global variable
-                            // like `$123foo`
-                            diag.push(Diagnostic {
-                                range: CodeRange {
-                                    start,
-                                    end: self.pos,
-                                },
-                                message: format!("Global variable name cannot start with a digit"),
-                            });
-                        }
-                    }
-                    b'-' => {
-                        self.pos += 1;
-                        let ident_start = self.pos;
-                        self.scan_ident();
-                        let s = EStrRef::from_bytes(
-                            &self.bytes()[ident_start..self.pos],
-                            self.input.encoding(),
-                        );
-                        if s.is_valid() {
-                            let mut iter = s.char_indices();
-                            if iter.next().is_none() {
-                                // empty (i.e. `$-` alone)
-                                diag.push(Diagnostic {
-                                    range: CodeRange {
-                                        start: ident_start,
-                                        end: self.pos,
-                                    },
-                                    message: format!("A letter must follow `$-`"),
-                                });
-                            } else if let Some((r, _)) = iter.next() {
-                                let pos = r.start;
-                                // More than one character
-                                let cont = &s.as_bytes()[pos..];
-                                if SUFFIX_KEYWORDS.contains(cont) {
-                                    // Split legit pair like `:$-aand 0`
-                                    self.pos = ident_start + pos;
-                                } else {
-                                    // Otherwise treat the whole token as an invalid global variable
-                                    // like `:$-foo`
-                                    diag.push(Diagnostic {
-                                        range: CodeRange {
-                                            start: ident_start,
-                                            end: self.pos,
-                                        },
-                                        message: format!("Only a single letter can follow `:$-`"),
-                                    });
-                                }
-                            } else {
-                                // One character. Okay!
-                            }
-                        } else {
-                            diag.push(Diagnostic {
-                                range: CodeRange {
-                                    start: ident_start,
-                                    end: self.pos,
-                                },
-                                message: format!("The symbol contains invalid characters"),
-                            });
-                        }
-                    }
-                    _ => {
-                        diag.push(Diagnostic {
-                            range: CodeRange {
-                                start,
-                                end: self.pos,
-                            },
-                            message: format!("Invalid symbol"),
-                        });
-                    }
-                }
+                self.lex_non_local(diag);
             }
             b'%' => {
                 self.pos += 1;
@@ -2064,84 +1768,7 @@ impl<'a> Lexer<'a> {
                 });
             }
             b'@' => {
-                self.pos += 1;
-                match self.peek_byte() {
-                    ident_continue!() => {
-                        let is_numeric = self.peek_byte().is_ascii_digit();
-                        self.scan_ident();
-                        let s = EStrRef::from_bytes(
-                            &self.bytes()[start..self.pos],
-                            self.input.encoding(),
-                        );
-                        if is_numeric {
-                            diag.push(Diagnostic {
-                                range: CodeRange {
-                                    start,
-                                    end: self.pos,
-                                },
-                                message: format!("Invalid symbol"),
-                            });
-                        } else if !s.is_valid() {
-                            diag.push(Diagnostic {
-                                range: CodeRange {
-                                    start,
-                                    end: self.pos,
-                                },
-                                message: format!("The symbol contains invalid characters"),
-                            });
-                        }
-                    }
-                    b'@' => {
-                        self.pos += 1;
-                        match self.peek_byte() {
-                            ident_continue!() => {
-                                let is_numeric = self.peek_byte().is_ascii_digit();
-                                self.scan_ident();
-                                let s = EStrRef::from_bytes(
-                                    &self.bytes()[start..self.pos],
-                                    self.input.encoding(),
-                                );
-                                if is_numeric {
-                                    diag.push(Diagnostic {
-                                        range: CodeRange {
-                                            start,
-                                            end: self.pos,
-                                        },
-                                        message: format!("Invalid symbol"),
-                                    });
-                                } else if !s.is_valid() {
-                                    diag.push(Diagnostic {
-                                        range: CodeRange {
-                                            start,
-                                            end: self.pos,
-                                        },
-                                        message: format!("The symbol contains invalid characters"),
-                                    });
-                                }
-                            }
-                            _ => {
-                                // :@@ is invalid
-                                diag.push(Diagnostic {
-                                    range: CodeRange {
-                                        start,
-                                        end: self.pos,
-                                    },
-                                    message: format!("Invalid symbol"),
-                                });
-                            }
-                        }
-                    }
-                    _ => {
-                        // :@ is invalid
-                        diag.push(Diagnostic {
-                            range: CodeRange {
-                                start,
-                                end: self.pos,
-                            },
-                            message: format!("Invalid symbol"),
-                        });
-                    }
-                }
+                self.lex_non_local(diag);
             }
             b'[' => {
                 if self.peek_byte_at(1) == b']' {
@@ -2276,6 +1903,222 @@ impl<'a> Lexer<'a> {
             }
         };
         TokenKind::Symbol
+    }
+
+    /// Scans tokens starting with `$` or `@`.
+    fn lex_non_local(&mut self, diag: &mut Vec<Diagnostic>) -> TokenKind {
+        let start = self.pos;
+        match self.peek_byte() {
+            b'@' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    ident_continue!() => {
+                        let is_numeric = self.peek_byte().is_ascii_digit();
+                        self.scan_ident();
+                        let s = EStrRef::from_bytes(
+                            &self.bytes()[start..self.pos],
+                            self.input.encoding(),
+                        );
+                        if is_numeric {
+                            diag.push(Diagnostic {
+                                range: CodeRange {
+                                    start,
+                                    end: self.pos,
+                                },
+                                message: format!("Invalid instance variable name"),
+                            });
+                        } else if !s.is_valid() {
+                            diag.push(Diagnostic {
+                                range: CodeRange {
+                                    start,
+                                    end: self.pos,
+                                },
+                                message: format!(
+                                    "The instance variable name contains invalid characters"
+                                ),
+                            });
+                        }
+                        TokenKind::NonLocal(NonLocalKind::Ivar)
+                    }
+                    b'@' => {
+                        self.pos += 1;
+                        match self.peek_byte() {
+                            ident_continue!() => {
+                                let is_numeric = self.peek_byte().is_ascii_digit();
+                                self.scan_ident();
+                                let s = EStrRef::from_bytes(
+                                    &self.bytes()[start..self.pos],
+                                    self.input.encoding(),
+                                );
+                                if is_numeric {
+                                    diag.push(Diagnostic {
+                                        range: CodeRange {
+                                            start,
+                                            end: self.pos,
+                                        },
+                                        message: format!("Invalid class variable name"),
+                                    });
+                                } else if !s.is_valid() {
+                                    diag.push(Diagnostic {
+                                        range: CodeRange {
+                                            start,
+                                            end: self.pos,
+                                        },
+                                        message: format!(
+                                            "The class variable name contains invalid characters"
+                                        ),
+                                    });
+                                }
+                                TokenKind::NonLocal(NonLocalKind::Cvar)
+                            }
+                            _ => {
+                                diag.push(Diagnostic {
+                                    range: CodeRange {
+                                        start,
+                                        end: self.pos,
+                                    },
+                                    message: format!("Invalid class variable name"),
+                                });
+                                TokenKind::NonLocal(NonLocalKind::Cvar)
+                            }
+                        }
+                    }
+                    _ => {
+                        diag.push(Diagnostic {
+                            range: CodeRange {
+                                start,
+                                end: self.pos,
+                            },
+                            message: format!("Invalid instance variable name"),
+                        });
+                        TokenKind::NonLocal(NonLocalKind::Ivar)
+                    }
+                }
+            }
+            b'$' => {
+                self.pos += 1;
+                match self.peek_byte() {
+                    ident_start!() => {
+                        self.scan_ident();
+                        let s = EStrRef::from_bytes(
+                            &self.bytes()[start..self.pos],
+                            self.input.encoding(),
+                        );
+                        if !s.is_valid() {
+                            diag.push(Diagnostic {
+                                range: CodeRange {
+                                    start,
+                                    end: self.pos,
+                                },
+                                message: format!(
+                                    "The global variable name contains invalid characters"
+                                ),
+                            });
+                        }
+                        TokenKind::NonLocal(NonLocalKind::Gvar)
+                    }
+                    b'!' | b'"' | b'$' | b'&' | b'\'' | b'*' | b'+' | b',' | b'.' | b'/' | b':'
+                    | b';' | b'<' | b'=' | b'>' | b'?' | b'@' | b'\\' | b'`' | b'~' => {
+                        self.pos += 1;
+                        TokenKind::NonLocal(NonLocalKind::Gvar)
+                    }
+                    b'0'..=b'9' => {
+                        // Lexically speaking `$0` behaves similarly to `$1`
+                        // except that `$00` is not allowed.
+                        if self.peek_byte() == b'0' {
+                            self.pos += 1;
+                        } else {
+                            while self.peek_byte().is_ascii_digit() {
+                                self.pos += 1;
+                            }
+                        }
+                        let num_end = self.pos;
+                        self.scan_ident();
+                        let cont = &self.bytes()[num_end..self.pos];
+                        if cont.is_empty() || SUFFIX_KEYWORDS.contains(cont) {
+                            // Split legit pair like `$1and 0`
+                            self.pos = num_end;
+                            TokenKind::NonLocal(NonLocalKind::Gvar)
+                        } else {
+                            // Otherwise treat the whole token as an invalid global variable
+                            // like `$123foo`
+                            diag.push(Diagnostic {
+                                range: CodeRange {
+                                    start,
+                                    end: self.pos,
+                                },
+                                message: format!("Global variable name cannot start with a digit"),
+                            });
+                            TokenKind::NonLocal(NonLocalKind::Gvar)
+                        }
+                    }
+                    b'-' => {
+                        self.pos += 1;
+                        let ident_start = self.pos;
+                        self.scan_ident();
+                        let s = EStrRef::from_bytes(
+                            &self.bytes()[ident_start..self.pos],
+                            self.input.encoding(),
+                        );
+                        if s.is_valid() {
+                            let mut iter = s.char_indices();
+                            if iter.next().is_none() {
+                                // empty (i.e. `$-` alone)
+                                diag.push(Diagnostic {
+                                    range: CodeRange {
+                                        start: ident_start,
+                                        end: self.pos,
+                                    },
+                                    message: format!("A letter must follow `$-`"),
+                                });
+                            } else if let Some((r, _)) = iter.next() {
+                                let pos = r.start;
+                                // More than one character
+                                let cont = &s.as_bytes()[pos..];
+                                if SUFFIX_KEYWORDS.contains(cont) {
+                                    // Split legit pair like `$-aand 0`
+                                    self.pos = ident_start + pos;
+                                } else {
+                                    // Otherwise treat the whole token as an invalid global variable
+                                    // like `$-foo`
+                                    diag.push(Diagnostic {
+                                        range: CodeRange {
+                                            start: ident_start,
+                                            end: self.pos,
+                                        },
+                                        message: format!("Only a single letter can follow `$-`"),
+                                    });
+                                }
+                            } else {
+                                // One character. Okay!
+                            }
+                        } else {
+                            diag.push(Diagnostic {
+                                range: CodeRange {
+                                    start: ident_start,
+                                    end: self.pos,
+                                },
+                                message: format!(
+                                    "The global variable name contains invalid characters"
+                                ),
+                            });
+                        }
+                        TokenKind::NonLocal(NonLocalKind::Gvar)
+                    }
+                    _ => {
+                        diag.push(Diagnostic {
+                            range: CodeRange {
+                                start,
+                                end: self.pos,
+                            },
+                            message: format!("Invalid global variable name"),
+                        });
+                        TokenKind::NonLocal(NonLocalKind::Gvar)
+                    }
+                }
+            }
+            _ => unreachable!(),
+        }
     }
 
     fn lex_numeric(&mut self, diag: &mut Vec<Diagnostic>) -> TokenKind {
@@ -2565,7 +2408,7 @@ impl<'a> Lexer<'a> {
 
     pub(super) fn lex_string_like(
         &mut self,
-        _diag: &mut Vec<Diagnostic>,
+        diag: &mut Vec<Diagnostic>,
         state: StringState,
     ) -> Token {
         if let Some(eof_token) = &self.eof_token {
@@ -2653,11 +2496,7 @@ impl<'a> Lexer<'a> {
                         }
                     }
                     b'@' | b'$' => {
-                        self.pos += 1;
-                        if self.peek_byte() == b'@' {
-                            self.pos += 1;
-                        }
-                        self.scan_ident();
+                        self.lex_non_local(diag);
                         Token {
                             kind: TokenKind::StringVarInterpolation,
                             range: CodeRange {
