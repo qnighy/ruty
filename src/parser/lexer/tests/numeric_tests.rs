@@ -6,11 +6,11 @@ use crate::{
     parser::lexer::{NumericToken, TokenKind},
 };
 
-use super::{assert_lex_for, token, LexerStates};
+use super::{assert_lex, token, LexerStates};
 
 #[test]
 fn test_lex_integer_simple() {
-    assert_lex_for("123", LexerStates::ALL, |src| {
+    assert_lex("123", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Integer(BigInt::from(123)),
@@ -24,7 +24,7 @@ fn test_lex_integer_simple() {
 
 #[test]
 fn test_lex_integer_positive() {
-    assert_lex_for("+123", LexerStates::BEGIN_ALL, |src| {
+    assert_lex("+123", LexerStates::BEGIN_ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Integer(BigInt::from(123)),
@@ -38,7 +38,7 @@ fn test_lex_integer_positive() {
 
 #[test]
 fn test_lex_integer_underscore() {
-    assert_lex_for("1_2_3", LexerStates::ALL, |src| {
+    assert_lex("1_2_3", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Integer(BigInt::from(123)),
@@ -52,7 +52,7 @@ fn test_lex_integer_underscore() {
 
 #[test]
 fn test_lex_integer_hex_small() {
-    assert_lex_for("0xff", LexerStates::ALL, |src| {
+    assert_lex("0xff", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Integer(BigInt::from(255)),
@@ -66,7 +66,7 @@ fn test_lex_integer_hex_small() {
 
 #[test]
 fn test_lex_integer_hex_capital() {
-    assert_lex_for("0XFF", LexerStates::ALL, |src| {
+    assert_lex("0XFF", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Integer(BigInt::from(255)),
@@ -80,7 +80,7 @@ fn test_lex_integer_hex_capital() {
 
 #[test]
 fn test_lex_integer_explicit_dec_small() {
-    assert_lex_for("0d0129", LexerStates::ALL, |src| {
+    assert_lex("0d0129", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Integer(BigInt::from(129)),
@@ -94,7 +94,7 @@ fn test_lex_integer_explicit_dec_small() {
 
 #[test]
 fn test_lex_integer_explicit_dec_capital() {
-    assert_lex_for("0D0129", LexerStates::ALL, |src| {
+    assert_lex("0D0129", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Integer(BigInt::from(129)),
@@ -108,7 +108,7 @@ fn test_lex_integer_explicit_dec_capital() {
 
 #[test]
 fn test_lex_integer_explicit_oct_small() {
-    assert_lex_for("0o0127", LexerStates::ALL, |src| {
+    assert_lex("0o0127", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Integer(BigInt::from(0o127)),
@@ -122,7 +122,7 @@ fn test_lex_integer_explicit_oct_small() {
 
 #[test]
 fn test_lex_integer_explicit_oct_capital() {
-    assert_lex_for("0O0127", LexerStates::ALL, |src| {
+    assert_lex("0O0127", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Integer(BigInt::from(0o127)),
@@ -136,7 +136,7 @@ fn test_lex_integer_explicit_oct_capital() {
 
 #[test]
 fn test_lex_integer_oct() {
-    assert_lex_for("0127", LexerStates::ALL, |src| {
+    assert_lex("0127", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Integer(BigInt::from(0o127)),
@@ -150,7 +150,7 @@ fn test_lex_integer_oct() {
 
 #[test]
 fn test_lex_float_simple() {
-    assert_lex_for("1.0", LexerStates::ALL, |src| {
+    assert_lex("1.0", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Float(NotNan::new(1.0).unwrap()),
@@ -164,7 +164,7 @@ fn test_lex_float_simple() {
 
 #[test]
 fn test_lex_float_positive() {
-    assert_lex_for("+1.0", LexerStates::BEGIN_ALL, |src| {
+    assert_lex("+1.0", LexerStates::BEGIN_ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Float(NotNan::new(1.0).unwrap()),
@@ -178,7 +178,7 @@ fn test_lex_float_positive() {
 
 #[test]
 fn test_lex_float_zero() {
-    assert_lex_for("0.5", LexerStates::ALL, |src| {
+    assert_lex("0.5", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Float(NotNan::new(0.5).unwrap()),
@@ -192,7 +192,7 @@ fn test_lex_float_zero() {
 
 #[test]
 fn test_lex_float_with_exponent_simple() {
-    assert_lex_for("1e-3", LexerStates::ALL, |src| {
+    assert_lex("1e-3", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Float(NotNan::new(1.0e-3).unwrap()),
@@ -206,7 +206,7 @@ fn test_lex_float_with_exponent_simple() {
 
 #[test]
 fn test_lex_float_with_exponent_capital() {
-    assert_lex_for("1E-3", LexerStates::ALL, |src| {
+    assert_lex("1E-3", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Float(NotNan::new(1.0e-3).unwrap()),
@@ -220,7 +220,7 @@ fn test_lex_float_with_exponent_capital() {
 
 #[test]
 fn test_lex_float_with_exponent_nosign() {
-    assert_lex_for("1e3", LexerStates::ALL, |src| {
+    assert_lex("1e3", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Float(NotNan::new(1.0e3).unwrap()),
@@ -234,7 +234,7 @@ fn test_lex_float_with_exponent_nosign() {
 
 #[test]
 fn test_lex_float_with_exponent_negative() {
-    assert_lex_for("1e-3", LexerStates::ALL, |src| {
+    assert_lex("1e-3", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Float(NotNan::new(1.0e-3).unwrap()),
@@ -248,7 +248,7 @@ fn test_lex_float_with_exponent_negative() {
 
 #[test]
 fn test_lex_float_with_exponent_positive() {
-    assert_lex_for("1e+3", LexerStates::ALL, |src| {
+    assert_lex("1e+3", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Float(NotNan::new(1.0e3).unwrap()),
@@ -262,7 +262,7 @@ fn test_lex_float_with_exponent_positive() {
 
 #[test]
 fn test_lex_float_with_exponent_leading_zero() {
-    assert_lex_for("1e+09", LexerStates::ALL, |src| {
+    assert_lex("1e+09", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Float(NotNan::new(1.0e9).unwrap()),
@@ -276,7 +276,7 @@ fn test_lex_float_with_exponent_leading_zero() {
 
 #[test]
 fn test_lex_float_with_point_and_exponent() {
-    assert_lex_for("1.53e-4", LexerStates::ALL, |src| {
+    assert_lex("1.53e-4", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Float(NotNan::new(1.53e-4).unwrap()),
@@ -290,7 +290,7 @@ fn test_lex_float_with_point_and_exponent() {
 
 #[test]
 fn test_lex_rational_simple() {
-    assert_lex_for("3r", LexerStates::ALL, |src| {
+    assert_lex("3r", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Rational(Decimal::from(3)),
@@ -304,7 +304,7 @@ fn test_lex_rational_simple() {
 
 #[test]
 fn test_lex_rational_positive() {
-    assert_lex_for("+3r", LexerStates::BEGIN_ALL, |src| {
+    assert_lex("+3r", LexerStates::BEGIN_ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Rational(Decimal::from(3)),
@@ -318,7 +318,7 @@ fn test_lex_rational_positive() {
 
 #[test]
 fn test_lex_rational_float() {
-    assert_lex_for("3.52r", LexerStates::ALL, |src| {
+    assert_lex("3.52r", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Rational(Decimal::from_fraction_and_exponent(
@@ -335,7 +335,7 @@ fn test_lex_rational_float() {
 
 #[test]
 fn test_lex_rational_with_base() {
-    assert_lex_for("0xFFr", LexerStates::ALL, |src| {
+    assert_lex("0xFFr", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Rational(Decimal::from(255)),
@@ -349,7 +349,7 @@ fn test_lex_rational_with_base() {
 
 #[test]
 fn test_lex_imaginary_integer_simple() {
-    assert_lex_for("123i", LexerStates::ALL, |src| {
+    assert_lex("123i", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Integer(BigInt::from(123)),
@@ -363,7 +363,7 @@ fn test_lex_imaginary_integer_simple() {
 
 #[test]
 fn test_lex_imaginary_integer_positive() {
-    assert_lex_for("+123i", LexerStates::BEGIN_ALL, |src| {
+    assert_lex("+123i", LexerStates::BEGIN_ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Integer(BigInt::from(123)),
@@ -377,7 +377,7 @@ fn test_lex_imaginary_integer_positive() {
 
 #[test]
 fn test_lex_imaginary_float_simple() {
-    assert_lex_for("1.5i", LexerStates::ALL, |src| {
+    assert_lex("1.5i", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Float(NotNan::new(1.5).unwrap()),
@@ -391,7 +391,7 @@ fn test_lex_imaginary_float_simple() {
 
 #[test]
 fn test_lex_imaginary_rational_simple() {
-    assert_lex_for("1.5ri", LexerStates::ALL, |src| {
+    assert_lex("1.5ri", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Rational(Decimal::from_fraction_and_exponent(

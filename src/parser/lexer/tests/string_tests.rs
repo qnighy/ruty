@@ -1,6 +1,6 @@
 use crate::{ast::pos_in, parser::lexer::TokenKind};
 
-use super::{assert_lex_for, token, LexerStates};
+use super::{assert_lex, token, LexerStates};
 
 const LABELABLE: LexerStates = LexerStates::EMPTY
     .or(LexerStates::BeginLabelable)
@@ -9,7 +9,7 @@ const LABELABLE: LexerStates = LexerStates::EMPTY
 
 #[test]
 fn test_quote_string_tokens_simple_nolabelable() {
-    assert_lex_for("' foo '", !LABELABLE, |src| {
+    assert_lex("' foo '", !LABELABLE, |src| {
         vec![
             token(TokenKind::StringBegin, pos_in(src, b"'", 0), 0),
             token(TokenKind::StringContent, pos_in(src, " foo ", 0), 0),
@@ -20,7 +20,7 @@ fn test_quote_string_tokens_simple_nolabelable() {
 
 #[test]
 fn test_quote_string_tokens_simple_labelable() {
-    assert_lex_for("' foo '", LABELABLE, |src| {
+    assert_lex("' foo '", LABELABLE, |src| {
         vec![
             token(TokenKind::StringBeginLabelable, pos_in(src, b"'", 0), 0),
             token(TokenKind::StringContent, pos_in(src, " foo ", 0), 0),
@@ -31,7 +31,7 @@ fn test_quote_string_tokens_simple_labelable() {
 
 #[test]
 fn test_quote_string_tokens_labelled() {
-    assert_lex_for("' foo ':", LABELABLE, |src| {
+    assert_lex("' foo ':", LABELABLE, |src| {
         vec![
             token(TokenKind::StringBeginLabelable, pos_in(src, b"'", 0), 0),
             token(TokenKind::StringContent, pos_in(src, " foo ", 0), 0),
@@ -42,7 +42,7 @@ fn test_quote_string_tokens_labelled() {
 
 #[test]
 fn test_quote_string_tokens_escaped() {
-    assert_lex_for("'\\''", LexerStates::Begin, |src| {
+    assert_lex("'\\''", LexerStates::Begin, |src| {
         vec![
             token(TokenKind::StringBegin, pos_in(src, b"'", 0), 0),
             token(TokenKind::StringContent, pos_in(src, "\\'", 0), 0),
@@ -53,7 +53,7 @@ fn test_quote_string_tokens_escaped() {
 
 #[test]
 fn test_quote_string_tokens_backslashes() {
-    assert_lex_for("'\\\\'", LexerStates::Begin, |src| {
+    assert_lex("'\\\\'", LexerStates::Begin, |src| {
         vec![
             token(TokenKind::StringBegin, pos_in(src, b"'", 0), 0),
             token(TokenKind::StringContent, pos_in(src, "\\\\", 0), 0),
@@ -64,7 +64,7 @@ fn test_quote_string_tokens_backslashes() {
 
 #[test]
 fn test_double_quote_string_tokens_simple() {
-    assert_lex_for("\" foo \"", LexerStates::Begin, |src| {
+    assert_lex("\" foo \"", LexerStates::Begin, |src| {
         vec![
             token(TokenKind::StringBegin, pos_in(src, b"\"", 0), 0),
             token(TokenKind::StringContent, pos_in(src, " foo ", 0), 0),
@@ -75,7 +75,7 @@ fn test_double_quote_string_tokens_simple() {
 
 #[test]
 fn test_double_quote_string_tokens_dynamic() {
-    assert_lex_for("\" foo #{bar}", LexerStates::Begin, |src| {
+    assert_lex("\" foo #{bar}", LexerStates::Begin, |src| {
         vec![
             token(TokenKind::StringBegin, pos_in(src, b"\"", 0), 0),
             token(TokenKind::StringContent, pos_in(src, " foo ", 0), 0),

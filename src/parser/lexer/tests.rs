@@ -203,7 +203,7 @@ const ALL_STATES: [LexerState; 10] = [
 ];
 
 #[track_caller]
-fn assert_lex_for<'a, S, F>(src: S, states: LexerStates, expected: F)
+fn assert_lex<'a, S, F>(src: S, states: LexerStates, expected: F)
 where
     S: Into<EStrRef<'a>>,
     F: FnOnce(EStrRef<'_>) -> Vec<Token>,
