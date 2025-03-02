@@ -13,7 +13,7 @@ use crate::{
         TypeAnnotation, UntilExpr, WhileExpr, WriteExpr, WriteTarget, XStringExpr, DUMMY_RANGE,
     },
     encoding::EStrRef,
-    Diagnostic, EString,
+    Diagnostic, EString, Encoding,
 };
 use lexer::{
     BinOpKind, Lexer, LexerState, NumericToken, StringDelimiter, StringState, Token, TokenKind,
@@ -58,7 +58,22 @@ impl<'a> Parser<'a> {
         self.lexer.bytes()
     }
 
+    fn fix_input_encoding(&mut self, diag: &mut Vec<Diagnostic>) {
+        let enc = self.lexer.input().encoding();
+        if !enc.is_ascii_compatible() || !enc.is_stateless() {
+            diag.push(Diagnostic {
+                range: CodeRange { start: 0, end: 0 },
+                message: format!("invalid source encoding: {}", enc.name()),
+            });
+            self.lexer = Lexer::new(EStrRef::from_bytes(
+                self.lexer.bytes(),
+                Encoding::ASCII_8BIT,
+            ));
+        }
+    }
+
     fn parse_whole_program(&mut self, diag: &mut Vec<Diagnostic>, locals: &[EString]) -> Program {
+        self.fix_input_encoding(diag);
         let mut lv = LVCtx::new();
         for local in locals {
             lv.push(local.clone());
@@ -193,6 +208,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_whole_expr(&mut self, diag: &mut Vec<Diagnostic>, locals: &[EString]) -> Expr {
+        self.fix_input_encoding(diag);
         let mut lv = LVCtx::new();
         for local in locals {
             lv.push(local.clone());
@@ -1364,6 +1380,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_whole_type(&mut self, diag: &mut Vec<Diagnostic>) -> Type {
+        self.fix_input_encoding(diag);
         let first_token = self.lexer.lex(diag, LexerState::Begin);
         let (ty, next_token) = self.parse_type(diag, first_token);
         match next_token.kind {
