@@ -5,7 +5,18 @@ use crate::{
     Diagnostic, Encoding,
 };
 
-use super::{assert_lex, assert_lex_except, assert_lex_for, lex_all_with_diag_from, token};
+use super::{
+    assert_lex, assert_lex_except, assert_lex_for, lex_all_with_diag_from, token, LexerStates,
+};
+
+const METH_FOR_DEF_ALL: LexerStates = LexerStates::EMPTY
+    .or(LexerStates::MethForDef)
+    .or(LexerStates::MethOrSymbolForDef);
+
+const LABELABLE: LexerStates = LexerStates::EMPTY
+    .or(LexerStates::BeginLabelable)
+    .or(LexerStates::FirstArgument)
+    .or(LexerStates::WeakFirstArgument);
 
 #[test]
 fn test_lex_ident_simple() {
@@ -116,25 +127,19 @@ fn test_lex_ident_q_eq() {
 
 #[test]
 fn test_lex_ident_eq_join() {
-    assert_lex_for(
-        "foo123=",
-        &[LexerState::MethForDef, LexerState::MethOrSymbolForDef],
-        |src| vec![token(TokenKind::MethodName, pos_in(src, b"foo123=", 0), 0)],
-    );
+    assert_lex_for("foo123=", METH_FOR_DEF_ALL, |src| {
+        vec![token(TokenKind::MethodName, pos_in(src, b"foo123=", 0), 0)]
+    });
 }
 
 #[test]
 fn test_lex_ident_eq_separate() {
-    assert_lex_except(
-        "foo123=",
-        &[LexerState::MethForDef, LexerState::MethOrSymbolForDef],
-        |src| {
-            vec![
-                token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
-                token(TokenKind::Eq, pos_in(src, b"=", 0), 0),
-            ]
-        },
-    );
+    assert_lex_except("foo123=", METH_FOR_DEF_ALL, |src| {
+        vec![
+            token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
+            token(TokenKind::Eq, pos_in(src, b"=", 0), 0),
+        ]
+    });
 }
 
 #[test]
@@ -169,94 +174,56 @@ fn test_lex_ident_eq_eq() {
 
 #[test]
 fn test_lex_ident_eq_eq_gt_join() {
-    assert_lex_for(
-        "foo123==>",
-        &[LexerState::MethForDef, LexerState::MethOrSymbolForDef],
-        |src| {
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"foo123=", 0), 0),
-                token(TokenKind::FatArrow, pos_in(src, b"=>", 0), 0),
-            ]
-        },
-    );
+    assert_lex_for("foo123==>", METH_FOR_DEF_ALL, |src| {
+        vec![
+            token(TokenKind::MethodName, pos_in(src, b"foo123=", 0), 0),
+            token(TokenKind::FatArrow, pos_in(src, b"=>", 0), 0),
+        ]
+    });
 }
 
 #[test]
 fn test_lex_ident_eq_eq_gt_separate() {
-    assert_lex_except(
-        "foo123==>",
-        &[LexerState::MethForDef, LexerState::MethOrSymbolForDef],
-        |src| {
-            vec![
-                token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
-                token(TokenKind::BinOp(BinOpKind::Eq), pos_in(src, b"==", 0), 0),
-                token(TokenKind::BinOp(BinOpKind::Gt), pos_in(src, b">", 0), 0),
-            ]
-        },
-    );
+    assert_lex_except("foo123==>", METH_FOR_DEF_ALL, |src| {
+        vec![
+            token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
+            token(TokenKind::BinOp(BinOpKind::Eq), pos_in(src, b"==", 0), 0),
+            token(TokenKind::BinOp(BinOpKind::Gt), pos_in(src, b">", 0), 0),
+        ]
+    });
 }
 
 #[test]
 fn test_lex_label_simple() {
-    assert_lex_for(
-        "foo123:",
-        &[
-            LexerState::BeginLabelable,
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-        ],
-        |src| vec![token(TokenKind::Label, pos_in(src, b"foo123:", 0), 0)],
-    );
+    assert_lex_for("foo123:", LABELABLE, |src| {
+        vec![token(TokenKind::Label, pos_in(src, b"foo123:", 0), 0)]
+    });
 }
 
 #[test]
 fn test_lex_label_cap() {
-    assert_lex_for(
-        "Bar:",
-        &[
-            LexerState::BeginLabelable,
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-        ],
-        |src| vec![token(TokenKind::Label, pos_in(src, b"Bar:", 0), 0)],
-    );
+    assert_lex_for("Bar:", LABELABLE, |src| {
+        vec![token(TokenKind::Label, pos_in(src, b"Bar:", 0), 0)]
+    });
 }
 
 #[test]
 fn test_lex_label_keyword_like() {
-    assert_lex_for(
-        "case:",
-        &[
-            LexerState::BeginLabelable,
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-        ],
-        |src| vec![token(TokenKind::Label, pos_in(src, b"case:", 0), 0)],
-    );
+    assert_lex_for("case:", LABELABLE, |src| {
+        vec![token(TokenKind::Label, pos_in(src, b"case:", 0), 0)]
+    });
 }
 
 #[test]
 fn test_lex_label_bang() {
-    assert_lex_for(
-        "foo!:",
-        &[
-            LexerState::BeginLabelable,
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-        ],
-        |src| vec![token(TokenKind::Label, pos_in(src, b"foo!:", 0), 0)],
-    );
+    assert_lex_for("foo!:", LABELABLE, |src| {
+        vec![token(TokenKind::Label, pos_in(src, b"foo!:", 0), 0)]
+    });
 }
 
 #[test]
 fn test_lex_label_question() {
-    assert_lex_for(
-        "foo?:",
-        &[
-            LexerState::BeginLabelable,
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-        ],
-        |src| vec![token(TokenKind::Label, pos_in(src, b"foo?:", 0), 0)],
-    );
+    assert_lex_for("foo?:", LABELABLE, |src| {
+        vec![token(TokenKind::Label, pos_in(src, b"foo?:", 0), 0)]
+    });
 }

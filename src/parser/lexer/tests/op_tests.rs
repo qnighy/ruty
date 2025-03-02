@@ -1,40 +1,26 @@
 use crate::{
     ast::pos_in,
-    parser::lexer::{BinOpKind, LexerState, NonLocalKind, TokenKind, UnOpKind},
+    parser::lexer::{BinOpKind, NonLocalKind, TokenKind, UnOpKind},
 };
 
-use super::{assert_lex, assert_lex_except, assert_lex_for, token};
+use super::{assert_lex, assert_lex_except, assert_lex_for, token, LexerStates};
 
 #[test]
 fn test_backtick_string_tokens() {
-    assert_lex_except(
-        "` foo `",
-        &[
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
-        |src| {
-            vec![
-                token(TokenKind::StringBegin, pos_in(src, b"`", 0), 0),
-                token(TokenKind::StringContent, pos_in(src, " foo ", 0), 0),
-                token(TokenKind::StringEnd, pos_in(src, b"`", 1), 0),
-            ]
-        },
-    );
+    assert_lex_except("` foo `", LexerStates::METH_ALL, |src| {
+        vec![
+            token(TokenKind::StringBegin, pos_in(src, b"`", 0), 0),
+            token(TokenKind::StringContent, pos_in(src, " foo ", 0), 0),
+            token(TokenKind::StringEnd, pos_in(src, b"`", 1), 0),
+        ]
+    });
 }
 
 #[test]
 fn test_backtick_op_name() {
-    assert_lex_for(
-        "`",
-        &[
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
-        |src| vec![token(TokenKind::MethodName, pos_in(src, b"`", 0), 0)],
-    );
+    assert_lex_for("`", LexerStates::METH_ALL, |src| {
+        vec![token(TokenKind::MethodName, pos_in(src, b"`", 0), 0)]
+    });
 }
 
 #[test]
@@ -171,42 +157,26 @@ fn test_excl() {
 
 #[test]
 fn test_excl_at_join() {
-    assert_lex_for(
-        "!@foo",
-        &[
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
-        |src| {
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"!@", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
-            ]
-        },
-    );
+    assert_lex_for("!@foo", LexerStates::METH_ALL, |src| {
+        vec![
+            token(TokenKind::MethodName, pos_in(src, b"!@", 0), 0),
+            token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
+        ]
+    });
 }
 
 #[test]
 fn test_excl_at_separate() {
-    assert_lex_except(
-        "!@foo",
-        &[
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
-        |src| {
-            vec![
-                token(TokenKind::UnOp(UnOpKind::Not), pos_in(src, b"!", 0), 0),
-                token(
-                    TokenKind::NonLocal(NonLocalKind::Ivar),
-                    pos_in(src, b"@foo", 0),
-                    0,
-                ),
-            ]
-        },
-    );
+    assert_lex_except("!@foo", LexerStates::METH_ALL, |src| {
+        vec![
+            token(TokenKind::UnOp(UnOpKind::Not), pos_in(src, b"!", 0), 0),
+            token(
+                TokenKind::NonLocal(NonLocalKind::Ivar),
+                pos_in(src, b"@foo", 0),
+                0,
+            ),
+        ]
+    });
 }
 
 #[test]
@@ -270,13 +240,7 @@ fn test_colon() {
 fn test_colon_colon_infix_spaced() {
     assert_lex_for(
         " :: ",
-        &[
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
+        (LexerStates::END_ALL | LexerStates::METH_ALL) & !LexerStates::FirstArgument,
         |src| vec![token(TokenKind::ColonColon, pos_in(src, b"::", 0), 1)],
     );
 }
@@ -285,13 +249,7 @@ fn test_colon_colon_infix_spaced() {
 fn test_colon_colon_prefix_spaced() {
     assert_lex_except(
         " :: ",
-        &[
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
+        (LexerStates::END_ALL | LexerStates::METH_ALL) & !LexerStates::FirstArgument,
         |src| vec![token(TokenKind::ColonColonPrefix, pos_in(src, b"::", 0), 1)],
     );
 }
@@ -300,13 +258,7 @@ fn test_colon_colon_prefix_spaced() {
 fn test_colon_colon_infix_left_spaced() {
     assert_lex_for(
         " ::",
-        &[
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
+        (LexerStates::END_ALL | LexerStates::METH_ALL) & !LexerStates::FirstArgument,
         |src| vec![token(TokenKind::ColonColon, pos_in(src, b"::", 0), 1)],
     );
 }
@@ -315,47 +267,23 @@ fn test_colon_colon_infix_left_spaced() {
 fn test_colon_colon_prefix_left_spaced() {
     assert_lex_except(
         " ::",
-        &[
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
+        (LexerStates::END_ALL | LexerStates::METH_ALL) & !LexerStates::FirstArgument,
         |src| vec![token(TokenKind::ColonColonPrefix, pos_in(src, b"::", 0), 1)],
     );
 }
 
 #[test]
 fn test_colon_colon_infix_nospaced() {
-    assert_lex_for(
-        "::",
-        &[
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
-        |src| vec![token(TokenKind::ColonColon, pos_in(src, b"::", 0), 0)],
-    );
+    assert_lex_for("::", LexerStates::END_ALL | LexerStates::METH_ALL, |src| {
+        vec![token(TokenKind::ColonColon, pos_in(src, b"::", 0), 0)]
+    });
 }
 
 #[test]
 fn test_colon_colon_prefix_nospaced() {
-    assert_lex_except(
-        "::",
-        &[
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
-        |src| vec![token(TokenKind::ColonColonPrefix, pos_in(src, b"::", 0), 0)],
-    );
+    assert_lex_except("::", LexerStates::END_ALL | LexerStates::METH_ALL, |src| {
+        vec![token(TokenKind::ColonColonPrefix, pos_in(src, b"::", 0), 0)]
+    });
 }
 
 #[test]
@@ -500,7 +428,7 @@ fn test_question_simple() {
 fn test_question_separate() {
     assert_lex_for(
         "?a",
-        &[LexerState::WeakFirstArgument, LexerState::End],
+        LexerStates::END_ALL & !LexerStates::FirstArgument,
         |src| {
             vec![
                 token(TokenKind::Question, pos_in(src, b"?", 0), 0),
@@ -514,7 +442,7 @@ fn test_question_separate() {
 fn test_char_literal() {
     assert_lex_except(
         "?a",
-        &[LexerState::WeakFirstArgument, LexerState::End],
+        LexerStates::END_ALL & !LexerStates::FirstArgument,
         |src| vec![token(TokenKind::CharLiteral, pos_in(src, b"?a", 0), 0)],
     );
 }
@@ -550,53 +478,31 @@ fn test_vert() {
 
 #[test]
 fn test_vert_vert() {
-    assert_lex_for(
-        "||",
-        &[
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
-        |src| {
-            vec![token(
-                TokenKind::BinOp(BinOpKind::LogicalOr),
-                pos_in(src, b"||", 0),
-                0,
-            )]
-        },
-    );
+    assert_lex_for("||", LexerStates::END_ALL | LexerStates::METH_ALL, |src| {
+        vec![token(
+            TokenKind::BinOp(BinOpKind::LogicalOr),
+            pos_in(src, b"||", 0),
+            0,
+        )]
+    });
 }
 
 #[test]
 fn test_split_vert_vert() {
-    assert_lex_except(
-        "||",
-        &[
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
-        |src| {
-            vec![
-                token(
-                    TokenKind::BinOp(BinOpKind::BitwiseOr),
-                    pos_in(src, b"|", 0),
-                    0,
-                ),
-                token(
-                    TokenKind::BinOp(BinOpKind::BitwiseOr),
-                    pos_in(src, b"|", 1),
-                    0,
-                ),
-            ]
-        },
-    );
+    assert_lex_except("||", LexerStates::END_ALL | LexerStates::METH_ALL, |src| {
+        vec![
+            token(
+                TokenKind::BinOp(BinOpKind::BitwiseOr),
+                pos_in(src, b"|", 0),
+                0,
+            ),
+            token(
+                TokenKind::BinOp(BinOpKind::BitwiseOr),
+                pos_in(src, b"|", 1),
+                0,
+            ),
+        ]
+    });
 }
 
 #[test]
@@ -612,44 +518,28 @@ fn test_tilde() {
 
 #[test]
 fn test_tilde_at_join() {
-    assert_lex_for(
-        "~@foo",
-        &[
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
-        |src| {
-            vec![
-                token(TokenKind::MethodName, pos_in(src, b"~@", 0), 0),
-                token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
-            ]
-        },
-    );
+    assert_lex_for("~@foo", LexerStates::METH_ALL, |src| {
+        vec![
+            token(TokenKind::MethodName, pos_in(src, b"~@", 0), 0),
+            token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
+        ]
+    });
 }
 
 #[test]
 fn test_tilde_at_separate() {
-    assert_lex_except(
-        "~@foo",
-        &[
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
-        |src| {
-            vec![
-                token(
-                    TokenKind::UnOp(UnOpKind::BitwiseNot),
-                    pos_in(src, b"~", 0),
-                    0,
-                ),
-                token(
-                    TokenKind::NonLocal(NonLocalKind::Ivar),
-                    pos_in(src, b"@foo", 0),
-                    0,
-                ),
-            ]
-        },
-    );
+    assert_lex_except("~@foo", LexerStates::METH_ALL, |src| {
+        vec![
+            token(
+                TokenKind::UnOp(UnOpKind::BitwiseNot),
+                pos_in(src, b"~", 0),
+                0,
+            ),
+            token(
+                TokenKind::NonLocal(NonLocalKind::Ivar),
+                pos_in(src, b"@foo", 0),
+                0,
+            ),
+        ]
+    });
 }

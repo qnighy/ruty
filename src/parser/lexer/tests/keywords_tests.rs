@@ -1,9 +1,6 @@
-use crate::{
-    ast::pos_in,
-    parser::lexer::{LexerState, TokenKind},
-};
+use crate::{ast::pos_in, parser::lexer::TokenKind};
 
-use super::{assert_lex, assert_lex_except, assert_lex_for, token};
+use super::{assert_lex, assert_lex_except, assert_lex_for, token, LexerStates};
 
 #[test]
 fn test_lex_keyword_encoding() {
@@ -175,30 +172,16 @@ fn test_lex_keyword_for() {
 
 #[test]
 fn test_lex_keyword_if_prefix() {
-    assert_lex_except(
-        "if",
-        &[
-            LexerState::BeginOpt,
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-        ],
-        |src| vec![token(TokenKind::KeywordIf, pos_in(src, b"if", 0), 0)],
-    );
+    assert_lex_except("if", LexerStates::BeginOpt | LexerStates::END_ALL, |src| {
+        vec![token(TokenKind::KeywordIf, pos_in(src, b"if", 0), 0)]
+    });
 }
 
 #[test]
 fn test_lex_keyword_if_infix() {
-    assert_lex_for(
-        "if",
-        &[
-            LexerState::BeginOpt,
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-        ],
-        |src| vec![token(TokenKind::KeywordIfInfix, pos_in(src, b"if", 0), 0)],
-    );
+    assert_lex_for("if", LexerStates::BeginOpt | LexerStates::END_ALL, |src| {
+        vec![token(TokenKind::KeywordIfInfix, pos_in(src, b"if", 0), 0)]
+    });
 }
 
 #[test]
@@ -322,12 +305,7 @@ fn test_lex_keyword_undef() {
 fn test_lex_keyword_unless_prefix() {
     assert_lex_except(
         "unless",
-        &[
-            LexerState::BeginOpt,
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-        ],
+        LexerStates::BeginOpt | LexerStates::END_ALL,
         |src| {
             vec![token(
                 TokenKind::KeywordUnless,
@@ -342,12 +320,7 @@ fn test_lex_keyword_unless_prefix() {
 fn test_lex_keyword_unless_infix() {
     assert_lex_for(
         "unless",
-        &[
-            LexerState::BeginOpt,
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-        ],
+        LexerStates::BeginOpt | LexerStates::END_ALL,
         |src| {
             vec![token(
                 TokenKind::KeywordUnlessInfix,
@@ -362,12 +335,7 @@ fn test_lex_keyword_unless_infix() {
 fn test_lex_keyword_until_prefix() {
     assert_lex_except(
         "until",
-        &[
-            LexerState::BeginOpt,
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-        ],
+        LexerStates::BeginOpt | LexerStates::END_ALL,
         |src| vec![token(TokenKind::KeywordUntil, pos_in(src, b"until", 0), 0)],
     );
 }
@@ -376,12 +344,7 @@ fn test_lex_keyword_until_prefix() {
 fn test_lex_keyword_until_infix() {
     assert_lex_for(
         "until",
-        &[
-            LexerState::BeginOpt,
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-        ],
+        LexerStates::BeginOpt | LexerStates::END_ALL,
         |src| {
             vec![token(
                 TokenKind::KeywordUntilInfix,
@@ -403,12 +366,7 @@ fn test_lex_keyword_when() {
 fn test_lex_keyword_while_prefix() {
     assert_lex_except(
         "while",
-        &[
-            LexerState::BeginOpt,
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-        ],
+        LexerStates::BeginOpt | LexerStates::END_ALL,
         |src| vec![token(TokenKind::KeywordWhile, pos_in(src, b"while", 0), 0)],
     );
 }
@@ -417,12 +375,7 @@ fn test_lex_keyword_while_prefix() {
 fn test_lex_keyword_while_infix() {
     assert_lex_for(
         "while",
-        &[
-            LexerState::BeginOpt,
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-        ],
+        LexerStates::BeginOpt | LexerStates::END_ALL,
         |src| {
             vec![token(
                 TokenKind::KeywordWhileInfix,

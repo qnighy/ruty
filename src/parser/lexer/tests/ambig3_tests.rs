@@ -1,21 +1,15 @@
 use crate::{
     ast::pos_in,
-    parser::lexer::{BinOpKind, LexerState, TokenKind},
+    parser::lexer::{BinOpKind, TokenKind},
 };
 
-use super::{assert_lex, assert_lex_except, assert_lex_for, token};
+use super::{assert_lex, assert_lex_except, assert_lex_for, token, LexerStates};
 
 #[test]
 fn test_slash_spaced() {
     assert_lex_for(
         " / ",
-        &[
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
+        (LexerStates::END_ALL | LexerStates::METH_ALL) & !LexerStates::FirstArgument,
         |src| {
             vec![token(
                 TokenKind::BinOp(BinOpKind::Div),
@@ -30,13 +24,7 @@ fn test_slash_spaced() {
 fn test_regexp_begin_spaced() {
     assert_lex_except(
         " / ",
-        &[
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
+        (LexerStates::END_ALL | LexerStates::METH_ALL) & !LexerStates::FirstArgument,
         |src| {
             vec![
                 token(TokenKind::StringBegin, pos_in(src, b"/", 0), 1),
@@ -50,13 +38,7 @@ fn test_regexp_begin_spaced() {
 fn test_slash_left_spaced() {
     assert_lex_for(
         " /",
-        &[
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
+        (LexerStates::END_ALL | LexerStates::METH_ALL) & !LexerStates::FirstArgument,
         |src| {
             vec![token(
                 TokenKind::BinOp(BinOpKind::Div),
@@ -71,67 +53,34 @@ fn test_slash_left_spaced() {
 fn test_regexp_begin_left_spaced() {
     assert_lex_except(
         " /",
-        &[
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
+        (LexerStates::END_ALL | LexerStates::METH_ALL) & !LexerStates::FirstArgument,
         |src| vec![token(TokenKind::StringBegin, pos_in(src, b"/", 0), 1)],
     );
 }
 
 #[test]
 fn test_slash_nospaced() {
-    assert_lex_for(
-        "/",
-        &[
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
-        |src| {
-            vec![token(
-                TokenKind::BinOp(BinOpKind::Div),
-                pos_in(src, b"/", 0),
-                0,
-            )]
-        },
-    );
+    assert_lex_for("/", LexerStates::END_ALL | LexerStates::METH_ALL, |src| {
+        vec![token(
+            TokenKind::BinOp(BinOpKind::Div),
+            pos_in(src, b"/", 0),
+            0,
+        )]
+    });
 }
 
 #[test]
 fn test_regexp_begin_nospaced() {
-    assert_lex_except(
-        "/",
-        &[
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
-        |src| vec![token(TokenKind::StringBegin, pos_in(src, b"/", 0), 0)],
-    );
+    assert_lex_except("/", LexerStates::END_ALL | LexerStates::METH_ALL, |src| {
+        vec![token(TokenKind::StringBegin, pos_in(src, b"/", 0), 0)]
+    });
 }
 
 #[test]
 fn test_regexp_string_tokens() {
     assert_lex_except(
         "/ foo /",
-        &[
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
+        LexerStates::END_ALL | LexerStates::METH_ALL,
         |src| {
             vec![
                 token(TokenKind::StringBegin, pos_in(src, b"/", 0), 0),
@@ -144,88 +93,44 @@ fn test_regexp_string_tokens() {
 
 #[test]
 fn test_op_assign_div_left_spaced() {
-    assert_lex_for(
-        " /=",
-        &[
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
-        |src| {
-            vec![token(
-                TokenKind::OpAssign(BinOpKind::Div),
-                pos_in(src, b"/=", 0),
-                1,
-            )]
-        },
-    );
+    assert_lex_for(" /=", LexerStates::END_ALL | LexerStates::METH_ALL, |src| {
+        vec![token(
+            TokenKind::OpAssign(BinOpKind::Div),
+            pos_in(src, b"/=", 0),
+            1,
+        )]
+    });
 }
 
 #[test]
 fn test_regexp_begin_op_assign_like_left_spaced() {
-    assert_lex_except(
-        " /=",
-        &[
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
-        |src| {
-            vec![
-                token(TokenKind::StringBegin, pos_in(src, b"/", 0), 1),
-                token(TokenKind::StringContent, pos_in(src, b"=", 0), 1),
-            ]
-        },
-    );
+    assert_lex_except(" /=", LexerStates::END_ALL | LexerStates::METH_ALL, |src| {
+        vec![
+            token(TokenKind::StringBegin, pos_in(src, b"/", 0), 1),
+            token(TokenKind::StringContent, pos_in(src, b"=", 0), 1),
+        ]
+    });
 }
 
 #[test]
 fn test_op_assign_div_nospaced() {
-    assert_lex_for(
-        "/=",
-        &[
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
-        |src| {
-            vec![token(
-                TokenKind::OpAssign(BinOpKind::Div),
-                pos_in(src, b"/=", 0),
-                0,
-            )]
-        },
-    );
+    assert_lex_for("/=", LexerStates::END_ALL | LexerStates::METH_ALL, |src| {
+        vec![token(
+            TokenKind::OpAssign(BinOpKind::Div),
+            pos_in(src, b"/=", 0),
+            0,
+        )]
+    });
 }
 
 #[test]
 fn test_regexp_begin_op_assign_like_nospaced() {
-    assert_lex_except(
-        "/=",
-        &[
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
-        |src| {
-            vec![
-                token(TokenKind::StringBegin, pos_in(src, b"/", 0), 0),
-                token(TokenKind::StringContent, pos_in(src, b"=", 0), 0),
-            ]
-        },
-    );
+    assert_lex_except("/=", LexerStates::END_ALL | LexerStates::METH_ALL, |src| {
+        vec![
+            token(TokenKind::StringBegin, pos_in(src, b"/", 0), 0),
+            token(TokenKind::StringContent, pos_in(src, b"=", 0), 0),
+        ]
+    });
 }
 
 #[test]

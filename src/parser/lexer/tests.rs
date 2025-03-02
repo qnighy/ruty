@@ -1,3 +1,8 @@
+use std::{
+    fmt,
+    ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not},
+};
+
 use crate::{ast::CodeRange, encoding::EStrRef, Diagnostic};
 
 use super::{BinOpKind, Lexer, LexerState, StringDelimiter, StringState, Token, TokenKind};
@@ -203,40 +208,21 @@ where
     S: Into<EStrRef<'a>>,
     F: FnOnce(EStrRef<'_>) -> Vec<Token>,
 {
-    assert_lex_impl(src, expected, |_| true);
+    assert_lex_for(src, LexerStates::ALL, expected);
 }
 
 #[track_caller]
-fn assert_lex_for<'a, S, F>(src: S, states: &[LexerState], expected: F)
+fn assert_lex_for<'a, S, F>(src: S, states: LexerStates, expected: F)
 where
     S: Into<EStrRef<'a>>,
     F: FnOnce(EStrRef<'_>) -> Vec<Token>,
-{
-    assert_lex_impl(src, expected, |state| states.contains(&state));
-}
-
-#[track_caller]
-fn assert_lex_except<'a, S, F>(src: S, states: &[LexerState], expected: F)
-where
-    S: Into<EStrRef<'a>>,
-    F: FnOnce(EStrRef<'_>) -> Vec<Token>,
-{
-    assert_lex_impl(src, expected, |state| !states.contains(&state));
-}
-
-#[track_caller]
-fn assert_lex_impl<'a, S, F, FS>(src: S, expected: F, mut filter_state: FS)
-where
-    S: Into<EStrRef<'a>>,
-    F: FnOnce(EStrRef<'_>) -> Vec<Token>,
-    FS: FnMut(LexerState) -> bool,
 {
     let src = <S as Into<EStrRef<'a>>>::into(src);
     let expected = expected(src);
     let mut difflist1 = Vec::<(LexerState, Vec<Token>)>::new();
     let mut difflist2 = Vec::<(LexerState, Vec<Token>)>::new();
     for &state in &ALL_STATES {
-        if !filter_state(state) {
+        if !states.contains(state) {
             continue;
         }
         let actual = lex_all_from(src, state);
@@ -246,6 +232,154 @@ where
         }
     }
     assert_eq!(difflist1, difflist2);
+}
+
+#[track_caller]
+fn assert_lex_except<'a, S, F>(src: S, states: LexerStates, expected: F)
+where
+    S: Into<EStrRef<'a>>,
+    F: FnOnce(EStrRef<'_>) -> Vec<Token>,
+{
+    assert_lex_for(src, !states, expected);
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct LexerStates(usize);
+
+impl LexerStates {
+    const EMPTY: LexerStates = LexerStates(0);
+    const ALL: LexerStates = LexerStates::EMPTY
+        .or(LexerStates::Begin)
+        .or(LexerStates::ClassName)
+        .or(LexerStates::BeginOpt)
+        .or(LexerStates::BeginLabelable)
+        .or(LexerStates::FirstArgument)
+        .or(LexerStates::WeakFirstArgument)
+        .or(LexerStates::End)
+        .or(LexerStates::MethForDef)
+        .or(LexerStates::MethOrSymbolForDef)
+        .or(LexerStates::MethForCall);
+
+    #[allow(non_upper_case_globals)]
+    const Begin: LexerStates = LexerStates::from(LexerState::Begin);
+    #[allow(non_upper_case_globals)]
+    const ClassName: LexerStates = LexerStates::from(LexerState::ClassName);
+    #[allow(non_upper_case_globals)]
+    const BeginOpt: LexerStates = LexerStates::from(LexerState::BeginOpt);
+    #[allow(non_upper_case_globals)]
+    const BeginLabelable: LexerStates = LexerStates::from(LexerState::BeginLabelable);
+    #[allow(non_upper_case_globals)]
+    const FirstArgument: LexerStates = LexerStates::from(LexerState::FirstArgument);
+    #[allow(non_upper_case_globals)]
+    const WeakFirstArgument: LexerStates = LexerStates::from(LexerState::WeakFirstArgument);
+    #[allow(non_upper_case_globals)]
+    const End: LexerStates = LexerStates::from(LexerState::End);
+    #[allow(non_upper_case_globals)]
+    const MethForDef: LexerStates = LexerStates::from(LexerState::MethForDef);
+    #[allow(non_upper_case_globals)]
+    const MethOrSymbolForDef: LexerStates = LexerStates::from(LexerState::MethOrSymbolForDef);
+    #[allow(non_upper_case_globals)]
+    const MethForCall: LexerStates = LexerStates::from(LexerState::MethForCall);
+
+    fn contains(self, state: LexerState) -> bool {
+        self.0 & (1 << state as usize) != 0
+    }
+
+    const BEGIN_ALL: LexerStates = LexerStates::EMPTY
+        .or(LexerStates::Begin)
+        .or(LexerStates::ClassName)
+        .or(LexerStates::BeginOpt)
+        .or(LexerStates::BeginLabelable);
+    const END_ALL: LexerStates = LexerStates::EMPTY
+        .or(LexerStates::FirstArgument)
+        .or(LexerStates::WeakFirstArgument)
+        .or(LexerStates::End);
+    const METH_ALL: LexerStates = LexerStates::EMPTY
+        .or(LexerStates::MethForDef)
+        .or(LexerStates::MethOrSymbolForDef)
+        .or(LexerStates::MethForCall);
+}
+
+impl fmt::Debug for LexerStates {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut first = true;
+        let mut val = self.0;
+        for &state in &ALL_STATES {
+            if val & (1 << state as usize) != 0 {
+                if !first {
+                    write!(f, " | ")?;
+                    first = false;
+                }
+                write!(f, "{:?}", state)?;
+                val &= !(1 << state as usize);
+            }
+        }
+        if val != 0 {
+            if !first {
+                write!(f, " | ")?;
+                first = false;
+            }
+            write!(f, "{:#x}", val)?;
+        }
+        if first {
+            write!(f, "EMPTY")?;
+        }
+        Ok(())
+    }
+}
+
+impl LexerStates {
+    const fn from(state: LexerState) -> Self {
+        LexerStates(1 << state as usize)
+    }
+}
+
+impl From<LexerState> for LexerStates {
+    fn from(state: LexerState) -> Self {
+        LexerStates(1 << state as usize)
+    }
+}
+
+impl BitAnd for LexerStates {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        LexerStates(self.0 & rhs.0)
+    }
+}
+
+impl BitAndAssign for LexerStates {
+    fn bitand_assign(&mut self, rhs: Self) {
+        self.0 &= rhs.0;
+    }
+}
+
+impl LexerStates {
+    const fn or(self, rhs: Self) -> Self {
+        LexerStates(self.0 | rhs.0)
+    }
+}
+
+impl BitOr for LexerStates {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        LexerStates(self.0 | rhs.0)
+    }
+}
+
+impl BitOrAssign for LexerStates {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
+    }
+}
+
+impl Not for LexerStates {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        LexerStates(LexerStates::ALL.0 & !self.0)
+    }
 }
 
 mod ambig1_tests;

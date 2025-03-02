@@ -2,13 +2,10 @@ use num_bigint::BigInt;
 
 use crate::{
     ast::{pos_in, NumericValue},
-    parser::{
-        lexer::{LexerState, TokenKind},
-        NumericToken,
-    },
+    parser::lexer::{NumericToken, TokenKind},
 };
 
-use super::{assert_lex, assert_lex_except, assert_lex_for, token};
+use super::{assert_lex, assert_lex_except, assert_lex_for, token, LexerStates};
 
 #[test]
 fn test_lex_eof_nul() {
@@ -162,42 +159,23 @@ fn test_lex_spaces_multiple() {
 
 #[test]
 fn test_lex_spaces_lf() {
-    assert_lex_except(
-        "\n1",
-        &[
-            LexerState::BeginOpt,
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-        ],
-        |src| vec![token(TokenKind::Numeric(one()), pos_in(src, b"1", 0), 0)],
-    );
+    assert_lex_except("\n1", LexerStates::BeginOpt | LexerStates::END_ALL, |src| {
+        vec![token(TokenKind::Numeric(one()), pos_in(src, b"1", 0), 0)]
+    });
 }
 
 #[test]
 fn test_lex_semicolon_lf() {
-    assert_lex_for(
-        "\n",
-        &[
-            LexerState::BeginOpt,
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-        ],
-        |src| vec![token(TokenKind::Newline, pos_in(src, b"\n", 0), 0)],
-    );
+    assert_lex_for("\n", LexerStates::BeginOpt | LexerStates::END_ALL, |src| {
+        vec![token(TokenKind::Newline, pos_in(src, b"\n", 0), 0)]
+    });
 }
 
 #[test]
 fn test_lex_semicolon_crlf() {
     assert_lex_for(
         "\r\n",
-        &[
-            LexerState::BeginOpt,
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-        ],
+        LexerStates::BeginOpt | LexerStates::END_ALL,
         |src| vec![token(TokenKind::Newline, pos_in(src, b"\r\n", 0), 0)],
     );
 }
@@ -206,15 +184,7 @@ fn test_lex_semicolon_crlf() {
 fn test_lex_skip_lf_before_dot() {
     assert_lex_for(
         "\n  .bar",
-        &[
-            LexerState::BeginOpt,
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
+        LexerStates::BeginOpt | LexerStates::END_ALL | LexerStates::METH_ALL,
         |src| {
             vec![
                 token(TokenKind::Dot, pos_in(src, b".", 0), 2),
@@ -228,12 +198,7 @@ fn test_lex_skip_lf_before_dot() {
 fn test_lex_lf_before_dot_dot() {
     assert_lex_for(
         "\n  ..bar",
-        &[
-            LexerState::BeginOpt,
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-        ],
+        LexerStates::BeginOpt | LexerStates::END_ALL,
         |src| {
             vec![
                 token(TokenKind::Newline, pos_in(src, b"\n", 0), 0),
@@ -248,15 +213,7 @@ fn test_lex_lf_before_dot_dot() {
 fn test_lex_comments() {
     assert_lex_except(
         "# comment2\nfoo bar # comment1\n# comment3\nbaz\n",
-        &[
-            LexerState::BeginOpt,
-            LexerState::FirstArgument,
-            LexerState::WeakFirstArgument,
-            LexerState::End,
-            LexerState::MethForDef,
-            LexerState::MethOrSymbolForDef,
-            LexerState::MethForCall,
-        ],
+        LexerStates::BeginOpt | LexerStates::END_ALL | LexerStates::METH_ALL,
         |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),
