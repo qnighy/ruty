@@ -13,6 +13,10 @@ impl EncodingImpl for ShiftJisImpl {
     fn is_ascii_compatible(&self) -> bool {
         true
     }
+    fn is_ascii_substring_compatible(&self) -> bool {
+        // "表" (\x95\x5C) contains "\\" byte-wise, but not character-wise.
+        false
+    }
     fn next_char(&self, bytes: &[u8], _state: EncodingState) -> EncNext {
         match bytes[0] {
             b0 @ 0x00..0x80 => EncNext::Valid {

@@ -10,6 +10,9 @@ impl EncodingImpl for UsAsciiImpl {
     fn is_ascii_compatible(&self) -> bool {
         true
     }
+    fn is_ascii_substring_compatible(&self) -> bool {
+        true
+    }
     fn next_char(&self, bytes: &[u8], _state: EncodingState) -> EncNext {
         if bytes[0] < 0x80 {
             EncNext::Valid {

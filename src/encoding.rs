@@ -57,8 +57,16 @@ impl Encoding {
         self.encoding_impl().is_stateless()
     }
 
+    /// Returns true if any valid string either contains non-ASCII characters or
+    /// has the same meaning as ASCII.
     pub fn is_ascii_compatible(&self) -> bool {
         self.encoding_impl().is_ascii_compatible()
+    }
+
+    /// Returns true if any substring of a valid string either contains non-ASCII
+    /// characters or has the same meaning as ASCII.
+    pub fn is_ascii_substring_compatible(&self) -> bool {
+        self.encoding_impl().is_ascii_substring_compatible()
     }
 
     pub fn next_len(&self, bytes: &[u8], mut state: EncodingState) -> usize {
