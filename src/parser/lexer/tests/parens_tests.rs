@@ -1,6 +1,6 @@
 use crate::{ast::pos_in, parser::lexer::TokenKind};
 
-use super::{assert_lex, assert_lex_except, assert_lex_for, token, LexerStates};
+use super::{assert_lex_except, assert_lex_for, token, LexerStates};
 
 #[test]
 fn test_lparen_spaced() {
@@ -40,14 +40,14 @@ fn test_lparen_noarg_left_spaced() {
 
 #[test]
 fn test_lparen_nospaced() {
-    assert_lex("(", |src| {
+    assert_lex_for("(", LexerStates::ALL, |src| {
         vec![token(TokenKind::LParen, pos_in(src, b"(", 0), 0)]
     });
 }
 
 #[test]
 fn test_rparen() {
-    assert_lex(")", |src| {
+    assert_lex_for(")", LexerStates::ALL, |src| {
         vec![token(TokenKind::RParen, pos_in(src, b")", 0), 0)]
     });
 }
@@ -160,21 +160,21 @@ fn test_aset_separate_prefix() {
 
 #[test]
 fn test_rbracket() {
-    assert_lex("]", |src| {
+    assert_lex_for("]", LexerStates::ALL, |src| {
         vec![token(TokenKind::RBracket, pos_in(src, b"]", 0), 0)]
     });
 }
 
 #[test]
 fn test_lbrace() {
-    assert_lex("{", |src| {
+    assert_lex_for("{", LexerStates::ALL, |src| {
         vec![token(TokenKind::LBrace, pos_in(src, b"{", 0), 0)]
     });
 }
 
 #[test]
 fn test_rbrace() {
-    assert_lex("}", |src| {
+    assert_lex_for("}", LexerStates::ALL, |src| {
         vec![token(TokenKind::RBrace, pos_in(src, b"}", 0), 0)]
     });
 }

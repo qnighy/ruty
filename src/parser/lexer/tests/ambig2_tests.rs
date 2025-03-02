@@ -3,7 +3,7 @@ use crate::{
     parser::lexer::{BinOpKind, TokenKind},
 };
 
-use super::{assert_lex, assert_lex_except, assert_lex_for, token, LexerStates};
+use super::{assert_lex_except, assert_lex_for, token, LexerStates};
 
 #[test]
 fn test_amp_infix_spaced() {
@@ -67,7 +67,7 @@ fn test_amp_prefix_nospaced() {
 
 #[test]
 fn test_amp_amp() {
-    assert_lex("&&", |src| {
+    assert_lex_for("&&", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::BinOp(BinOpKind::LogicalAnd),
             pos_in(src, b"&&", 0),
@@ -78,7 +78,7 @@ fn test_amp_amp() {
 
 #[test]
 fn test_amp_dot() {
-    assert_lex("&.", |src| {
+    assert_lex_for("&.", LexerStates::ALL, |src| {
         vec![token(TokenKind::AmpDot, pos_in(src, b"&.", 0), 0)]
     });
 }

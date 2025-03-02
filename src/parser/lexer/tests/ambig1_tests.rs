@@ -3,7 +3,7 @@ use crate::{
     parser::lexer::{BinOpKind, NonLocalKind, TokenKind, UnOpKind},
 };
 
-use super::{assert_lex, assert_lex_except, assert_lex_for, token, LexerStates};
+use super::{assert_lex_except, assert_lex_for, token, LexerStates};
 
 #[test]
 fn test_plus_infix_spaced() {
@@ -239,7 +239,7 @@ fn test_minus_at_separate_prefix() {
 
 #[test]
 fn test_arrow() {
-    assert_lex("->", |src| {
+    assert_lex_for("->", LexerStates::ALL, |src| {
         vec![token(TokenKind::Arrow, pos_in(src, b"->", 0), 0)]
     });
 }

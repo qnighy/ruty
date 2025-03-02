@@ -3,7 +3,7 @@ use crate::{
     parser::lexer::{BinOpKind, TokenKind},
 };
 
-use super::{assert_lex, assert_lex_except, assert_lex_for, token, LexerStates};
+use super::{assert_lex_except, assert_lex_for, token, LexerStates};
 
 #[test]
 fn test_slash_spaced() {
@@ -135,7 +135,7 @@ fn test_regexp_begin_op_assign_like_nospaced() {
 
 #[test]
 fn test_percent() {
-    assert_lex("%", |src| {
+    assert_lex_for("%", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::BinOp(BinOpKind::Mod),
             pos_in(src, b"%", 0),
@@ -146,7 +146,7 @@ fn test_percent() {
 
 #[test]
 fn test_op_assign_mod() {
-    assert_lex("%=", |src| {
+    assert_lex_for("%=", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::OpAssign(BinOpKind::Mod),
             pos_in(src, b"%=", 0),

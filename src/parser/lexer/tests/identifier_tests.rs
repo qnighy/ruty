@@ -5,9 +5,7 @@ use crate::{
     Diagnostic, Encoding,
 };
 
-use super::{
-    assert_lex, assert_lex_except, assert_lex_for, lex_all_with_diag_from, token, LexerStates,
-};
+use super::{assert_lex_except, assert_lex_for, lex_all_with_diag_from, token, LexerStates};
 
 const METH_FOR_DEF_ALL: LexerStates = LexerStates::EMPTY
     .or(LexerStates::MethForDef)
@@ -20,14 +18,14 @@ const LABELABLE: LexerStates = LexerStates::EMPTY
 
 #[test]
 fn test_lex_ident_simple() {
-    assert_lex("foo123", |src| {
+    assert_lex_for("foo123", LexerStates::ALL, |src| {
         vec![token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0)]
     });
 }
 
 #[test]
 fn test_lex_ident_non_ascii() {
-    assert_lex("あ", |src| {
+    assert_lex_for("あ", LexerStates::ALL, |src| {
         vec![token(
             TokenKind::Identifier,
             pos_in(src, b"\xE3\x81\x82", 0),
@@ -51,14 +49,14 @@ fn test_lex_ident_invalid_non_ascii() {
 
 #[test]
 fn test_lex_const_simple() {
-    assert_lex("Foo123", |src| {
+    assert_lex_for("Foo123", LexerStates::ALL, |src| {
         vec![token(TokenKind::Const, pos_in(src, b"Foo123", 0), 0)]
     });
 }
 
 #[test]
 fn test_lex_const_non_ascii() {
-    assert_lex("Ω", |src| {
+    assert_lex_for("Ω", LexerStates::ALL, |src| {
         vec![token(TokenKind::Const, pos_in(src, b"\xCE\xA9", 0), 0)]
     });
 }
@@ -78,21 +76,21 @@ fn test_lex_const_invalid_non_ascii() {
 
 #[test]
 fn test_lex_ident_bang_simple() {
-    assert_lex("foo123!", |src| {
+    assert_lex_for("foo123!", LexerStates::ALL, |src| {
         vec![token(TokenKind::MethodName, pos_in(src, b"foo123!", 0), 0)]
     });
 }
 
 #[test]
 fn test_lex_ident_bang_capital() {
-    assert_lex("Foo123!", |src| {
+    assert_lex_for("Foo123!", LexerStates::ALL, |src| {
         vec![token(TokenKind::MethodName, pos_in(src, b"Foo123!", 0), 0)]
     });
 }
 
 #[test]
 fn test_lex_ident_bang_eq() {
-    assert_lex("foo123!=", |src| {
+    assert_lex_for("foo123!=", LexerStates::ALL, |src| {
         vec![
             token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
             token(TokenKind::BinOp(BinOpKind::NotEq), pos_in(src, b"!=", 0), 0),
@@ -102,21 +100,21 @@ fn test_lex_ident_bang_eq() {
 
 #[test]
 fn test_lex_ident_q_simple() {
-    assert_lex("foo123?", |src| {
+    assert_lex_for("foo123?", LexerStates::ALL, |src| {
         vec![token(TokenKind::MethodName, pos_in(src, b"foo123?", 0), 0)]
     });
 }
 
 #[test]
 fn test_lex_ident_q_capital() {
-    assert_lex("Foo123?", |src| {
+    assert_lex_for("Foo123?", LexerStates::ALL, |src| {
         vec![token(TokenKind::MethodName, pos_in(src, b"Foo123?", 0), 0)]
     });
 }
 
 #[test]
 fn test_lex_ident_q_eq() {
-    assert_lex("foo123?=", |src| {
+    assert_lex_for("foo123?=", LexerStates::ALL, |src| {
         vec![
             token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
             token(TokenKind::Question, pos_in(src, b"?", 0), 0),
@@ -144,7 +142,7 @@ fn test_lex_ident_eq_separate() {
 
 #[test]
 fn test_lex_ident_eq_tilde() {
-    assert_lex("foo123=~", |src| {
+    assert_lex_for("foo123=~", LexerStates::ALL, |src| {
         vec![
             token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
             token(TokenKind::BinOp(BinOpKind::Match), pos_in(src, b"=~", 0), 0),
@@ -154,7 +152,7 @@ fn test_lex_ident_eq_tilde() {
 
 #[test]
 fn test_lex_ident_eq_gt() {
-    assert_lex("foo123=>", |src| {
+    assert_lex_for("foo123=>", LexerStates::ALL, |src| {
         vec![
             token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
             token(TokenKind::FatArrow, pos_in(src, b"=>", 0), 0),
@@ -164,7 +162,7 @@ fn test_lex_ident_eq_gt() {
 
 #[test]
 fn test_lex_ident_eq_eq() {
-    assert_lex("foo123==", |src| {
+    assert_lex_for("foo123==", LexerStates::ALL, |src| {
         vec![
             token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
             token(TokenKind::BinOp(BinOpKind::Eq), pos_in(src, b"==", 0), 0),
