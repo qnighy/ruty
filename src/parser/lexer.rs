@@ -959,7 +959,8 @@ impl<'a> Lexer<'a> {
                                     },
                                     message: format!("A letter must follow `$-`"),
                                 });
-                            } else if let Some((pos, _)) = iter.next() {
+                            } else if let Some((r, _)) = iter.next() {
+                                let pos = r.start;
                                 // More than one character
                                 let cont = &s.as_bytes()[pos..];
                                 if SUFFIX_KEYWORDS.contains(cont) {
@@ -1638,7 +1639,8 @@ impl<'a> Lexer<'a> {
                                     },
                                     message: format!("A letter must follow `$-`"),
                                 });
-                            } else if let Some((pos, _)) = iter.next() {
+                            } else if let Some((r, _)) = iter.next() {
+                                let pos = r.start;
                                 // More than one character
                                 let cont = &s.as_bytes()[pos..];
                                 if SUFFIX_KEYWORDS.contains(cont) {

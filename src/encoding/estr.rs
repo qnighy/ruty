@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, ops::Range};
 
 use crate::encoding::{CharPlus, EString, EncNext, Encoding, EncodingImpl, EncodingState};
 
@@ -458,7 +458,7 @@ pub struct CharIndices<'a> {
 }
 
 impl<'a> Iterator for CharIndices<'a> {
-    type Item = (usize, CharPlus);
+    type Item = (Range<usize>, CharPlus);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.pos >= self.bytes.len() {
@@ -475,18 +475,18 @@ impl<'a> Iterator for CharIndices<'a> {
                     CharPlus::NonUnicode(SmallBytes::try_from(&self.bytes[..len]).unwrap())
                 };
                 self.pos += len;
-                (start, ch)
+                (start..self.pos, ch)
             }
             EncNext::Invalid { len } => {
                 let ch = CharPlus::Invalid(SmallBytes::try_from(&self.bytes[..len]).unwrap());
                 self.pos += len;
-                (start, ch)
+                (start..self.pos, ch)
             }
             EncNext::Shift { len, next_state } => {
                 let ch = CharPlus::Shift(SmallBytes::try_from(&self.bytes[..len]).unwrap());
                 self.pos += len;
                 self.state = next_state;
-                (start, ch)
+                (start..self.pos, ch)
             }
         })
     }
