@@ -225,15 +225,6 @@ where
     assert_eq!(difflist1, difflist2);
 }
 
-#[track_caller]
-fn assert_lex_except<'a, S, F>(src: S, states: LexerStates, expected: F)
-where
-    S: Into<EStrRef<'a>>,
-    F: FnOnce(EStrRef<'_>) -> Vec<Token>,
-{
-    assert_lex_for(src, !states, expected);
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct LexerStates(usize);
 

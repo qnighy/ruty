@@ -1,21 +1,21 @@
 use crate::{ast::pos_in, parser::lexer::TokenKind};
 
-use super::{assert_lex_except, assert_lex_for, token, LexerStates};
+use super::{assert_lex_for, token, LexerStates};
 
 #[test]
 fn test_lex_static_symbol_ident_like() {
-    assert_lex_except(
+    assert_lex_for(
         ":foo123",
-        LexerStates::End | LexerStates::MethForDef | LexerStates::MethForCall,
+        !(LexerStates::End | LexerStates::MethForDef | LexerStates::MethForCall),
         |src| vec![token(TokenKind::Symbol, pos_in(src, b":foo123", 0), 0)],
     );
 }
 
 #[test]
 fn test_lex_static_symbol_const_like() {
-    assert_lex_except(
+    assert_lex_for(
         ":Baz",
-        LexerStates::End | LexerStates::MethForDef | LexerStates::MethForCall,
+        !(LexerStates::End | LexerStates::MethForDef | LexerStates::MethForCall),
         |src| vec![token(TokenKind::Symbol, pos_in(src, b":Baz", 0), 0)],
     );
 }

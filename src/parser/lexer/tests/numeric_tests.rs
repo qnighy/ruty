@@ -6,7 +6,7 @@ use crate::{
     parser::lexer::{NumericToken, TokenKind},
 };
 
-use super::{assert_lex_except, assert_lex_for, token, LexerStates};
+use super::{assert_lex_for, token, LexerStates};
 
 #[test]
 fn test_lex_integer_simple() {
@@ -24,20 +24,16 @@ fn test_lex_integer_simple() {
 
 #[test]
 fn test_lex_integer_positive() {
-    assert_lex_except(
-        "+123",
-        LexerStates::END_ALL | LexerStates::METH_ALL,
-        |src| {
-            vec![token(
-                TokenKind::Numeric(NumericToken {
-                    value: NumericValue::Integer(BigInt::from(123)),
-                    imaginary: false,
-                }),
-                pos_in(src, b"+123", 0),
-                0,
-            )]
-        },
-    );
+    assert_lex_for("+123", LexerStates::BEGIN_ALL, |src| {
+        vec![token(
+            TokenKind::Numeric(NumericToken {
+                value: NumericValue::Integer(BigInt::from(123)),
+                imaginary: false,
+            }),
+            pos_in(src, b"+123", 0),
+            0,
+        )]
+    });
 }
 
 #[test]
@@ -168,20 +164,16 @@ fn test_lex_float_simple() {
 
 #[test]
 fn test_lex_float_positive() {
-    assert_lex_except(
-        "+1.0",
-        LexerStates::END_ALL | LexerStates::METH_ALL,
-        |src| {
-            vec![token(
-                TokenKind::Numeric(NumericToken {
-                    value: NumericValue::Float(NotNan::new(1.0).unwrap()),
-                    imaginary: false,
-                }),
-                pos_in(src, b"+1.0", 0),
-                0,
-            )]
-        },
-    );
+    assert_lex_for("+1.0", LexerStates::BEGIN_ALL, |src| {
+        vec![token(
+            TokenKind::Numeric(NumericToken {
+                value: NumericValue::Float(NotNan::new(1.0).unwrap()),
+                imaginary: false,
+            }),
+            pos_in(src, b"+1.0", 0),
+            0,
+        )]
+    });
 }
 
 #[test]
@@ -312,7 +304,7 @@ fn test_lex_rational_simple() {
 
 #[test]
 fn test_lex_rational_positive() {
-    assert_lex_except("+3r", LexerStates::END_ALL | LexerStates::METH_ALL, |src| {
+    assert_lex_for("+3r", LexerStates::BEGIN_ALL, |src| {
         vec![token(
             TokenKind::Numeric(NumericToken {
                 value: NumericValue::Rational(Decimal::from(3)),
@@ -371,20 +363,16 @@ fn test_lex_imaginary_integer_simple() {
 
 #[test]
 fn test_lex_imaginary_integer_positive() {
-    assert_lex_except(
-        "+123i",
-        LexerStates::END_ALL | LexerStates::METH_ALL,
-        |src| {
-            vec![token(
-                TokenKind::Numeric(NumericToken {
-                    value: NumericValue::Integer(BigInt::from(123)),
-                    imaginary: true,
-                }),
-                pos_in(src, b"+123i", 0),
-                0,
-            )]
-        },
-    );
+    assert_lex_for("+123i", LexerStates::BEGIN_ALL, |src| {
+        vec![token(
+            TokenKind::Numeric(NumericToken {
+                value: NumericValue::Integer(BigInt::from(123)),
+                imaginary: true,
+            }),
+            pos_in(src, b"+123i", 0),
+            0,
+        )]
+    });
 }
 
 #[test]

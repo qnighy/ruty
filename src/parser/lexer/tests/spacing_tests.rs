@@ -5,7 +5,7 @@ use crate::{
     parser::lexer::{NumericToken, TokenKind},
 };
 
-use super::{assert_lex_except, assert_lex_for, token, LexerStates};
+use super::{assert_lex_for, token, LexerStates};
 
 #[test]
 fn test_lex_eof_nul() {
@@ -159,9 +159,11 @@ fn test_lex_spaces_multiple() {
 
 #[test]
 fn test_lex_spaces_lf() {
-    assert_lex_except("\n1", LexerStates::BeginOpt | LexerStates::END_ALL, |src| {
-        vec![token(TokenKind::Numeric(one()), pos_in(src, b"1", 0), 0)]
-    });
+    assert_lex_for(
+        "\n1",
+        (LexerStates::BEGIN_ALL | LexerStates::METH_ALL) & !LexerStates::BeginOpt,
+        |src| vec![token(TokenKind::Numeric(one()), pos_in(src, b"1", 0), 0)],
+    );
 }
 
 #[test]
@@ -211,9 +213,9 @@ fn test_lex_lf_before_dot_dot() {
 
 #[test]
 fn test_lex_comments() {
-    assert_lex_except(
+    assert_lex_for(
         "# comment2\nfoo bar # comment1\n# comment3\nbaz\n",
-        LexerStates::BeginOpt | LexerStates::END_ALL | LexerStates::METH_ALL,
+        LexerStates::BEGIN_ALL & !LexerStates::BeginOpt,
         |src| {
             vec![
                 token(TokenKind::Identifier, pos_in(src, b"foo", 0), 0),

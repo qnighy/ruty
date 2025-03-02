@@ -5,7 +5,7 @@ use crate::{
     Diagnostic, Encoding,
 };
 
-use super::{assert_lex_except, assert_lex_for, lex_all_with_diag_from, token, LexerStates};
+use super::{assert_lex_for, lex_all_with_diag_from, token, LexerStates};
 
 const METH_FOR_DEF_ALL: LexerStates = LexerStates::EMPTY
     .or(LexerStates::MethForDef)
@@ -132,7 +132,7 @@ fn test_lex_ident_eq_join() {
 
 #[test]
 fn test_lex_ident_eq_separate() {
-    assert_lex_except("foo123=", METH_FOR_DEF_ALL, |src| {
+    assert_lex_for("foo123=", !METH_FOR_DEF_ALL, |src| {
         vec![
             token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
             token(TokenKind::Eq, pos_in(src, b"=", 0), 0),
@@ -182,7 +182,7 @@ fn test_lex_ident_eq_eq_gt_join() {
 
 #[test]
 fn test_lex_ident_eq_eq_gt_separate() {
-    assert_lex_except("foo123==>", METH_FOR_DEF_ALL, |src| {
+    assert_lex_for("foo123==>", !METH_FOR_DEF_ALL, |src| {
         vec![
             token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
             token(TokenKind::BinOp(BinOpKind::Eq), pos_in(src, b"==", 0), 0),

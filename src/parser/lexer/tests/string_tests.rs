@@ -1,6 +1,6 @@
 use crate::{ast::pos_in, parser::lexer::TokenKind};
 
-use super::{assert_lex_except, assert_lex_for, token, LexerStates};
+use super::{assert_lex_for, token, LexerStates};
 
 const LABELABLE: LexerStates = LexerStates::EMPTY
     .or(LexerStates::BeginLabelable)
@@ -9,7 +9,7 @@ const LABELABLE: LexerStates = LexerStates::EMPTY
 
 #[test]
 fn test_quote_string_tokens_simple_nolabelable() {
-    assert_lex_except("' foo '", LABELABLE, |src| {
+    assert_lex_for("' foo '", !LABELABLE, |src| {
         vec![
             token(TokenKind::StringBegin, pos_in(src, b"'", 0), 0),
             token(TokenKind::StringContent, pos_in(src, " foo ", 0), 0),

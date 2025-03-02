@@ -1,6 +1,6 @@
 use crate::{ast::pos_in, parser::lexer::TokenKind};
 
-use super::{assert_lex_except, assert_lex_for, token, LexerStates};
+use super::{assert_lex_for, token, LexerStates};
 
 #[test]
 fn test_lex_keyword_encoding() {
@@ -172,9 +172,11 @@ fn test_lex_keyword_for() {
 
 #[test]
 fn test_lex_keyword_if_prefix() {
-    assert_lex_except("if", LexerStates::BeginOpt | LexerStates::END_ALL, |src| {
-        vec![token(TokenKind::KeywordIf, pos_in(src, b"if", 0), 0)]
-    });
+    assert_lex_for(
+        "if",
+        (LexerStates::BEGIN_ALL | LexerStates::METH_ALL) & !LexerStates::BeginOpt,
+        |src| vec![token(TokenKind::KeywordIf, pos_in(src, b"if", 0), 0)],
+    );
 }
 
 #[test]
@@ -303,9 +305,9 @@ fn test_lex_keyword_undef() {
 
 #[test]
 fn test_lex_keyword_unless_prefix() {
-    assert_lex_except(
+    assert_lex_for(
         "unless",
-        LexerStates::BeginOpt | LexerStates::END_ALL,
+        (LexerStates::BEGIN_ALL | LexerStates::METH_ALL) & !LexerStates::BeginOpt,
         |src| {
             vec![token(
                 TokenKind::KeywordUnless,
@@ -333,9 +335,9 @@ fn test_lex_keyword_unless_infix() {
 
 #[test]
 fn test_lex_keyword_until_prefix() {
-    assert_lex_except(
+    assert_lex_for(
         "until",
-        LexerStates::BeginOpt | LexerStates::END_ALL,
+        (LexerStates::BEGIN_ALL | LexerStates::METH_ALL) & !LexerStates::BeginOpt,
         |src| vec![token(TokenKind::KeywordUntil, pos_in(src, b"until", 0), 0)],
     );
 }
@@ -364,9 +366,9 @@ fn test_lex_keyword_when() {
 
 #[test]
 fn test_lex_keyword_while_prefix() {
-    assert_lex_except(
+    assert_lex_for(
         "while",
-        LexerStates::BeginOpt | LexerStates::END_ALL,
+        (LexerStates::BEGIN_ALL | LexerStates::METH_ALL) & !LexerStates::BeginOpt,
         |src| vec![token(TokenKind::KeywordWhile, pos_in(src, b"while", 0), 0)],
     );
 }

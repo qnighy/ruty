@@ -3,7 +3,7 @@ use crate::{
     parser::lexer::{BinOpKind, NonLocalKind, TokenKind, UnOpKind},
 };
 
-use super::{assert_lex_except, assert_lex_for, token, LexerStates};
+use super::{assert_lex_for, token, LexerStates};
 
 #[test]
 fn test_plus_infix_spaced() {
@@ -18,7 +18,7 @@ fn test_plus_infix_spaced() {
 
 #[test]
 fn test_plus_prefix_spaced() {
-    assert_lex_except(" + ", LexerStates::END_ALL | LexerStates::METH_ALL, |src| {
+    assert_lex_for(" + ", LexerStates::BEGIN_ALL, |src| {
         vec![token(
             TokenKind::UnOp(UnOpKind::Plus),
             pos_in(src, b"+", 0),
@@ -44,9 +44,9 @@ fn test_plus_infix_left_spaced() {
 
 #[test]
 fn test_plus_prefix_left_spaced() {
-    assert_lex_except(
+    assert_lex_for(
         " +",
-        (LexerStates::END_ALL | LexerStates::METH_ALL) & !LexerStates::FirstArgument,
+        LexerStates::BEGIN_ALL | LexerStates::FirstArgument,
         |src| {
             vec![token(
                 TokenKind::UnOp(UnOpKind::Plus),
@@ -70,7 +70,7 @@ fn test_plus_infix_nospaced() {
 
 #[test]
 fn test_plus_prefix_nospaced() {
-    assert_lex_except("+", LexerStates::END_ALL | LexerStates::METH_ALL, |src| {
+    assert_lex_for("+", LexerStates::BEGIN_ALL, |src| {
         vec![token(
             TokenKind::UnOp(UnOpKind::Plus),
             pos_in(src, b"+", 0),
@@ -105,20 +105,16 @@ fn test_plus_at_separate_infix() {
 
 #[test]
 fn test_plus_at_separate_prefix() {
-    assert_lex_except(
-        "+@foo",
-        LexerStates::END_ALL | LexerStates::METH_ALL,
-        |src| {
-            vec![
-                token(TokenKind::UnOp(UnOpKind::Plus), pos_in(src, b"+", 0), 0),
-                token(
-                    TokenKind::NonLocal(NonLocalKind::Ivar),
-                    pos_in(src, b"@foo", 0),
-                    0,
-                ),
-            ]
-        },
-    );
+    assert_lex_for("+@foo", LexerStates::BEGIN_ALL, |src| {
+        vec![
+            token(TokenKind::UnOp(UnOpKind::Plus), pos_in(src, b"+", 0), 0),
+            token(
+                TokenKind::NonLocal(NonLocalKind::Ivar),
+                pos_in(src, b"@foo", 0),
+                0,
+            ),
+        ]
+    });
 }
 
 #[test]
@@ -134,7 +130,7 @@ fn test_minus_infix_spaced() {
 
 #[test]
 fn test_minus_prefix_spaced() {
-    assert_lex_except(" - ", LexerStates::END_ALL | LexerStates::METH_ALL, |src| {
+    assert_lex_for(" - ", LexerStates::BEGIN_ALL, |src| {
         vec![token(
             TokenKind::UnOp(UnOpKind::Minus),
             pos_in(src, b"-", 0),
@@ -160,9 +156,9 @@ fn test_minus_infix_left_spaced() {
 
 #[test]
 fn test_minus_prefix_left_spaced() {
-    assert_lex_except(
+    assert_lex_for(
         " -",
-        (LexerStates::END_ALL | LexerStates::METH_ALL) & !LexerStates::FirstArgument,
+        LexerStates::BEGIN_ALL | LexerStates::FirstArgument,
         |src| {
             vec![token(
                 TokenKind::UnOp(UnOpKind::Minus),
@@ -186,7 +182,7 @@ fn test_minus_infix_nospaced() {
 
 #[test]
 fn test_minus_prefix_nospaced() {
-    assert_lex_except("-", LexerStates::END_ALL | LexerStates::METH_ALL, |src| {
+    assert_lex_for("-", LexerStates::BEGIN_ALL, |src| {
         vec![token(
             TokenKind::UnOp(UnOpKind::Minus),
             pos_in(src, b"-", 0),
@@ -221,20 +217,16 @@ fn test_minus_at_separate_infix() {
 
 #[test]
 fn test_minus_at_separate_prefix() {
-    assert_lex_except(
-        "-@foo",
-        LexerStates::END_ALL | LexerStates::METH_ALL,
-        |src| {
-            vec![
-                token(TokenKind::UnOp(UnOpKind::Minus), pos_in(src, b"-", 0), 0),
-                token(
-                    TokenKind::NonLocal(NonLocalKind::Ivar),
-                    pos_in(src, b"@foo", 0),
-                    0,
-                ),
-            ]
-        },
-    );
+    assert_lex_for("-@foo", LexerStates::BEGIN_ALL, |src| {
+        vec![
+            token(TokenKind::UnOp(UnOpKind::Minus), pos_in(src, b"-", 0), 0),
+            token(
+                TokenKind::NonLocal(NonLocalKind::Ivar),
+                pos_in(src, b"@foo", 0),
+                0,
+            ),
+        ]
+    });
 }
 
 #[test]
