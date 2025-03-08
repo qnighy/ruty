@@ -202,20 +202,34 @@ where
     S: Into<EStrRef<'a>>,
     F: FnOnce(EStrRef<'_>) -> Vec<Token>,
 {
+    assert_lex_with_diag(src, states, expected, |_| Vec::new());
+}
+#[track_caller]
+fn assert_lex_with_diag<'a, S, F, F2>(
+    src: S,
+    states: LexerStates,
+    expected_tokens: F,
+    expected_diag: F2,
+) where
+    S: Into<EStrRef<'a>>,
+    F: FnOnce(EStrRef<'_>) -> Vec<Token>,
+    F2: FnOnce(EStrRef<'_>) -> Vec<Diagnostic>,
+{
     use std::fmt::Write;
 
     let src = <S as Into<EStrRef<'a>>>::into(src);
-    let expected = expected(src);
+    let expected_tokens = expected_tokens(src);
+    let expected_diag = expected_diag(src);
     let mut diff_groups: HashMap<(Vec<Token>, Vec<Diagnostic>), Vec<LexerState>> = HashMap::new();
     for &state in &ALL_STATES {
         if !states.contains(state) {
             continue;
         }
-        let (actual, diag) = lex_all_from(src, state);
-        assert_eq!(diag, Vec::new());
-        if actual != expected {
+        let (actual_tokens, actual_diag) = lex_all_from(src, state);
+        assert_eq!(actual_diag, Vec::new());
+        if actual_tokens != expected_tokens || actual_diag != expected_diag {
             diff_groups
-                .entry((actual.clone(), diag.clone()))
+                .entry((actual_tokens.clone(), actual_diag.clone()))
                 .or_default()
                 .push(state);
         }
@@ -229,14 +243,25 @@ where
     diff_groups.sort_by_key(|(_, states)| states[0] as usize);
     let mut msg = String::new();
     writeln!(msg, "assertion failed: invalid lex result:").unwrap();
-    for ((actual_tokens, _), states) in diff_groups {
-        writeln!(
-            msg,
-            "for states {:?}:\n{}",
-            states,
-            Comparison::new(&actual_tokens, &expected)
-        )
-        .unwrap();
+    for ((actual_tokens, actual_diag), states) in diff_groups {
+        if actual_tokens != expected_tokens {
+            writeln!(
+                msg,
+                "tokens for states {:?}:\n{}",
+                states,
+                Comparison::new(&actual_tokens, &expected_tokens)
+            )
+            .unwrap();
+        }
+        if actual_diag != expected_diag {
+            writeln!(
+                msg,
+                "diags for states {:?}:\n{}",
+                states,
+                Comparison::new(&actual_diag, &expected_diag)
+            )
+            .unwrap();
+        }
     }
     panic!("{}", msg);
 }
