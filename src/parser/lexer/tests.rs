@@ -1,7 +1,10 @@
 use std::{
+    collections::HashMap,
     fmt,
     ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not},
 };
+
+use pretty_assertions::Comparison;
 
 use crate::{ast::CodeRange, encoding::EStrRef, Diagnostic};
 
@@ -199,10 +202,11 @@ where
     S: Into<EStrRef<'a>>,
     F: FnOnce(EStrRef<'_>) -> Vec<Token>,
 {
+    use std::fmt::Write;
+
     let src = <S as Into<EStrRef<'a>>>::into(src);
     let expected = expected(src);
-    let mut difflist1 = Vec::<(LexerState, Vec<Token>)>::new();
-    let mut difflist2 = Vec::<(LexerState, Vec<Token>)>::new();
+    let mut diff_groups: HashMap<(Vec<Token>, Vec<Diagnostic>), Vec<LexerState>> = HashMap::new();
     for &state in &ALL_STATES {
         if !states.contains(state) {
             continue;
@@ -210,11 +214,31 @@ where
         let (actual, diag) = lex_all_from(src, state);
         assert_eq!(diag, Vec::new());
         if actual != expected {
-            difflist1.push((state, actual));
-            difflist2.push((state, expected.clone()));
+            diff_groups
+                .entry((actual.clone(), diag.clone()))
+                .or_default()
+                .push(state);
         }
     }
-    assert_eq!(difflist1, difflist2);
+    if diff_groups.is_empty() {
+        return;
+    }
+
+    // Print error
+    let mut diff_groups = diff_groups.into_iter().collect::<Vec<_>>();
+    diff_groups.sort_by_key(|(_, states)| states[0] as usize);
+    let mut msg = String::new();
+    writeln!(msg, "assertion failed: invalid lex result:").unwrap();
+    for ((actual_tokens, _), states) in diff_groups {
+        writeln!(
+            msg,
+            "for states {:?}:\n{}",
+            states,
+            Comparison::new(&actual_tokens, &expected)
+        )
+        .unwrap();
+    }
+    panic!("{}", msg);
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

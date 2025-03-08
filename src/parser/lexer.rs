@@ -15,14 +15,14 @@ use crate::{
 
 const TAB_WIDTH: usize = 8;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct Token {
     pub(super) kind: TokenKind,
     pub(super) range: CodeRange,
     pub(super) indent: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) enum TokenKind {
     /// `__ENCODING__`, namely `keyword__ENCODING__`
     KeywordCapitalDoubleUnderscoreEncoding,
@@ -263,7 +263,7 @@ pub(super) enum TokenKind {
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) enum NonLocalKind {
     /// `@foo`, namely `tIVAR`
     Ivar,
@@ -273,13 +273,13 @@ pub(super) enum NonLocalKind {
     Gvar,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct NumericToken {
     pub(super) value: NumericValue,
     pub(super) imaginary: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) enum BinOpKind {
     /// `||`
     LogicalOr,
@@ -329,7 +329,7 @@ pub(super) enum BinOpKind {
     Pow,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) enum UnOpKind {
     /// `!`
     Not,
