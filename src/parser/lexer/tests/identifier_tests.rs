@@ -1,11 +1,11 @@
 use crate::{
     ast::pos_in,
     encoding::EStrRef,
-    parser::lexer::{BinOpKind, LexerState, TokenKind},
+    parser::lexer::{tests::assert_lex_with_diag, BinOpKind, TokenKind},
     Diagnostic, Encoding,
 };
 
-use super::{assert_lex, lex_all_from, token, LexerStates};
+use super::{assert_lex, token, LexerStates};
 
 const METH_FOR_DEF_ALL: LexerStates = LexerStates::EMPTY
     .or(LexerStates::MethForDef)
@@ -36,14 +36,16 @@ fn test_lex_ident_non_ascii() {
 
 #[test]
 fn test_lex_ident_invalid_non_ascii() {
-    let src = EStrRef::from_bytes(b"\xE3\x81", Encoding::UTF_8);
-    let (_, diag) = lex_all_from(src, LexerState::Begin);
-    assert_eq!(
-        diag,
-        vec![Diagnostic {
-            range: pos_in(src, b"\xE3\x81", 0),
-            message: "The identifier contains invalid characters".to_owned(),
-        }]
+    assert_lex_with_diag(
+        EStrRef::from_bytes(b"\xE3\x81", Encoding::UTF_8),
+        LexerStates::ALL,
+        |src| vec![token(TokenKind::Identifier, pos_in(src, b"\xE3\x81", 0), 0)],
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"\xE3\x81", 0),
+                message: "The identifier contains invalid characters".to_owned(),
+            }]
+        },
     );
 }
 
@@ -63,14 +65,22 @@ fn test_lex_const_non_ascii() {
 
 #[test]
 fn test_lex_const_invalid_non_ascii() {
-    let src = EStrRef::from_bytes(b"\xCE\xA9\xE3\x81", Encoding::UTF_8);
-    let (_, diag) = lex_all_from(src, LexerState::Begin);
-    assert_eq!(
-        diag,
-        vec![Diagnostic {
-            range: pos_in(src, b"\xCE\xA9\xE3\x81", 0),
-            message: "The identifier contains invalid characters".to_owned(),
-        }]
+    assert_lex_with_diag(
+        EStrRef::from_bytes(b"\xCE\xA9\xE3\x81", Encoding::UTF_8),
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Const,
+                pos_in(src, b"\xCE\xA9\xE3\x81", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"\xCE\xA9\xE3\x81", 0),
+                message: "The identifier contains invalid characters".to_owned(),
+            }]
+        },
     );
 }
 

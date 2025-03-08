@@ -226,7 +226,6 @@ fn assert_lex_with_diag<'a, S, F, F2>(
             continue;
         }
         let (actual_tokens, actual_diag) = lex_all_from(src, state);
-        assert_eq!(actual_diag, Vec::new());
         if actual_tokens != expected_tokens || actual_diag != expected_diag {
             diff_groups
                 .entry((actual_tokens.clone(), actual_diag.clone()))

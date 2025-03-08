@@ -1,11 +1,11 @@
 use crate::{
     ast::pos_in,
     encoding::EStrRef,
-    parser::lexer::{LexerState, NonLocalKind, TokenKind},
+    parser::lexer::{NonLocalKind, TokenKind},
     Diagnostic, Encoding,
 };
 
-use super::{assert_lex, lex_all_from, token, LexerStates};
+use super::{assert_lex, assert_lex_with_diag, token, LexerStates};
 
 #[test]
 fn test_lex_ivar_name_simple() {
@@ -42,27 +42,43 @@ fn test_lex_ivar_name_non_ascii() {
 
 #[test]
 fn test_lex_ivar_name_invalid_non_ascii() {
-    let src = EStrRef::from_bytes(b"@\xE3\x81", Encoding::UTF_8);
-    let (_, diag) = lex_all_from(src, LexerState::Begin);
-    assert_eq!(
-        diag,
-        vec![Diagnostic {
-            range: pos_in(src, b"@\xE3\x81", 0),
-            message: "The instance variable name contains invalid characters".to_owned(),
-        }]
+    assert_lex_with_diag(
+        EStrRef::from_bytes(b"@\xE3\x81", Encoding::UTF_8),
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::NonLocal(NonLocalKind::Ivar),
+                pos_in(src, b"@\xE3\x81", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"@\xE3\x81", 0),
+                message: "The instance variable name contains invalid characters".to_owned(),
+            }]
+        },
     );
 }
 
 #[test]
 fn test_lex_ivar_name_invalid_digit() {
-    let src = EStrRef::from("@123");
-    let (_, diag) = lex_all_from(src, LexerState::Begin);
-    assert_eq!(
-        diag,
-        vec![Diagnostic {
-            range: pos_in(src, b"@123", 0),
-            message: "Invalid instance variable name".to_owned(),
-        }]
+    assert_lex_with_diag(
+        EStrRef::from("@123"),
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::NonLocal(NonLocalKind::Ivar),
+                pos_in(src, b"@123", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"@123", 0),
+                message: "Invalid instance variable name".to_owned(),
+            }]
+        },
     );
 }
 
@@ -101,27 +117,43 @@ fn test_lex_cvar_name_non_ascii() {
 
 #[test]
 fn test_lex_cvar_name_invalid_non_ascii() {
-    let src = EStrRef::from_bytes(b"@@\xE3\x81", Encoding::UTF_8);
-    let (_, diag) = lex_all_from(src, LexerState::Begin);
-    assert_eq!(
-        diag,
-        vec![Diagnostic {
-            range: pos_in(src, b"@@\xE3\x81", 0),
-            message: "The class variable name contains invalid characters".to_owned(),
-        }]
+    assert_lex_with_diag(
+        EStrRef::from_bytes(b"@@\xE3\x81", Encoding::UTF_8),
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::NonLocal(NonLocalKind::Cvar),
+                pos_in(src, b"@@\xE3\x81", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"@@\xE3\x81", 0),
+                message: "The class variable name contains invalid characters".to_owned(),
+            }]
+        },
     );
 }
 
 #[test]
 fn test_lex_cvar_name_invalid_digit() {
-    let src = EStrRef::from("@@123");
-    let (_, diag) = lex_all_from(src, LexerState::Begin);
-    assert_eq!(
-        diag,
-        vec![Diagnostic {
-            range: pos_in(src, b"@@123", 0),
-            message: "Invalid class variable name".to_owned(),
-        }]
+    assert_lex_with_diag(
+        EStrRef::from("@@123"),
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::NonLocal(NonLocalKind::Cvar),
+                pos_in(src, b"@@123", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"@@123", 0),
+                message: "Invalid class variable name".to_owned(),
+            }]
+        },
     );
 }
 
@@ -160,14 +192,22 @@ fn test_lex_gvar_non_ascii() {
 
 #[test]
 fn test_lex_gvar_invalid_non_ascii() {
-    let src = EStrRef::from_bytes(b"$\xE3\x81", Encoding::UTF_8);
-    let (_, diag) = lex_all_from(src, LexerState::Begin);
-    assert_eq!(
-        diag,
-        vec![Diagnostic {
-            range: pos_in(src, b"$\xE3\x81", 0),
-            message: "The global variable name contains invalid characters".to_owned(),
-        }]
+    assert_lex_with_diag(
+        EStrRef::from_bytes(b"$\xE3\x81", Encoding::UTF_8),
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::NonLocal(NonLocalKind::Gvar),
+                pos_in(src, b"$\xE3\x81", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"$\xE3\x81", 0),
+                message: "The global variable name contains invalid characters".to_owned(),
+            }]
+        },
     );
 }
 
