@@ -5,7 +5,7 @@ use crate::{
     Diagnostic, Encoding,
 };
 
-use super::{assert_lex, lex_all_with_diag_from, token, LexerStates};
+use super::{assert_lex, lex_all_from, token, LexerStates};
 
 const METH_FOR_DEF_ALL: LexerStates = LexerStates::EMPTY
     .or(LexerStates::MethForDef)
@@ -37,7 +37,7 @@ fn test_lex_ident_non_ascii() {
 #[test]
 fn test_lex_ident_invalid_non_ascii() {
     let src = EStrRef::from_bytes(b"\xE3\x81", Encoding::UTF_8);
-    let (_, diag) = lex_all_with_diag_from(src, LexerState::Begin);
+    let (_, diag) = lex_all_from(src, LexerState::Begin);
     assert_eq!(
         diag,
         vec![Diagnostic {
@@ -64,7 +64,7 @@ fn test_lex_const_non_ascii() {
 #[test]
 fn test_lex_const_invalid_non_ascii() {
     let src = EStrRef::from_bytes(b"\xCE\xA9\xE3\x81", Encoding::UTF_8);
-    let (_, diag) = lex_all_with_diag_from(src, LexerState::Begin);
+    let (_, diag) = lex_all_from(src, LexerState::Begin);
     assert_eq!(
         diag,
         vec![Diagnostic {

@@ -5,7 +5,7 @@ use crate::{
     Diagnostic, Encoding,
 };
 
-use super::{assert_lex, lex_all_with_diag_from, token, LexerStates};
+use super::{assert_lex, lex_all_from, token, LexerStates};
 
 #[test]
 fn test_lex_ivar_name_simple() {
@@ -43,7 +43,7 @@ fn test_lex_ivar_name_non_ascii() {
 #[test]
 fn test_lex_ivar_name_invalid_non_ascii() {
     let src = EStrRef::from_bytes(b"@\xE3\x81", Encoding::UTF_8);
-    let (_, diag) = lex_all_with_diag_from(src, LexerState::Begin);
+    let (_, diag) = lex_all_from(src, LexerState::Begin);
     assert_eq!(
         diag,
         vec![Diagnostic {
@@ -56,7 +56,7 @@ fn test_lex_ivar_name_invalid_non_ascii() {
 #[test]
 fn test_lex_ivar_name_invalid_digit() {
     let src = EStrRef::from("@123");
-    let (_, diag) = lex_all_with_diag_from(src, LexerState::Begin);
+    let (_, diag) = lex_all_from(src, LexerState::Begin);
     assert_eq!(
         diag,
         vec![Diagnostic {
@@ -102,7 +102,7 @@ fn test_lex_cvar_name_non_ascii() {
 #[test]
 fn test_lex_cvar_name_invalid_non_ascii() {
     let src = EStrRef::from_bytes(b"@@\xE3\x81", Encoding::UTF_8);
-    let (_, diag) = lex_all_with_diag_from(src, LexerState::Begin);
+    let (_, diag) = lex_all_from(src, LexerState::Begin);
     assert_eq!(
         diag,
         vec![Diagnostic {
@@ -115,7 +115,7 @@ fn test_lex_cvar_name_invalid_non_ascii() {
 #[test]
 fn test_lex_cvar_name_invalid_digit() {
     let src = EStrRef::from("@@123");
-    let (_, diag) = lex_all_with_diag_from(src, LexerState::Begin);
+    let (_, diag) = lex_all_from(src, LexerState::Begin);
     assert_eq!(
         diag,
         vec![Diagnostic {
@@ -161,7 +161,7 @@ fn test_lex_gvar_non_ascii() {
 #[test]
 fn test_lex_gvar_invalid_non_ascii() {
     let src = EStrRef::from_bytes(b"$\xE3\x81", Encoding::UTF_8);
-    let (_, diag) = lex_all_with_diag_from(src, LexerState::Begin);
+    let (_, diag) = lex_all_from(src, LexerState::Begin);
     assert_eq!(
         diag,
         vec![Diagnostic {
