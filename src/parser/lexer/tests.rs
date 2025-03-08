@@ -7,12 +7,6 @@ use crate::{ast::CodeRange, encoding::EStrRef, Diagnostic};
 
 use super::{BinOpKind, Lexer, LexerState, StringDelimiter, StringState, Token, TokenKind};
 
-fn lex_all_from(input: EStrRef<'_>, state: LexerState) -> Vec<Token> {
-    let (tokens, diag) = lex_all_with_diag_from(input, state);
-    assert_eq!(diag, Vec::new());
-    tokens
-}
-
 fn lex_all_with_diag_from(
     input: EStrRef<'_>,
     mut state: LexerState,
@@ -216,7 +210,8 @@ where
         if !states.contains(state) {
             continue;
         }
-        let actual = lex_all_from(src, state);
+        let (actual, diag) = lex_all_with_diag_from(src, state);
+        assert_eq!(diag, Vec::new());
         if actual != expected {
             difflist1.push((state, actual));
             difflist2.push((state, expected.clone()));
