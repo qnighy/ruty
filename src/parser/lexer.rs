@@ -1040,7 +1040,9 @@ impl<'a> Lexer<'a> {
                         self.pos += 1;
                         TokenKind::MethodName
                     }
-                    b'=' => {
+                    // Interestingly, only `+=` and `-=` are subject to splitting
+                    // in method name context.
+                    b'=' if !state.extended_method_name() => {
                         self.pos += 1;
                         TokenKind::OpAssign(BinOpKind::Add)
                     }
@@ -1074,7 +1076,9 @@ impl<'a> Lexer<'a> {
                         self.pos += 1;
                         TokenKind::MethodName
                     }
-                    b'=' => {
+                    // Interestingly, only `+=` and `-=` are subject to splitting
+                    // in method name context.
+                    b'=' if !state.extended_method_name() => {
                         self.pos += 1;
                         TokenKind::OpAssign(BinOpKind::Sub)
                     }

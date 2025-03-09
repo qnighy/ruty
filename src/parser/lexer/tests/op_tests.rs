@@ -51,7 +51,7 @@ fn test_op_assign_mult() {
 
 #[test]
 fn test_op_assign_add() {
-    assert_lex("+=", LexerStates::ALL, |src| {
+    assert_lex("+=", LexerStates::BEGIN_ALL | LexerStates::END_ALL, |src| {
         vec![token(
             TokenKind::OpAssign(BinOpKind::Add),
             pos_in(src, b"+=", 0),
@@ -61,13 +61,33 @@ fn test_op_assign_add() {
 }
 
 #[test]
+fn test_separate_op_assign_add() {
+    assert_lex("+=", LexerStates::METH_ALL, |src| {
+        vec![
+            token(TokenKind::BinOp(BinOpKind::Add), pos_in(src, b"+", 0), 0),
+            token(TokenKind::Eq, pos_in(src, b"=", 0), 0),
+        ]
+    });
+}
+
+#[test]
 fn test_op_assign_sub() {
-    assert_lex("-=", LexerStates::ALL, |src| {
+    assert_lex("-=", LexerStates::BEGIN_ALL | LexerStates::END_ALL, |src| {
         vec![token(
             TokenKind::OpAssign(BinOpKind::Sub),
             pos_in(src, b"-=", 0),
             0,
         )]
+    });
+}
+
+#[test]
+fn test_separate_op_assign_sub() {
+    assert_lex("-=", LexerStates::METH_ALL, |src| {
+        vec![
+            token(TokenKind::BinOp(BinOpKind::Sub), pos_in(src, b"-", 0), 0),
+            token(TokenKind::Eq, pos_in(src, b"=", 0), 0),
+        ]
     });
 }
 
