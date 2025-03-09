@@ -2066,7 +2066,7 @@ impl<'a> Lexer<'a> {
                                 // empty (i.e. `$-` alone)
                                 diag.push(Diagnostic {
                                     range: CodeRange {
-                                        start: ident_start,
+                                        start: ident_start - 2,
                                         end: self.pos,
                                     },
                                     message: format!("A letter must follow `$-`"),

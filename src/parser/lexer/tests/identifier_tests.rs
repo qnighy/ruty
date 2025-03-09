@@ -18,8 +18,29 @@ const LABELABLE: LexerStates = LexerStates::EMPTY
 
 #[test]
 fn test_lex_ident_simple() {
-    assert_lex("foo123", LexerStates::ALL, |src| {
-        vec![token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0)]
+    assert_lex("foo_123", LexerStates::ALL, |src| {
+        vec![token(TokenKind::Identifier, pos_in(src, b"foo_123", 0), 0)]
+    });
+}
+
+#[test]
+fn test_lex_ident_underscore() {
+    assert_lex("_", LexerStates::ALL, |src| {
+        vec![token(TokenKind::Identifier, pos_in(src, b"_", 0), 0)]
+    });
+}
+
+#[test]
+fn test_lex_ident_start_with_underscore() {
+    assert_lex("_foo123", LexerStates::ALL, |src| {
+        vec![token(TokenKind::Identifier, pos_in(src, b"_foo123", 0), 0)]
+    });
+}
+
+#[test]
+fn test_lex_ident_underscore_num() {
+    assert_lex("_123", LexerStates::ALL, |src| {
+        vec![token(TokenKind::Identifier, pos_in(src, b"_123", 0), 0)]
     });
 }
 
@@ -50,9 +71,19 @@ fn test_lex_ident_invalid_non_ascii() {
 }
 
 #[test]
+fn test_lex_ident_ambiguous_non_ascii() {
+    // 835C = ソ (which bytewise includes a backslash)
+    assert_lex(
+        EStrRef::from_bytes(b"\x83\x5C", Encoding::Windows_31J),
+        LexerStates::ALL,
+        |src| vec![token(TokenKind::Identifier, pos_in(src, b"\x83\x5C", 0), 0)],
+    );
+}
+
+#[test]
 fn test_lex_const_simple() {
-    assert_lex("Foo123", LexerStates::ALL, |src| {
-        vec![token(TokenKind::Const, pos_in(src, b"Foo123", 0), 0)]
+    assert_lex("Foo_123", LexerStates::ALL, |src| {
+        vec![token(TokenKind::Const, pos_in(src, b"Foo_123", 0), 0)]
     });
 }
 
@@ -85,6 +116,16 @@ fn test_lex_const_invalid_non_ascii() {
 }
 
 #[test]
+fn test_lex_const_ambiguous_non_ascii() {
+    // 835C = ソ (which bytewise includes a backslash)
+    assert_lex(
+        EStrRef::from_bytes(b"A\x83\x5C", Encoding::Windows_31J),
+        LexerStates::ALL,
+        |src| vec![token(TokenKind::Const, pos_in(src, b"A\x83\x5C", 0), 0)],
+    );
+}
+
+#[test]
 fn test_lex_ident_bang_simple() {
     assert_lex("foo123!", LexerStates::ALL, |src| {
         vec![token(TokenKind::MethodName, pos_in(src, b"foo123!", 0), 0)]
@@ -95,6 +136,13 @@ fn test_lex_ident_bang_simple() {
 fn test_lex_ident_bang_capital() {
     assert_lex("Foo123!", LexerStates::ALL, |src| {
         vec![token(TokenKind::MethodName, pos_in(src, b"Foo123!", 0), 0)]
+    });
+}
+
+#[test]
+fn test_lex_ident_bang_keyword_like() {
+    assert_lex("self!", LexerStates::ALL, |src| {
+        vec![token(TokenKind::MethodName, pos_in(src, b"self!", 0), 0)]
     });
 }
 
@@ -119,6 +167,13 @@ fn test_lex_ident_q_simple() {
 fn test_lex_ident_q_capital() {
     assert_lex("Foo123?", LexerStates::ALL, |src| {
         vec![token(TokenKind::MethodName, pos_in(src, b"Foo123?", 0), 0)]
+    });
+}
+
+#[test]
+fn test_lex_ident_q_keyword_like() {
+    assert_lex("self?", LexerStates::ALL, |src| {
+        vec![token(TokenKind::MethodName, pos_in(src, b"self?", 0), 0)]
     });
 }
 
@@ -209,9 +264,29 @@ fn test_lex_label_simple() {
 }
 
 #[test]
+fn test_lex_nolabel_simple() {
+    assert_lex("foo123:", !LABELABLE, |src| {
+        vec![
+            token(TokenKind::Identifier, pos_in(src, b"foo123", 0), 0),
+            token(TokenKind::Colon, pos_in(src, b":", 0), 0),
+        ]
+    });
+}
+
+#[test]
 fn test_lex_label_cap() {
     assert_lex("Bar:", LABELABLE, |src| {
         vec![token(TokenKind::Label, pos_in(src, b"Bar:", 0), 0)]
+    });
+}
+
+#[test]
+fn test_lex_nolabel_cap() {
+    assert_lex("Bar:", !LABELABLE, |src| {
+        vec![
+            token(TokenKind::Const, pos_in(src, b"Bar", 0), 0),
+            token(TokenKind::Colon, pos_in(src, b":", 0), 0),
+        ]
     });
 }
 
@@ -223,6 +298,16 @@ fn test_lex_label_keyword_like() {
 }
 
 #[test]
+fn test_lex_nolabel_keyword() {
+    assert_lex("self:", !LABELABLE, |src| {
+        vec![
+            token(TokenKind::KeywordSelf, pos_in(src, b"self", 0), 0),
+            token(TokenKind::Colon, pos_in(src, b":", 0), 0),
+        ]
+    });
+}
+
+#[test]
 fn test_lex_label_bang() {
     assert_lex("foo!:", LABELABLE, |src| {
         vec![token(TokenKind::Label, pos_in(src, b"foo!:", 0), 0)]
@@ -230,8 +315,28 @@ fn test_lex_label_bang() {
 }
 
 #[test]
+fn test_lex_label_nobang() {
+    assert_lex("foo!:", !LABELABLE, |src| {
+        vec![
+            token(TokenKind::MethodName, pos_in(src, b"foo!", 0), 0),
+            token(TokenKind::Colon, pos_in(src, b":", 0), 0),
+        ]
+    });
+}
+
+#[test]
 fn test_lex_label_question() {
     assert_lex("foo?:", LABELABLE, |src| {
         vec![token(TokenKind::Label, pos_in(src, b"foo?:", 0), 0)]
+    });
+}
+
+#[test]
+fn test_lex_nolabel_question() {
+    assert_lex("foo?:", !LABELABLE, |src| {
+        vec![
+            token(TokenKind::MethodName, pos_in(src, b"foo?", 0), 0),
+            token(TokenKind::Colon, pos_in(src, b":", 0), 0),
+        ]
     });
 }
