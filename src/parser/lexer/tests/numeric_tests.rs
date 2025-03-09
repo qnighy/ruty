@@ -3,10 +3,14 @@ use ordered_float::NotNan;
 
 use crate::{
     ast::{pos_in, Decimal, NumericValue},
-    parser::lexer::{NumericToken, TokenKind},
+    parser::{
+        lexer::{NumericToken, TokenKind},
+        UnOpKind,
+    },
+    Diagnostic,
 };
 
-use super::{assert_lex, token, LexerStates};
+use super::{assert_lex, assert_lex_with_diag, token, LexerStates};
 
 #[test]
 fn test_lex_integer_simple() {
@@ -37,6 +41,40 @@ fn test_lex_integer_positive() {
 }
 
 #[test]
+fn test_lex_integer_split_double_positive() {
+    assert_lex("++123", LexerStates::BEGIN_ALL, |src| {
+        vec![
+            token(TokenKind::UnOp(UnOpKind::Plus), pos_in(src, b"+", 0), 0),
+            token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(123)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"+123", 0),
+                0,
+            ),
+        ]
+    });
+}
+
+#[test]
+fn test_lex_integer_split_negative() {
+    assert_lex("-123", LexerStates::BEGIN_ALL, |src| {
+        vec![
+            token(TokenKind::UnOp(UnOpKind::Minus), pos_in(src, b"-", 0), 0),
+            token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(123)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"123", 0),
+                0,
+            ),
+        ]
+    });
+}
+
+#[test]
 fn test_lex_integer_underscore() {
     assert_lex("1_2_3", LexerStates::ALL, |src| {
         vec![token(
@@ -48,6 +86,54 @@ fn test_lex_integer_underscore() {
             0,
         )]
     });
+}
+
+#[test]
+fn test_lex_integer_invalid_double_underscores() {
+    assert_lex_with_diag(
+        "1__2",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(12)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"1__2", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"1__2", 0),
+                message: "Underscore should follow a digit".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_integer_invalid_trailing_underscore() {
+    assert_lex_with_diag(
+        "123_",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(123)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"123_", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"123_", 0),
+                message: "Underscore should precede a digit".to_owned(),
+            }]
+        },
+    );
 }
 
 #[test]
@@ -79,6 +165,30 @@ fn test_lex_integer_hex_capital() {
 }
 
 #[test]
+fn test_lex_integer_hex_invalid_empty_body() {
+    assert_lex_with_diag(
+        "0x",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(0)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"0x", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"0x", 0),
+                message: "Invalid number".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
 fn test_lex_integer_explicit_dec_small() {
     assert_lex("0d0129", LexerStates::ALL, |src| {
         vec![token(
@@ -104,6 +214,30 @@ fn test_lex_integer_explicit_dec_capital() {
             0,
         )]
     });
+}
+
+#[test]
+fn test_lex_integer_explicit_dec_invalid_empty_body() {
+    assert_lex_with_diag(
+        "0d",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(0)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"0d", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"0d", 0),
+                message: "Invalid number".to_owned(),
+            }]
+        },
+    );
 }
 
 #[test]
@@ -135,6 +269,30 @@ fn test_lex_integer_explicit_oct_capital() {
 }
 
 #[test]
+fn test_lex_integer_explicit_oct_invalid_empty_body() {
+    assert_lex_with_diag(
+        "0o",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(0)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"0o", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"0o", 0),
+                message: "Invalid number".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
 fn test_lex_integer_oct() {
     assert_lex("0127", LexerStates::ALL, |src| {
         vec![token(
@@ -146,6 +304,322 @@ fn test_lex_integer_oct() {
             0,
         )]
     });
+}
+
+#[test]
+fn test_lex_integer_oct_invalid_digit() {
+    assert_lex_with_diag(
+        "0o078",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(0o100)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"0o078", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"0o078", 0),
+                message: "Invalid digit for base 8".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_integer_bin_small() {
+    assert_lex("0b01110110010", LexerStates::ALL, |src| {
+        vec![token(
+            TokenKind::Numeric(NumericToken {
+                value: NumericValue::Integer(BigInt::from(0b01110110010)),
+                imaginary: false,
+            }),
+            pos_in(src, b"0b01110110010", 0),
+            0,
+        )]
+    });
+}
+
+#[test]
+fn test_lex_integer_bin_capital() {
+    assert_lex("0B01110110010", LexerStates::ALL, |src| {
+        vec![token(
+            TokenKind::Numeric(NumericToken {
+                value: NumericValue::Integer(BigInt::from(0b01110110010)),
+                imaginary: false,
+            }),
+            pos_in(src, b"0B01110110010", 0),
+            0,
+        )]
+    });
+}
+
+#[test]
+fn test_lex_integer_bin_invalid_digit() {
+    assert_lex_with_diag(
+        "0b10102",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(0b10110)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"0b10102", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"0b10102", 0),
+                message: "Invalid digit for base 2".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_integer_explicit_bin_invalid_empty_body() {
+    assert_lex_with_diag(
+        "0b",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(0)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"0b", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"0b", 0),
+                message: "Invalid number".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_integer_invalid_suffix() {
+    assert_lex_with_diag(
+        "123foo",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(1245)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"123foo", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"123foo", 0),
+                message: "Invalid letter in a number: f".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_integer_split_keyword_r() {
+    // This ensures we do not split at `123r` simply because `r` looks
+    // like a rational number suffix.
+    assert_lex("123rescue", LexerStates::ALL, |src| {
+        vec![
+            token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(123)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"123", 0),
+                0,
+            ),
+            token(TokenKind::KeywordRescue, pos_in(src, b"rescue", 0), 0),
+        ]
+    });
+}
+
+#[test]
+fn test_lex_integer_split_keyword_i() {
+    // This ensures we do not split at `123i` simply because `i` looks
+    // like an imaginary number suffix.
+    assert_lex("123in", LexerStates::ALL, |src| {
+        vec![
+            token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(123)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"123", 0),
+                0,
+            ),
+            token(TokenKind::KeywordIn, pos_in(src, b"in", 0), 0),
+        ]
+    });
+}
+
+#[test]
+fn test_lex_integer_split_keyword_e() {
+    // This ensures we do not split at `123e` simply because `e` looks
+    // like an exponent.
+    assert_lex("123else", LexerStates::ALL, |src| {
+        vec![
+            token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(123)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"123", 0),
+                0,
+            ),
+            token(TokenKind::KeywordElse, pos_in(src, b"else", 0), 0),
+        ]
+    });
+}
+
+#[test]
+fn test_lex_integer_hex_split_keyword() {
+    assert_lex("0xEDor", LexerStates::ALL, |src| {
+        vec![
+            token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(0xED)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"0xED", 0),
+                0,
+            ),
+            token(TokenKind::KeywordOr, pos_in(src, b"or", 0), 0),
+        ]
+    });
+}
+
+#[test]
+fn test_lex_integer_hex_invalid_split_keyword() {
+    assert_lex_with_diag(
+        "0xEDand",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(0xEDA)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"0xEDand", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"0xEDand", 0),
+                message: "Invalid letter in a number: n".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_integer_invalid_ri_suffix() {
+    // Imaginary/Rational prefix and keyword cannot be combined
+    assert_lex_with_diag(
+        "123iin",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(123)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"123iin", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"123iin", 0),
+                message: "Invalid letter in a number: i".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_integer_dot() {
+    assert_lex("123.to_s", LexerStates::ALL, |src| {
+        vec![
+            token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(123)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"123", 0),
+                0,
+            ),
+            token(TokenKind::Dot, pos_in(src, b".", 0), 0),
+            token(TokenKind::Identifier, pos_in(src, b"to_s", 0), 0),
+        ]
+    });
+}
+
+#[test]
+fn test_lex_integer_error_reporting_extend_plus() {
+    assert_lex_with_diag(
+        "+1__2",
+        LexerStates::BEGIN_ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(12)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"+1__2", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"+1__2", 0),
+                message: "Underscore should follow a digit".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_integer_error_reporting_extend_minus() {
+    assert_lex_with_diag(
+        "-1__2",
+        LexerStates::BEGIN_ALL,
+        |src| {
+            vec![
+                token(TokenKind::UnOp(UnOpKind::Minus), pos_in(src, b"-", 0), 0),
+                token(
+                    TokenKind::Numeric(NumericToken {
+                        value: NumericValue::Integer(BigInt::from(12)),
+                        imaginary: false,
+                    }),
+                    pos_in(src, b"1__2", 0),
+                    0,
+                ),
+            ]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"-1__2", 0),
+                message: "Underscore should follow a digit".to_owned(),
+            }]
+        },
+    );
 }
 
 #[test]
@@ -188,6 +662,327 @@ fn test_lex_float_zero() {
             0,
         )]
     });
+}
+
+#[test]
+fn test_lex_float_split_keyword_r() {
+    // This ensures we do not split at `123.0r` simply because `r` looks
+    // like a rational number suffix.
+    assert_lex("123.0rescue", LexerStates::ALL, |src| {
+        vec![
+            token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Float(NotNan::new(123.0).unwrap()),
+                    imaginary: false,
+                }),
+                pos_in(src, b"123.0", 0),
+                0,
+            ),
+            token(TokenKind::KeywordRescue, pos_in(src, b"rescue", 0), 0),
+        ]
+    });
+}
+
+#[test]
+fn test_lex_float_split_keyword_i() {
+    // This ensures we do not split at `123.0i` simply because `i` looks
+    // like an imaginary number suffix.
+    assert_lex("123.0in", LexerStates::ALL, |src| {
+        vec![
+            token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Float(NotNan::new(123.0).unwrap()),
+                    imaginary: false,
+                }),
+                pos_in(src, b"123.0", 0),
+                0,
+            ),
+            token(TokenKind::KeywordIn, pos_in(src, b"in", 0), 0),
+        ]
+    });
+}
+
+#[test]
+fn test_lex_float_split_keyword_e() {
+    // This ensures we do not split at `123.0e` simply because `e` looks
+    // like an exponent.
+    assert_lex("123.0else", LexerStates::ALL, |src| {
+        vec![
+            token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Float(NotNan::new(123.0).unwrap()),
+                    imaginary: false,
+                }),
+                pos_in(src, b"123.0", 0),
+                0,
+            ),
+            token(TokenKind::KeywordElse, pos_in(src, b"else", 0), 0),
+        ]
+    });
+}
+
+#[test]
+fn test_lex_float_invalid_empty_integral() {
+    assert_lex_with_diag(
+        ".5",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Float(NotNan::new(0.5).unwrap()),
+                    imaginary: false,
+                }),
+                pos_in(src, b".5", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b".5", 0),
+                message: "Numbers cannot start with a decimal point".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_float_invalid_double_underscores_in_integral() {
+    assert_lex_with_diag(
+        "1__4.32",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Float(NotNan::new(14.32).unwrap()),
+                    imaginary: false,
+                }),
+                pos_in(src, b"1__4.32", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"1__4.32", 0),
+                message: "Underscore should follow a digit".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_float_invalid_trailing_underscore_in_integral() {
+    assert_lex_with_diag(
+        "1_.32",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Float(NotNan::new(1.32).unwrap()),
+                    imaginary: false,
+                }),
+                pos_in(src, b"1_.32", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"1_.32", 0),
+                message: "Underscore should precede a digit".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_float_invalid_double_underscores_in_fraction() {
+    assert_lex_with_diag(
+        "14.3__2",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Float(NotNan::new(14.32).unwrap()),
+                    imaginary: false,
+                }),
+                pos_in(src, b"14.3__2", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"14.3__2", 0),
+                message: "Underscore should follow a digit".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_float_invalid_trailing_underscore_in_fraction() {
+    assert_lex_with_diag(
+        "2.5_",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Float(NotNan::new(2.5).unwrap()),
+                    imaginary: false,
+                }),
+                pos_in(src, b"2.5_", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"2.5_", 0),
+                message: "Underscore should precede a digit".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_float_invalid_hex_prefix() {
+    assert_lex_with_diag(
+        "0x1.5",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Float(NotNan::new(1.5).unwrap()),
+                    imaginary: false,
+                }),
+                pos_in(src, b"0x1.5", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"0x1.5", 0),
+                message: "Float literal cannot have a base prefix".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_float_invalid_dec_prefix() {
+    assert_lex_with_diag(
+        "0d1.5",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Float(NotNan::new(1.5).unwrap()),
+                    imaginary: false,
+                }),
+                pos_in(src, b"0d1.5", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"0d1.5", 0),
+                message: "Float literal cannot have a base prefix".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_float_invalid_implicit_oct_prefix() {
+    assert_lex_with_diag(
+        "01.5",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Float(NotNan::new(1.5).unwrap()),
+                    imaginary: false,
+                }),
+                pos_in(src, b"01.5", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"01.5", 0),
+                message: "Float literal cannot have a base prefix".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_float_invalid_explicit_oct_prefix() {
+    assert_lex_with_diag(
+        "0o1.5",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Float(NotNan::new(1.5).unwrap()),
+                    imaginary: false,
+                }),
+                pos_in(src, b"0o1.5", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"0o1.5", 0),
+                message: "Float literal cannot have a base prefix".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_float_invalid_explicit_bin_prefix() {
+    assert_lex_with_diag(
+        "0b1.5",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Float(NotNan::new(1.5).unwrap()),
+                    imaginary: false,
+                }),
+                pos_in(src, b"0b1.5", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"0b1.5", 0),
+                message: "Float literal cannot have a base prefix".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_float_invalid_duplicate_points() {
+    assert_lex_with_diag(
+        "3.1.4",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Float(NotNan::new(3.1).unwrap()),
+                    imaginary: false,
+                }),
+                pos_in(src, b"3.1.4", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"3.1.4", 0),
+                message: "Multiple decimal points in a number".to_owned(),
+            }]
+        },
+    );
 }
 
 #[test]
@@ -289,6 +1084,102 @@ fn test_lex_float_with_point_and_exponent() {
 }
 
 #[test]
+fn test_lex_float_invalid_duplicate_exponents_nosign() {
+    assert_lex_with_diag(
+        "1e3e4",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Float(NotNan::new(1.0e3).unwrap()),
+                    imaginary: false,
+                }),
+                pos_in(src, b"1e3e4", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"1e3e4", 0),
+                message: "Multiple exponents in a number".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_float_invalid_duplicate_exponents_positive_sign() {
+    assert_lex_with_diag(
+        "1e+3e+4",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Float(NotNan::new(1.0e3).unwrap()),
+                    imaginary: false,
+                }),
+                pos_in(src, b"1e+3e+4", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"1e+3e+4", 0),
+                message: "Invalid number".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_float_invalid_duplicate_exponents_negative_sign() {
+    assert_lex_with_diag(
+        "1e-3e-4",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Float(NotNan::new(1.0e-3).unwrap()),
+                    imaginary: false,
+                }),
+                pos_in(src, b"1e-3e-4", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"1e-3e-4", 0),
+                message: "Invalid number".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_float_invalid_with_exponent_and_point() {
+    assert_lex_with_diag(
+        "5e3.2",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Float(NotNan::new(5.0e3).unwrap()),
+                    imaginary: false,
+                }),
+                pos_in(src, b"5e3.2", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"5e3.2", 0),
+                message: "Decimal point should appear before the exponent".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
 fn test_lex_rational_simple() {
     assert_lex("3r", LexerStates::ALL, |src| {
         vec![token(
@@ -348,6 +1239,54 @@ fn test_lex_rational_with_base() {
 }
 
 #[test]
+fn test_lex_rational_invalid_duplicate_r() {
+    assert_lex_with_diag(
+        "3rr",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Rational(Decimal::from(3)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"3rr", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"3rr", 0),
+                message: "Multiple 'r' suffixes in a number".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_rational_invalid_exponent() {
+    assert_lex_with_diag(
+        "3e-1r",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Rational(Decimal::from(BigInt::from(3))),
+                    imaginary: false,
+                }),
+                pos_in(src, b"3e-1r", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"3e-1r", 0),
+                message: "Invalid number".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
 fn test_lex_imaginary_integer_simple() {
     assert_lex("123i", LexerStates::ALL, |src| {
         vec![token(
@@ -404,4 +1343,55 @@ fn test_lex_imaginary_rational_simple() {
             0,
         )]
     });
+}
+
+#[test]
+fn test_lex_imaginary_invalid_duplicate_i() {
+    assert_lex_with_diag(
+        "9ii",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(9)),
+                    imaginary: true,
+                }),
+                pos_in(src, b"9ii", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"9ii", 0),
+                message: "Multiple 'i' suffixes in a number".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_imaginary_rational_invalid_ir() {
+    assert_lex_with_diag(
+        "1.5ir",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Rational(Decimal::from_fraction_and_exponent(
+                        BigInt::from(15),
+                        -1,
+                    )),
+                    imaginary: true,
+                }),
+                pos_in(src, b"1.5ir", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"1.5ir", 0),
+                message: "'i' should precede 'r' in a number".to_owned(),
+            }]
+        },
+    );
 }

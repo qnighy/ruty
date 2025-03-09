@@ -727,6 +727,31 @@ macro_rules! eof_char {
         b'\0' | b'\x04' | b'\x1A'
     };
 }
+macro_rules! decimal_digit {
+    () => {
+        b'0'..=b'9'
+    };
+}
+macro_rules! ascii_alpha {
+    () => {
+        b'a'..=b'z' | b'A'..=b'Z'
+    };
+}
+macro_rules! hex_lower_letter {
+    () => {
+        b'a'..=b'f'
+    };
+}
+macro_rules! hex_upper_letter {
+    () => {
+        b'A'..=b'F'
+    };
+}
+macro_rules! hex_letter {
+    () => {
+        b'a'..=b'f' | b'A'..=b'F'
+    };
+}
 
 #[derive(Debug)]
 pub(super) struct Lexer<'a> {
@@ -877,7 +902,7 @@ impl<'a> Lexer<'a> {
                     }
                 }
             }
-            b'0'..=b'9' => self.lex_numeric(diag),
+            decimal_digit!() => self.lex_numeric(diag),
             // `!`
             // `!@`
             // `!=`
@@ -1083,7 +1108,7 @@ impl<'a> Lexer<'a> {
                             _ => TokenKind::DotDot,
                         }
                     }
-                    b'0'..=b'9' => {
+                    decimal_digit!() => {
                         self.pos -= 1;
                         // Always results in an invalid float, though
                         // it seems the best guess at this point.
@@ -2022,7 +2047,7 @@ impl<'a> Lexer<'a> {
                         self.pos += 1;
                         TokenKind::NonLocal(NonLocalKind::Gvar)
                     }
-                    b'0'..=b'9' => {
+                    decimal_digit!() => {
                         // Lexically speaking `$0` behaves similarly to `$1`
                         // except that `$00` is not allowed.
                         if self.peek_byte() == b'0' {
@@ -2148,7 +2173,7 @@ impl<'a> Lexer<'a> {
                     self.pos += 1;
                     self.lex_integer_body(|b| b.is_ascii_hexdigit())
                 }
-                b'0'..b'9' | b'_' => {
+                decimal_digit!() | b'_' => {
                     self.pos -= 1;
                     self.lex_integer_body(|b| matches!(b, b'0'..=b'7'))
                 }
@@ -2194,7 +2219,7 @@ impl<'a> Lexer<'a> {
             self.lex_integer_body(|b| b.is_ascii_digit())?;
         }
         if matches!(self.peek_byte(), b'e' | b'E')
-            && matches!(self.peek_byte_at(1), b'+' | b'-' | b'0'..=b'9')
+            && matches!(self.peek_byte_at(1), b'+' | b'-' | decimal_digit!())
         {
             self.pos += 1;
             if matches!(self.peek_byte(), b'+' | b'-') {
@@ -2260,7 +2285,7 @@ impl<'a> Lexer<'a> {
                     self.pos += 1;
                     (16, false)
                 }
-                b'0'..b'9' | b'_' => {
+                decimal_digit!() | b'_' => {
                     self.pos -= 1;
                     (8, false)
                 }
@@ -2295,10 +2320,10 @@ impl<'a> Lexer<'a> {
                 {
                     self.pos += 3;
                 }
-                b'a'..b'f' | b'A'..b'F' if base == 16 => {
+                hex_letter!() if base == 16 => {
                     self.pos += 1;
                 }
-                b'a'..b'z' | b'A'..b'Z' => {
+                ascii_alpha!() => {
                     if first_invalid_letter.is_none() {
                         first_invalid_letter = Some(self.pos);
                     }
@@ -2315,7 +2340,7 @@ impl<'a> Lexer<'a> {
                     }
                     self.pos += 1;
                 }
-                b'0'..b'9' => {
+                decimal_digit!() => {
                     if (self.peek_byte() - b'0') >= base {
                         has_invalid_digit = true;
                     }
@@ -2880,7 +2905,7 @@ fn interpret_numeric(mut s: &[u8]) -> NumericToken {
                 base = 16;
                 s = &s[2..];
             }
-            b'0'..=b'9' | b'_' => {
+            decimal_digit!() | b'_' => {
                 base = 8;
             }
             _ => {}
@@ -2909,7 +2934,7 @@ fn interpret_numeric(mut s: &[u8]) -> NumericToken {
             let mut src = String::new();
             loop {
                 match s.get(0).copied().unwrap_or(b'\0') {
-                    b'0'..=b'9' => {
+                    decimal_digit!() => {
                         src.push(s[0] as char);
                         s = &s[1..];
                     }
@@ -2928,7 +2953,7 @@ fn interpret_numeric(mut s: &[u8]) -> NumericToken {
                 let len = s.len();
                 loop {
                     match s.get(0).copied().unwrap_or(b'\0') {
-                        b'0'..=b'9' => {
+                        decimal_digit!() => {
                             src.push(s[0] as char);
                             s = &s[1..];
                         }
@@ -2954,7 +2979,7 @@ fn interpret_numeric(mut s: &[u8]) -> NumericToken {
                 let len = s.len();
                 loop {
                     match s.get(0).copied().unwrap_or(b'\0') {
-                        b'0'..=b'9' => {
+                        decimal_digit!() => {
                             src.push(s[0] as char);
                             s = &s[1..];
                         }
@@ -2976,7 +3001,7 @@ fn interpret_numeric(mut s: &[u8]) -> NumericToken {
         let mut exponent = 0_i32;
         loop {
             match s.get(0).copied().unwrap_or(b'\0') {
-                b'0'..=b'9' => {
+                decimal_digit!() => {
                     fraction = fraction * 10 + (s[0] - b'0') as i32;
                     s = &s[1..];
                 }
@@ -2990,7 +3015,7 @@ fn interpret_numeric(mut s: &[u8]) -> NumericToken {
             s = &s[1..];
             loop {
                 match s.get(0).copied().unwrap_or(b'\0') {
-                    b'0'..=b'9' => {
+                    decimal_digit!() => {
                         fraction = fraction * 10 + (s[0] - b'0') as i32;
                         exponent -= 1;
                         s = &s[1..];
@@ -3009,15 +3034,15 @@ fn interpret_numeric(mut s: &[u8]) -> NumericToken {
         let mut value = BigInt::ZERO;
         loop {
             match s.get(0).copied().unwrap_or(b'\0') {
-                b'0'..=b'9' => {
+                decimal_digit!() => {
                     value = value * base + (s[0] - b'0') as i32;
                     s = &s[1..];
                 }
-                b'a'..=b'f' => {
+                hex_lower_letter!() => {
                     value = value * base + (s[0] - b'a' + 10) as i32;
                     s = &s[1..];
                 }
-                b'A'..=b'F' => {
+                hex_upper_letter!() => {
                     value = value * base + (s[0] - b'A' + 10) as i32;
                     s = &s[1..];
                 }
