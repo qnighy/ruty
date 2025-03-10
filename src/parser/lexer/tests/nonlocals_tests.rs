@@ -237,6 +237,27 @@ fn test_lex_cvar_name_invalid_digit() {
 }
 
 #[test]
+fn test_lex_cvar_name_invalid_empty() {
+    assert_lex_with_diag(
+        EStrRef::from("@@"),
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::NonLocal(NonLocalKind::Cvar),
+                pos_in(src, b"@@", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"@@", 0),
+                message: "Invalid class variable name".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
 fn test_lex_gvar_name_simple() {
     assert_lex("$foo_123", LexerStates::ALL, |src| {
         vec![token(
