@@ -746,6 +746,30 @@ fn test_lex_float_invalid_empty_integral() {
 }
 
 #[test]
+fn test_lex_float_invalid_positive_empty_integral() {
+    assert_lex_with_diag(
+        "+.5",
+        LexerStates::BEGIN_ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Float(NotNan::new(0.5).unwrap()),
+                    imaginary: false,
+                }),
+                pos_in(src, b"+.5", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"+.5", 0),
+                message: "Numbers cannot start with a decimal point".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
 fn test_lex_float_invalid_double_underscores_in_integral() {
     assert_lex_with_diag(
         "1__4.32",

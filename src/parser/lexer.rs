@@ -1048,7 +1048,10 @@ impl<'a> Lexer<'a> {
                     }
                     _ => {
                         if state.prefer_prefix_operator(space_before, self.peek_space()) {
-                            if self.peek_byte().is_ascii_digit() {
+                            if self.peek_byte().is_ascii_digit()
+                                || (self.peek_byte() == b'.'
+                                    && self.lookahead_byte(1).is_ascii_digit())
+                            {
                                 // Leave '+' eaten so that lex_numeric need not to check it again
                                 self.lex_numeric(diag)
                             } else {
