@@ -800,7 +800,7 @@ impl<'a> Lexer<'a> {
             }
             b'\n' => {
                 let orig_indent = self.indent;
-                if self.pos >= 1 && self.bytes()[self.pos - 1] == b'\r' {
+                if self.lookbehind_byte(1) == b'\r' {
                     // Include the preceding CR to form CRLF
                     self.pos += 1;
                     self.reset_indent();
@@ -827,16 +827,16 @@ impl<'a> Lexer<'a> {
             ident_start!() => {
                 self.scan_ident();
                 let is_method_name = match self.peek_byte() {
-                    b'!' | b'?' if self.peek_byte_at(1) != b'=' => {
+                    b'!' | b'?' if self.lookahead_byte(1) != b'=' => {
                         self.pos += 1;
                         true
                     }
                     b'=' if state.allow_assigner_ident()
-                        && match self.peek_byte_at(1) {
+                        && match self.lookahead_byte(1) {
                             // Ignore foo=> or foo=~
                             b'>' | b'~' => false,
                             // Ignore foo== but consume foo==> specially
-                            b'=' => self.peek_byte_at(2) == b'>',
+                            b'=' => self.lookahead_byte(2) == b'>',
                             _ => true,
                         } =>
                     {
@@ -847,7 +847,7 @@ impl<'a> Lexer<'a> {
                 };
                 let is_label = if state.allow_label()
                     && self.peek_byte() == b':'
-                    && self.peek_byte_at(1) != b':'
+                    && self.lookahead_byte(1) != b':'
                 {
                     self.pos += 1;
                     true
@@ -1138,7 +1138,7 @@ impl<'a> Lexer<'a> {
                 }
             }
             b':' => {
-                if self.peek_byte_at(1) == b':' {
+                if self.lookahead_byte(1) == b':' {
                     self.pos += 2;
                     // Pass `false` so that `p :: Foo` is equivalent to `p ::Foo`
                     if state.prefer_prefix_operator(space_before, false) {
@@ -1249,7 +1249,7 @@ impl<'a> Lexer<'a> {
                     }
                 }
             }
-            b'@' if !matches!(self.peek_byte_at(1), ident_continue!() | b'@') => {
+            b'@' if !matches!(self.lookahead_byte(1), ident_continue!() | b'@') => {
                 self.pos += 1;
                 TokenKind::At
             }
@@ -1368,15 +1368,15 @@ impl<'a> Lexer<'a> {
                 let is_numeric = self.peek_byte().is_ascii_digit();
                 self.scan_ident();
                 match self.peek_byte() {
-                    b'!' | b'?' if self.peek_byte_at(1) != b'=' => {
+                    b'!' | b'?' if self.lookahead_byte(1) != b'=' => {
                         self.pos += 1;
                         true
                     }
-                    b'=' if match self.peek_byte_at(1) {
+                    b'=' if match self.lookahead_byte(1) {
                         // Ignore foo=> or foo=~
                         b'>' | b'~' => false,
                         // Ignore foo== but consume foo==> specially
-                        b'=' => self.peek_byte_at(2) == b'>',
+                        b'=' => self.lookahead_byte(2) == b'>',
                         _ => true,
                     } =>
                     {
@@ -1800,7 +1800,7 @@ impl<'a> Lexer<'a> {
                 self.lex_non_local(diag);
             }
             b'[' => {
-                if self.peek_byte_at(1) == b']' {
+                if self.lookahead_byte(1) == b']' {
                     self.pos += 2;
                     match self.peek_byte() {
                         b'=' => {
@@ -2206,7 +2206,7 @@ impl<'a> Lexer<'a> {
                 // Valid numeric suffixes.
                 // Also check for numeric-like invalid continuations.
                 let has_invalid_cont =
-                    self.peek_byte() == b'.' && self.peek_byte_at(1).is_ascii_digit();
+                    self.peek_byte() == b'.' && self.lookahead_byte(1).is_ascii_digit();
                 if !has_invalid_cont {
                     return TokenKind::Numeric(interpret_numeric(&self.bytes()[start..self.pos]));
                 }
@@ -2218,12 +2218,12 @@ impl<'a> Lexer<'a> {
 
     fn lex_decimal_body(&mut self) -> Result<bool, ()> {
         self.lex_integer_body(|b| b.is_ascii_digit())?;
-        if self.peek_byte() == b'.' && self.peek_byte_at(1).is_ascii_digit() {
+        if self.peek_byte() == b'.' && self.lookahead_byte(1).is_ascii_digit() {
             self.pos += 1;
             self.lex_integer_body(|b| b.is_ascii_digit())?;
         }
         if matches!(self.peek_byte(), b'e' | b'E')
-            && matches!(self.peek_byte_at(1), b'+' | b'-' | decimal_digit!())
+            && matches!(self.lookahead_byte(1), b'+' | b'-' | decimal_digit!())
         {
             self.pos += 1;
             if matches!(self.peek_byte(), b'+' | b'-') {
@@ -2264,7 +2264,7 @@ impl<'a> Lexer<'a> {
         // Error recovery. It reconsumes the token to get more intuitive boundary.
 
         // Modified starting point for error reporting
-        let start_mod = if self.pos > 0 && matches!(self.bytes()[self.pos - 1], b'+' | b'-') {
+        let start_mod = if matches!(self.lookbehind_byte(1), b'+' | b'-') {
             self.pos - 1
         } else {
             self.pos
@@ -2313,14 +2313,14 @@ impl<'a> Lexer<'a> {
         loop {
             match self.peek_byte() {
                 // exponents (except hexadecimals)
-                b'e' | b'E' if base != 16 && self.peek_byte_at(1).is_ascii_digit() => {
+                b'e' | b'E' if base != 16 && self.lookahead_byte(1).is_ascii_digit() => {
                     num_exponents += 1;
                     self.pos += 2;
                 }
                 b'e' | b'E'
                     if base != 16
-                        && matches!(self.peek_byte_at(1), b'+' | b'-')
-                        && self.peek_byte_at(2).is_ascii_digit() =>
+                        && matches!(self.lookahead_byte(1), b'+' | b'-')
+                        && self.lookahead_byte(2).is_ascii_digit() =>
                 {
                     self.pos += 3;
                 }
@@ -2334,11 +2334,11 @@ impl<'a> Lexer<'a> {
                     self.pos += 1;
                 }
                 b'_' => {
-                    let a = self.peek_byte_at(1);
+                    let a = self.lookahead_byte(1);
                     if !a.is_ascii_digit() && !(a.is_ascii_hexdigit() && base == 16) {
                         invalid_trailing_underscore = true;
                     }
-                    let b = self.bytes()[self.pos.saturating_sub(1)];
+                    let b = self.lookbehind_byte(1);
                     if !b.is_ascii_digit() && !(b.is_ascii_hexdigit() && base == 16) {
                         invalid_leading_underscore = true;
                     }
@@ -2351,16 +2351,16 @@ impl<'a> Lexer<'a> {
                     self.pos += 1;
                 }
                 // decimal point, only when followed by a decimal digit
-                b'.' if self.peek_byte_at(1).is_ascii_digit() => {
+                b'.' if self.lookahead_byte(1).is_ascii_digit() => {
                     num_points += 1;
                     if num_exponents > 0 {
                         has_point_after_exponent = true;
                     }
-                    let a = self.peek_byte_at(1);
+                    let a = self.lookahead_byte(1);
                     if !a.is_ascii_digit() && a != b'_' {
                         invalid_trailing_point = true;
                     }
-                    let b = self.bytes()[self.pos.saturating_sub(1)];
+                    let b = self.lookbehind_byte(1);
                     if !b.is_ascii_digit() && b != b'_' {
                         invalid_leading_point = true;
                     }
@@ -2393,7 +2393,7 @@ impl<'a> Lexer<'a> {
             end: self.pos,
         };
         let msg = if let Some(pos) = first_invalid_letter {
-            let b = self.bytes()[pos];
+            let b = self.get_byte(pos);
             if b < 0x80 {
                 format!("Invalid letter in a number: {}", b as char)
             } else {
@@ -2587,17 +2587,17 @@ impl<'a> Lexer<'a> {
     }
 
     fn lookahead_interpolation(&self) -> bool {
-        match self.peek_byte_at(1) {
+        match self.lookahead_byte(1) {
             b'{' => true,
-            b'@' => match self.peek_byte_at(2) {
-                b'@' => match self.peek_byte_at(3) {
+            b'@' => match self.lookahead_byte(2) {
+                b'@' => match self.lookahead_byte(3) {
                     ident_start!() => true,
                     _ => false,
                 },
                 ident_start!() => true,
                 _ => false,
             },
-            b'$' => match self.peek_byte_at(2) {
+            b'$' => match self.lookahead_byte(2) {
                 ident_start!() => true,
                 _ => false,
             },
@@ -2657,10 +2657,10 @@ impl<'a> Lexer<'a> {
                     self.pos += 1;
                 }
                 b'\\' => {
-                    if self.peek_byte_at(1) == b'\n' {
+                    if self.lookahead_byte(1) == b'\n' {
                         self.pos += 2;
                         self.reset_indent();
-                    } else if self.peek_byte_at(1) == b'\r' && self.peek_byte_at(2) == b'\n' {
+                    } else if self.lookahead_byte(1) == b'\r' && self.lookahead_byte(2) == b'\n' {
                         self.pos += 3;
                         self.reset_indent();
                     } else {
@@ -2706,11 +2706,11 @@ impl<'a> Lexer<'a> {
         }
         // Check if there is '.' (except '..') or '&.', which is force-fold indicator
         let force_fold = match self.peek_byte() {
-            b'.' => match self.peek_byte_at(1) {
+            b'.' => match self.lookahead_byte(1) {
                 b'.' => false,
                 _ => true,
             },
-            b'&' => match self.peek_byte_at(1) {
+            b'&' => match self.lookahead_byte(1) {
                 b'.' => true,
                 _ => false,
             },
@@ -2726,12 +2726,12 @@ impl<'a> Lexer<'a> {
 
     fn reset_indent(&mut self) {
         let mut pos = self.pos;
-        while pos > 0 && self.bytes()[pos - 1] != b'\n' {
+        while pos > 0 && self.get_byte(pos - 1) != b'\n' {
             pos -= 1;
         }
         let mut indent = 0;
         while pos < self.bytes().len() {
-            match self.bytes()[pos] {
+            match self.get_byte(pos) {
                 b'\t' => indent += TAB_WIDTH - indent % TAB_WIDTH,
                 b' ' => indent += 1,
                 _ => break,
@@ -2764,20 +2764,32 @@ impl<'a> Lexer<'a> {
     }
 
     fn peek_byte(&self) -> u8 {
-        self.bytes().get(self.pos).copied().unwrap_or(0)
+        self.get_byte(self.pos)
     }
 
-    fn peek_byte_at(&self, offset: usize) -> u8 {
-        self.bytes().get(self.pos + offset).copied().unwrap_or(0)
+    fn lookahead_byte(&self, offset: usize) -> u8 {
+        self.get_byte(self.pos + offset)
+    }
+
+    fn lookbehind_byte(&self, offset: usize) -> u8 {
+        if self.pos < offset {
+            b'\0'
+        } else {
+            self.get_byte(self.pos - offset)
+        }
+    }
+
+    fn get_byte(&self, pos: usize) -> u8 {
+        self.bytes().get(pos).copied().unwrap_or(0)
     }
 
     fn is_beginning_of_line(&self, pos: usize) -> bool {
-        pos == 0 || self.bytes()[pos - 1] == b'\n'
+        pos == 0 || self.get_byte(pos - 1) == b'\n'
     }
     fn is_end_of_line(&self, pos: usize) -> bool {
         pos == self.bytes().len()
-            || self.bytes()[pos] == b'\n'
-            || (self.bytes()[pos] == b'\r' && self.bytes().get(pos + 1).copied() == Some(b'\n'))
+            || self.get_byte(pos) == b'\n'
+            || (self.get_byte(pos) == b'\r' && self.get_byte(pos + 1) == b'\n')
     }
 }
 
