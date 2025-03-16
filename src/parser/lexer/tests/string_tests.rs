@@ -146,3 +146,80 @@ fn test_char_ambiguous_non_ascii() {
         },
     );
 }
+
+// When the first letter is in ASCII
+// Note: the behavior is currently different
+//       between parse.y and Prism.
+#[test]
+fn test_char_literal_split_before_long_ascii_ident() {
+    // This behavior is important to parse e.g. `f ?abc : d`
+    // where `f` is not a known-defined local variable.
+    assert_lex(
+        "?abc",
+        LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
+        |src| {
+            vec![
+                token(TokenKind::Question, pos_in(src, b"?", 0), 0),
+                token(TokenKind::Identifier, pos_in(src, b"abc", 0), 0),
+            ]
+        },
+    );
+}
+
+// When the first letter is in ASCII
+// Note: the behavior is currently different
+//       between parse.y and Prism.
+#[test]
+fn test_char_literal_split_before_long_non_ascii_ident() {
+    // This behavior is important to parse e.g. `f ?abc : d`
+    // where `f` is not a known-defined local variable.
+    assert_lex(
+        "?abcあ",
+        LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
+        |src| {
+            vec![
+                token(TokenKind::Question, pos_in(src, b"?", 0), 0),
+                token(TokenKind::Identifier, pos_in(src, b"abc\xE3\x81\x82", 0), 0),
+            ]
+        },
+    );
+}
+
+// When the first letter is not in ASCII
+#[test]
+fn test_char_literal_split_after_non_ascii_letter() {
+    assert_lex(
+        "?あand",
+        LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
+        |src| {
+            vec![
+                token(TokenKind::CharLiteral, pos_in(src, b"?\xE3\x81\x82", 0), 0),
+                token(TokenKind::KeywordAnd, pos_in(src, b"and", 0), 0),
+            ]
+        },
+    );
+}
+
+// When the first letter is not in ASCII.
+// If the suffix to be separated is not a suffix/infix-like keyword,
+// Concatenate it for better reporting.
+#[test]
+fn test_char_literal_invalid_long_non_ascii_ident() {
+    assert_lex_with_diag(
+        "?あabc",
+        LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
+        |src| {
+            vec![token(
+                TokenKind::CharLiteral,
+                pos_in(src, b"?\xE3\x81\x82abc", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"?\xE3\x81\x82abc", 0),
+                message: "Character literal too long".to_owned(),
+            }]
+        },
+    );
+}

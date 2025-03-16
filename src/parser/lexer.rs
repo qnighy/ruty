@@ -1248,9 +1248,33 @@ impl<'a> Lexer<'a> {
                                 TokenKind::CharLiteral
                             } else if self.pos - char_start == next_len {
                                 TokenKind::CharLiteral
-                            } else {
+                            } else if self.get_byte(char_start).is_ascii() {
+                                // Long ident starting with an ASCII letter.
+                                // Split before the ident in this case.
                                 self.pos = char_start;
                                 TokenKind::Question
+                            } else {
+                                let suffix = EStrRef::from_bytes(
+                                    &self.bytes()[char_start + next_len..self.pos],
+                                    self.input.encoding(),
+                                );
+                                if SUFFIX_KEYWORDS.contains(suffix.as_bytes()) {
+                                    // Valid combination like `?あand`
+                                    // (following the current parse.y behavior)
+                                    self.pos = char_start + next_len;
+                                    TokenKind::CharLiteral
+                                } else {
+                                    // Something like `?あfoo`, which won't yield a valid syntax.
+                                    // Concatenate it and report error here.
+                                    diag.push(Diagnostic {
+                                        range: CodeRange {
+                                            start: char_start - 1,
+                                            end: self.pos,
+                                        },
+                                        message: format!("Character literal too long"),
+                                    });
+                                    TokenKind::CharLiteral
+                                }
                             }
                         }
                         _ => TokenKind::Question,
