@@ -106,7 +106,7 @@ fn test_lex_integer_invalid_double_underscores() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"1__2", 0),
-                message: "Underscore should follow a digit".to_owned(),
+                message: "Invalid Numeric literal: invalid underscore placement".to_owned(),
             }]
         },
     );
@@ -130,7 +130,7 @@ fn test_lex_integer_invalid_trailing_underscore() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"123_", 0),
-                message: "Underscore should precede a digit".to_owned(),
+                message: "Invalid Numeric literal: invalid underscore placement".to_owned(),
             }]
         },
     );
@@ -182,7 +182,7 @@ fn test_lex_integer_hex_invalid_empty_body() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"0x", 0),
-                message: "Invalid number".to_owned(),
+                message: "Invalid Numeric literal: the body cannot be empty".to_owned(),
             }]
         },
     );
@@ -234,7 +234,7 @@ fn test_lex_integer_explicit_dec_invalid_empty_body() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"0d", 0),
-                message: "Invalid number".to_owned(),
+                message: "Invalid Numeric literal: the body cannot be empty".to_owned(),
             }]
         },
     );
@@ -286,7 +286,7 @@ fn test_lex_integer_explicit_oct_invalid_empty_body() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"0o", 0),
-                message: "Invalid number".to_owned(),
+                message: "Invalid Numeric literal: the body cannot be empty".to_owned(),
             }]
         },
     );
@@ -314,7 +314,7 @@ fn test_lex_integer_oct_invalid_digit() {
         |src| {
             vec![token(
                 TokenKind::Numeric(NumericToken {
-                    value: NumericValue::Integer(BigInt::from(0o100)),
+                    value: NumericValue::Integer(BigInt::from(0o077)),
                     imaginary: false,
                 }),
                 pos_in(src, b"0o078", 0),
@@ -324,7 +324,7 @@ fn test_lex_integer_oct_invalid_digit() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"0o078", 0),
-                message: "Invalid digit for base 8".to_owned(),
+                message: "Invalid Numeric literal: invalid digit in this base".to_owned(),
             }]
         },
     );
@@ -366,7 +366,7 @@ fn test_lex_integer_bin_invalid_digit() {
         |src| {
             vec![token(
                 TokenKind::Numeric(NumericToken {
-                    value: NumericValue::Integer(BigInt::from(0b10110)),
+                    value: NumericValue::Integer(BigInt::from(0b10101)),
                     imaginary: false,
                 }),
                 pos_in(src, b"0b10102", 0),
@@ -376,7 +376,7 @@ fn test_lex_integer_bin_invalid_digit() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"0b10102", 0),
-                message: "Invalid digit for base 2".to_owned(),
+                message: "Invalid Numeric literal: invalid digit in this base".to_owned(),
             }]
         },
     );
@@ -400,7 +400,7 @@ fn test_lex_integer_explicit_bin_invalid_empty_body() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"0b", 0),
-                message: "Invalid number".to_owned(),
+                message: "Invalid Numeric literal: the body cannot be empty".to_owned(),
             }]
         },
     );
@@ -414,7 +414,7 @@ fn test_lex_integer_invalid_suffix() {
         |src| {
             vec![token(
                 TokenKind::Numeric(NumericToken {
-                    value: NumericValue::Integer(BigInt::from(1245)),
+                    value: NumericValue::Integer(BigInt::from(123)),
                     imaginary: false,
                 }),
                 pos_in(src, b"123foo", 0),
@@ -424,7 +424,7 @@ fn test_lex_integer_invalid_suffix() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"123foo", 0),
-                message: "Invalid letter in a number: f".to_owned(),
+                message: "Invalid Numeric literal: unknown suffix".to_owned(),
             }]
         },
     );
@@ -522,7 +522,7 @@ fn test_lex_integer_hex_invalid_split_keyword() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"0xEDand", 0),
-                message: "Invalid letter in a number: n".to_owned(),
+                message: "Invalid Numeric literal: unknown suffix".to_owned(),
             }]
         },
     );
@@ -538,7 +538,7 @@ fn test_lex_integer_invalid_ri_suffix() {
             vec![token(
                 TokenKind::Numeric(NumericToken {
                     value: NumericValue::Integer(BigInt::from(123)),
-                    imaginary: false,
+                    imaginary: true,
                 }),
                 pos_in(src, b"123iin", 0),
                 0,
@@ -547,7 +547,7 @@ fn test_lex_integer_invalid_ri_suffix() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"123iin", 0),
-                message: "Invalid letter in a number: i".to_owned(),
+                message: "Invalid Numeric literal: unknown suffix".to_owned(),
             }]
         },
     );
@@ -589,7 +589,7 @@ fn test_lex_integer_error_reporting_extend_plus() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"+1__2", 0),
-                message: "Underscore should follow a digit".to_owned(),
+                message: "Invalid Numeric literal: invalid underscore placement".to_owned(),
             }]
         },
     );
@@ -616,7 +616,7 @@ fn test_lex_integer_error_reporting_extend_minus() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"-1__2", 0),
-                message: "Underscore should follow a digit".to_owned(),
+                message: "Invalid Numeric literal: invalid underscore placement".to_owned(),
             }]
         },
     );
@@ -739,7 +739,7 @@ fn test_lex_float_invalid_empty_integral() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b".5", 0),
-                message: "Numbers cannot start with a decimal point".to_owned(),
+                message: "Invalid Numeric literal: the integral part cannot be empty".to_owned(),
             }]
         },
     );
@@ -763,7 +763,7 @@ fn test_lex_float_invalid_positive_empty_integral() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"+.5", 0),
-                message: "Numbers cannot start with a decimal point".to_owned(),
+                message: "Invalid Numeric literal: the integral part cannot be empty".to_owned(),
             }]
         },
     );
@@ -787,7 +787,7 @@ fn test_lex_float_invalid_double_underscores_in_integral() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"1__4.32", 0),
-                message: "Underscore should follow a digit".to_owned(),
+                message: "Invalid Numeric literal: invalid underscore placement".to_owned(),
             }]
         },
     );
@@ -811,7 +811,7 @@ fn test_lex_float_invalid_trailing_underscore_in_integral() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"1_.32", 0),
-                message: "Underscore should precede a digit".to_owned(),
+                message: "Invalid Numeric literal: invalid underscore placement".to_owned(),
             }]
         },
     );
@@ -835,7 +835,7 @@ fn test_lex_float_invalid_double_underscores_in_fraction() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"14.3__2", 0),
-                message: "Underscore should follow a digit".to_owned(),
+                message: "Invalid Numeric literal: invalid underscore placement".to_owned(),
             }]
         },
     );
@@ -859,7 +859,7 @@ fn test_lex_float_invalid_trailing_underscore_in_fraction() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"2.5_", 0),
-                message: "Underscore should precede a digit".to_owned(),
+                message: "Invalid Numeric literal: invalid underscore placement".to_owned(),
             }]
         },
     );
@@ -883,7 +883,7 @@ fn test_lex_float_invalid_hex_prefix() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"0x1.5", 0),
-                message: "Float literal cannot have a base prefix".to_owned(),
+                message: "Invalid Numeric literal: Float or Rational literal should not have a base prefix".to_owned(),
             }]
         },
     );
@@ -907,7 +907,7 @@ fn test_lex_float_invalid_dec_prefix() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"0d1.5", 0),
-                message: "Float literal cannot have a base prefix".to_owned(),
+                message: "Invalid Numeric literal: Float or Rational literal should not have a base prefix".to_owned(),
             }]
         },
     );
@@ -931,7 +931,8 @@ fn test_lex_float_invalid_implicit_oct_prefix() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"01.5", 0),
-                message: "Float literal cannot have a base prefix".to_owned(),
+                message: "Invalid Numeric literal: decimal literal cannot have leading zeros"
+                    .to_owned(),
             }]
         },
     );
@@ -955,7 +956,7 @@ fn test_lex_float_invalid_explicit_oct_prefix() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"0o1.5", 0),
-                message: "Float literal cannot have a base prefix".to_owned(),
+                message: "Invalid Numeric literal: Float or Rational literal should not have a base prefix".to_owned(),
             }]
         },
     );
@@ -979,7 +980,7 @@ fn test_lex_float_invalid_explicit_bin_prefix() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"0b1.5", 0),
-                message: "Float literal cannot have a base prefix".to_owned(),
+                message: "Invalid Numeric literal: Float or Rational literal should not have a base prefix".to_owned(),
             }]
         },
     );
@@ -993,7 +994,7 @@ fn test_lex_float_invalid_duplicate_points() {
         |src| {
             vec![token(
                 TokenKind::Numeric(NumericToken {
-                    value: NumericValue::Float(NotNan::new(3.1).unwrap()),
+                    value: NumericValue::Float(NotNan::new(3.14).unwrap()),
                     imaginary: false,
                 }),
                 pos_in(src, b"3.1.4", 0),
@@ -1003,7 +1004,8 @@ fn test_lex_float_invalid_duplicate_points() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"3.1.4", 0),
-                message: "Multiple decimal points in a number".to_owned(),
+                message: "Invalid Numeric literal: it cannot have multiple decimal points"
+                    .to_owned(),
             }]
         },
     );
@@ -1125,7 +1127,8 @@ fn test_lex_float_invalid_duplicate_exponents_nosign() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"1e3e4", 0),
-                message: "Multiple exponents in a number".to_owned(),
+                message: "Invalid Numeric literal: exponent part cannot be itself exponential"
+                    .to_owned(),
             }]
         },
     );
@@ -1149,7 +1152,8 @@ fn test_lex_float_invalid_duplicate_exponents_positive_sign() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"1e+3e+4", 0),
-                message: "Invalid number".to_owned(),
+                message: "Invalid Numeric literal: exponent part cannot be itself exponential"
+                    .to_owned(),
             }]
         },
     );
@@ -1173,7 +1177,8 @@ fn test_lex_float_invalid_duplicate_exponents_negative_sign() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"1e-3e-4", 0),
-                message: "Invalid number".to_owned(),
+                message: "Invalid Numeric literal: exponent part cannot be itself exponential"
+                    .to_owned(),
             }]
         },
     );
@@ -1197,7 +1202,8 @@ fn test_lex_float_invalid_with_exponent_and_point() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"5e3.2", 0),
-                message: "Decimal point should appear before the exponent".to_owned(),
+                message: "Invalid Numeric literal: exponent part cannot have a decimal point"
+                    .to_owned(),
             }]
         },
     );
@@ -1280,7 +1286,7 @@ fn test_lex_rational_invalid_duplicate_r() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"3rr", 0),
-                message: "Multiple 'r' suffixes in a number".to_owned(),
+                message: "Invalid Numeric literal: it cannot have duplicate suffixes".to_owned(),
             }]
         },
     );
@@ -1294,7 +1300,10 @@ fn test_lex_rational_invalid_exponent() {
         |src| {
             vec![token(
                 TokenKind::Numeric(NumericToken {
-                    value: NumericValue::Rational(Decimal::from(BigInt::from(3))),
+                    value: NumericValue::Rational(Decimal::from_fraction_and_exponent(
+                        BigInt::from(3),
+                        -1,
+                    )),
                     imaginary: false,
                 }),
                 pos_in(src, b"3e-1r", 0),
@@ -1304,7 +1313,8 @@ fn test_lex_rational_invalid_exponent() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"3e-1r", 0),
-                message: "Invalid number".to_owned(),
+                message: "Invalid Numeric literal: Rational literal cannot have an exponent"
+                    .to_owned(),
             }]
         },
     );
@@ -1387,7 +1397,7 @@ fn test_lex_imaginary_invalid_duplicate_i() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"9ii", 0),
-                message: "Multiple 'i' suffixes in a number".to_owned(),
+                message: "Invalid Numeric literal: it cannot have duplicate suffixes".to_owned(),
             }]
         },
     );
@@ -1414,7 +1424,7 @@ fn test_lex_imaginary_rational_invalid_ir() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"1.5ir", 0),
-                message: "'i' should precede 'r' in a number".to_owned(),
+                message: "Invalid Numeric literal: the suffixes are in the wrong order".to_owned(),
             }]
         },
     );

@@ -386,6 +386,7 @@ dependencies = [
  "anyhow",
  "bit-vec",
  "num-bigint",
+ "num-traits",
  "ordered-float",
  "pretty_assertions",
 ]

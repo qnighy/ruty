@@ -1,10 +1,12 @@
 use core::str;
 use std::{
+    borrow::Cow,
     collections::{HashMap, HashSet},
     sync::LazyLock,
 };
 
 use num_bigint::BigInt;
+use num_traits::Num;
 use ordered_float::NotNan;
 
 use crate::{
@@ -730,21 +732,6 @@ macro_rules! eof_char {
 macro_rules! decimal_digit {
     () => {
         b'0'..=b'9'
-    };
-}
-macro_rules! ascii_alpha {
-    () => {
-        b'a'..=b'z' | b'A'..=b'Z'
-    };
-}
-macro_rules! hex_lower_letter {
-    () => {
-        b'a'..=b'f'
-    };
-}
-macro_rules! hex_upper_letter {
-    () => {
-        b'A'..=b'F'
     };
 }
 macro_rules! hex_letter {
@@ -2159,283 +2146,368 @@ impl<'a> Lexer<'a> {
         // - For '-', it is tokenized separately so that `-2 ** 2` parses as `-(2 ** 2)`
         // So, we don't need to check for sign here
 
-        let start = self.pos;
-
-        let body_result = if self.peek_byte() == b'0' {
-            self.pos += 1;
-            match self.peek_byte() {
-                b'b' | b'B' => {
-                    self.pos += 1;
-                    self.lex_integer_body(|b| b == b'0' || b == b'1')
-                }
-                b'd' | b'D' => {
-                    self.pos += 1;
-                    self.lex_integer_body(|b| b.is_ascii_digit())
-                }
-                b'o' | b'O' => {
-                    self.pos += 1;
-                    self.lex_integer_body(|b| matches!(b, b'0'..=b'7'))
-                }
-                b'x' | b'X' => {
-                    self.pos += 1;
-                    self.lex_integer_body(|b| b.is_ascii_hexdigit())
-                }
-                decimal_digit!() | b'_' => {
-                    self.pos -= 1;
-                    self.lex_integer_body(|b| matches!(b, b'0'..=b'7'))
-                }
-                _ => {
-                    self.pos -= 1;
-                    self.lex_decimal_body()
-                }
-            }
-        } else {
-            self.lex_decimal_body()
-        };
-        if let Ok(found_e) = body_result {
-            let body_end = self.pos;
-            self.scan_ident();
-            let suffix = &self.bytes()[body_end..self.pos];
-            if SUFFIX_KEYWORDS.contains(&suffix) {
-                // Something like `1and` is found and there is a chance
-                // that it is a part of a valid expression like `1and 0`.
-                self.pos = body_end;
-                return TokenKind::Numeric(interpret_numeric(&self.bytes()[start..self.pos]));
-            } else if suffix == b""
-                || suffix == b"i"
-                || (!found_e && suffix == b"r")
-                || (!found_e && suffix == b"ri")
-            {
-                // Valid numeric suffixes.
-                // Also check for numeric-like invalid continuations.
-                let has_invalid_cont =
-                    self.peek_byte() == b'.' && self.lookahead_byte(1).is_ascii_digit();
-                if !has_invalid_cont {
-                    return TokenKind::Numeric(interpret_numeric(&self.bytes()[start..self.pos]));
-                }
-            }
-        }
-        self.pos = start;
-        self.lex_erroneous_numeric(start, diag)
-    }
-
-    fn lex_decimal_body(&mut self) -> Result<bool, ()> {
-        self.lex_integer_body(|b| b.is_ascii_digit())?;
-        if self.peek_byte() == b'.' && self.lookahead_byte(1).is_ascii_digit() {
-            self.pos += 1;
-            self.lex_integer_body(|b| b.is_ascii_digit())?;
-        }
-        if matches!(self.peek_byte(), b'e' | b'E')
-            && matches!(self.lookahead_byte(1), b'+' | b'-' | decimal_digit!())
-        {
-            self.pos += 1;
-            if matches!(self.peek_byte(), b'+' | b'-') {
-                self.pos += 1;
-            }
-            self.lex_integer_body(|b| b.is_ascii_digit())?;
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-
-    fn lex_integer_body(&mut self, mut is_digit: impl FnMut(u8) -> bool) -> Result<bool, ()> {
-        let start = self.pos;
-        let mut underscore = true;
-        loop {
-            if self.peek_byte() == b'_' {
-                if underscore {
-                    return Err(());
-                }
-                underscore = true;
-                self.pos += 1;
-            } else if is_digit(self.peek_byte()) {
-                underscore = false;
-                self.pos += 1;
-            } else {
-                break;
-            }
-        }
-        if !underscore && start < self.pos {
-            Ok(false)
-        } else {
-            Err(())
-        }
-    }
-
-    fn lex_erroneous_numeric(&mut self, start: usize, diag: &mut Vec<Diagnostic>) -> TokenKind {
-        // Error recovery. It reconsumes the token to get more intuitive boundary.
-
-        // Modified starting point for error reporting
         let start_mod = if matches!(self.lookbehind_byte(1), b'+' | b'-') {
             self.pos - 1
         } else {
             self.pos
         };
 
-        let (base, allow_float) = if self.peek_byte() == b'0' {
+        let base = self.lex_numeric_base();
+        let body_start = self.pos;
+        self.lex_numeric_body(base);
+        let body_end = self.pos;
+        self.lex_numeric_tail();
+        let tail_end = self.pos;
+
+        let value = self.parse_numeric_value(
+            diag,
+            CodeRange {
+                start: start_mod,
+                end: tail_end,
+            },
+            base,
+            &self.bytes()[body_start..body_end],
+            &self.bytes()[body_end..tail_end],
+        );
+        TokenKind::Numeric(value)
+    }
+
+    fn lex_numeric_base(&mut self) -> NumericBase {
+        let start = self.pos;
+        if self.peek_byte() == b'0' {
             self.pos += 1;
             match self.peek_byte() {
                 b'b' | b'B' => {
                     self.pos += 1;
-                    (2, false)
-                }
-                b'd' | b'D' => {
-                    self.pos += 1;
-                    (10, false)
+                    NumericBase::Bin
                 }
                 b'o' | b'O' => {
                     self.pos += 1;
-                    (8, false)
+                    NumericBase::OctExplicit
+                }
+                b'd' | b'D' => {
+                    self.pos += 1;
+                    NumericBase::DecExplicit
                 }
                 b'x' | b'X' => {
                     self.pos += 1;
-                    (16, false)
-                }
-                decimal_digit!() | b'_' => {
-                    self.pos -= 1;
-                    (8, false)
+                    NumericBase::Hex
                 }
                 _ => {
-                    self.pos -= 1;
-                    (10, true)
+                    // Check if there is another digit after the leading zero.
+                    while self.peek_byte() == b'_' {
+                        self.pos += 1;
+                    }
+                    let is_oct = self.peek_byte().is_ascii_digit();
+                    // In any case, the leading zero is part of the body,
+                    // not the base prefix.
+                    self.pos = start;
+
+                    if is_oct {
+                        // e.g. `00` or `07`
+                        NumericBase::OctImplicit
+                    } else {
+                        // `0` is decimal
+                        NumericBase::DecImplicit
+                    }
                 }
             }
         } else {
-            (10, true)
-        };
-        let mut first_invalid_letter: Option<usize> = None;
-        let mut num_points = 0;
-        let mut num_exponents = 0;
-        let mut has_point_after_exponent = false;
-        let mut has_invalid_digit = false;
-        let mut invalid_leading_underscore = false;
-        let mut invalid_trailing_underscore = false;
-        let mut invalid_leading_point = false;
-        let mut invalid_trailing_point = false;
+            NumericBase::DecImplicit
+        }
+    }
+
+    fn lex_numeric_body(&mut self, base: NumericBase) {
         loop {
             match self.peek_byte() {
-                // exponents (except hexadecimals)
-                b'e' | b'E' if base != 16 && self.lookahead_byte(1).is_ascii_digit() => {
-                    num_exponents += 1;
-                    self.pos += 2;
+                decimal_digit!() | b'_' => {
+                    self.pos += 1;
+                }
+                hex_letter!() if base == NumericBase::Hex => {
+                    self.pos += 1;
                 }
                 b'e' | b'E'
-                    if base != 16
-                        && matches!(self.lookahead_byte(1), b'+' | b'-')
+                    if matches!(self.lookahead_byte(1), b'+' | b'-')
                         && self.lookahead_byte(2).is_ascii_digit() =>
                 {
                     self.pos += 3;
                 }
-                hex_letter!() if base == 16 => {
-                    self.pos += 1;
-                }
-                ascii_alpha!() => {
-                    if first_invalid_letter.is_none() {
-                        first_invalid_letter = Some(self.pos);
-                    }
-                    self.pos += 1;
-                }
-                b'_' => {
-                    let a = self.lookahead_byte(1);
-                    if !a.is_ascii_digit() && !(a.is_ascii_hexdigit() && base == 16) {
-                        invalid_trailing_underscore = true;
-                    }
-                    let b = self.lookbehind_byte(1);
-                    if !b.is_ascii_digit() && !(b.is_ascii_hexdigit() && base == 16) {
-                        invalid_leading_underscore = true;
-                    }
-                    self.pos += 1;
-                }
-                decimal_digit!() => {
-                    if (self.peek_byte() - b'0') >= base {
-                        has_invalid_digit = true;
-                    }
-                    self.pos += 1;
-                }
-                // decimal point, only when followed by a decimal digit
-                b'.' if self.lookahead_byte(1).is_ascii_digit() => {
-                    num_points += 1;
-                    if num_exponents > 0 {
-                        has_point_after_exponent = true;
-                    }
-                    let a = self.lookahead_byte(1);
-                    if !a.is_ascii_digit() && a != b'_' {
-                        invalid_trailing_point = true;
-                    }
-                    let b = self.lookbehind_byte(1);
-                    if !b.is_ascii_digit() && b != b'_' {
-                        invalid_leading_point = true;
-                    }
+                b'e' | b'E' if self.lookahead_byte(1).is_ascii_digit() => {
                     self.pos += 2;
                 }
-                _ => {
-                    break;
+                b'.' if self.lookahead_byte(1).is_ascii_digit() => {
+                    self.pos += 1;
                 }
+                _ => break,
             }
         }
-        let mut multiple_r_suffixes = false;
-        let mut multiple_i_suffixes = false;
-        let mut i_before_r = false;
-        let mut invalid_r = false;
-        if let Some(pos) = first_invalid_letter {
-            let maybe_suffix = &self.bytes()[pos..self.pos];
-            if maybe_suffix.iter().all(|&b| b == b'r' || b == b'i') {
-                multiple_r_suffixes = maybe_suffix.iter().filter(|&&b| b == b'r').count() > 1;
-                multiple_i_suffixes = maybe_suffix.iter().filter(|&&b| b == b'i').count() > 1;
-                i_before_r = maybe_suffix.contains(&b'i')
-                    && maybe_suffix.contains(&b'r')
-                    && maybe_suffix != b"ri";
-                invalid_r = num_exponents > 0 && maybe_suffix.contains(&b'r');
-                first_invalid_letter = None;
+    }
+
+    fn lex_numeric_tail(&mut self) {
+        let start = self.pos;
+        self.scan_ident();
+        let tail = &self.bytes()[start..self.pos];
+        if SUFFIX_KEYWORDS.contains(&tail) {
+            // Something like `1and` is found and there is a chance
+            // that it is a part of a valid expression like `1and 0`.
+            self.pos = start;
+            return;
+        }
+    }
+
+    fn parse_numeric_value(
+        &mut self,
+        diag: &mut Vec<Diagnostic>,
+        range: CodeRange,
+        base: NumericBase,
+        body: &'a [u8],
+        tail: &'a [u8],
+    ) -> NumericToken {
+        let mut is_rational = false;
+        let mut is_imaginary = false;
+        let mut has_unknown_suffix = false;
+        let mut has_invalid_capital_suffix = false;
+        let mut has_duplicate_suffixes = false;
+        let mut invalid_suffix_order = false;
+        for &b in tail {
+            has_invalid_capital_suffix = has_invalid_capital_suffix || matches!(b, b'R' | b'I');
+            match b {
+                b'r' | b'R' => {
+                    has_duplicate_suffixes = has_duplicate_suffixes || is_rational;
+                    invalid_suffix_order = invalid_suffix_order || is_imaginary;
+                    is_rational = true;
+                }
+                b'i' | b'I' => {
+                    has_duplicate_suffixes = has_duplicate_suffixes || is_imaginary;
+                    is_imaginary = true;
+                }
+                _ => {
+                    has_unknown_suffix = true;
+                }
             }
         }
 
-        let range = CodeRange {
-            start: start_mod,
-            end: self.pos,
-        };
-        let msg = if let Some(pos) = first_invalid_letter {
-            let b = self.get_byte(pos);
-            if b < 0x80 {
-                format!("Invalid letter in a number: {}", b as char)
+        let mut body = Cow::Borrowed(body);
+        let is_digit = |b: u8| {
+            if base == NumericBase::Hex {
+                b.is_ascii_hexdigit()
             } else {
-                format!("Invalid letter in a number")
+                b.is_ascii_digit()
             }
-        } else if !allow_float && (num_exponents > 0 || num_points > 0) {
-            format!("Float literal cannot have a base prefix")
-        } else if num_points > 1 {
-            format!("Multiple decimal points in a number")
-        } else if num_exponents > 1 {
-            format!("Multiple exponents in a number")
-        } else if has_point_after_exponent {
-            format!("Decimal point should appear before the exponent")
-        } else if invalid_leading_point {
-            format!("Numbers cannot start with a decimal point")
-        } else if invalid_trailing_point {
-            format!("Numbers cannot end with a decimal point")
-        } else if has_invalid_digit {
-            format!("Invalid digit for base {}", base)
-        } else if invalid_leading_underscore {
-            format!("Underscore should follow a digit")
-        } else if invalid_trailing_underscore {
-            format!("Underscore should precede a digit")
-        } else if multiple_r_suffixes {
-            format!("Multiple 'r' suffixes in a number")
-        } else if multiple_i_suffixes {
-            format!("Multiple 'i' suffixes in a number")
-        } else if i_before_r {
-            format!("'i' should precede 'r' in a number")
-        } else if invalid_r {
-            format!("Rational number cannot have an exponent")
-        } else {
-            format!("Invalid number")
         };
-        diag.push(Diagnostic {
-            range,
-            message: msg,
+        let invalid_underscore = (0..body.len()).any(|i| {
+            body[i] == b'_'
+                && (i == 0
+                    || i + 1 == body.len()
+                    || !is_digit(body[i - 1])
+                    || !is_digit(body[i + 1]))
         });
-        TokenKind::Numeric(interpret_numeric(&self.bytes()[start..self.pos]))
+        let has_underscore = body.contains(&b'_');
+        if has_underscore {
+            // Remove underscore
+            body.to_mut().retain(|&b| b != b'_');
+        }
+
+        let has_dot = body.contains(&b'.');
+        let has_exp = base != NumericBase::Hex && body.iter().any(|&b| b == b'e' || b == b'E');
+        let invalid_decimal_octal = base == NumericBase::OctImplicit
+            && (has_dot || has_exp || body.iter().any(|&b| b == b'8' || b == b'9'));
+        let invalid_base_in_fractional =
+            !invalid_decimal_octal && (has_dot || has_exp) && base != NumericBase::DecImplicit;
+        let base_mod = if invalid_decimal_octal || invalid_base_in_fractional {
+            NumericBase::DecImplicit
+        } else {
+            base
+        };
+        let base_value = match base_mod {
+            NumericBase::Bin => 2,
+            NumericBase::OctExplicit | NumericBase::OctImplicit => 8,
+            NumericBase::DecExplicit | NumericBase::DecImplicit => 10,
+            NumericBase::Hex => 16,
+        };
+
+        let mut pos_dot: Option<usize> = None;
+        let mut pos_exp: Option<usize> = None;
+        let mut invalid_fractional_exp = false;
+        let mut invalid_multiple_dots = false;
+        let mut invalid_multiple_exps = false;
+        let mut invalid_rational_exps = false;
+        let mut invalid_empty_body = false;
+        let mut invalid_empty_integral = false;
+        let mut invalid_digit = false;
+
+        if body.starts_with(b".") {
+            invalid_empty_integral = true;
+            body.to_mut().insert(0, b'0');
+        } else if body.is_empty() {
+            invalid_empty_body = true;
+            body.to_mut().push(b'0');
+        }
+
+        let mut pos = 0;
+        while pos < body.len() {
+            match body[pos] {
+                b'e' | b'E' if base_mod != NumericBase::Hex => {
+                    invalid_rational_exps = invalid_rational_exps || is_rational;
+                    if pos_exp.is_none() {
+                        pos_exp = Some(pos);
+                        pos += 1;
+                        if matches!(body[pos], b'+' | b'-') {
+                            pos += 1;
+                        }
+                    } else {
+                        // Something like `1e2e3`
+                        invalid_multiple_exps = true;
+                        // Ignore the second exponent and the rest
+                        break;
+                    }
+                }
+                decimal_digit!() | hex_letter!() => {
+                    let val = match body[pos] {
+                        b'0'..=b'9' => body[pos] - b'0',
+                        b'a'..=b'f' => body[pos] - b'a' + 10,
+                        b'A'..=b'F' => body[pos] - b'A' + 10,
+                        _ => unreachable!(),
+                    };
+                    if val as i32 >= base_value {
+                        invalid_digit = true;
+                        body.to_mut()[pos] = (base_value - 1) as u8 + b'0';
+                    } else {
+                        pos += 1;
+                    }
+                }
+                b'.' => {
+                    if pos_exp.is_some() {
+                        // Something like `1e3.4`
+                        invalid_fractional_exp = true;
+                        // Ignore the fractional part
+                        break;
+                    } else if pos_dot.is_none() {
+                        pos_dot = Some(pos);
+                        pos += 1;
+                    } else {
+                        // Something like `1.2.3`
+                        invalid_multiple_dots = true;
+                        // Ignore the dot to get e.g. `1.23`
+                        body.to_mut().remove(pos);
+                    }
+                }
+                _ => unreachable!(),
+            }
+        }
+        if pos < body.len() {
+            body.to_mut().truncate(pos);
+        }
+
+        // Error reporting. For readability, report only one error per token.
+        // Prefer more important errors over mere stylistic issues.
+        let msg = if has_unknown_suffix {
+            // `1a`, `123.456f`, etc.
+            // Error recovery result: ignore the suffix
+            Some("Invalid Numeric literal: unknown suffix")
+        } else if invalid_base_in_fractional {
+            // `0o0.12`, `0x12.3a`, etc.
+            // Error recovery result: ignore the base prefix
+            Some("Invalid Numeric literal: Float or Rational literal should not have a base prefix")
+        } else if invalid_multiple_exps {
+            // `7e8e10`, etc.
+            // Error recovery result: ignore the second exponent and the rest
+            Some("Invalid Numeric literal: exponent part cannot be itself exponential")
+        } else if invalid_fractional_exp {
+            // `1e2.3`, etc.
+            // Error recovery result: ignore the fractional part and the rest, resulting in a floored value
+            Some("Invalid Numeric literal: exponent part cannot have a decimal point")
+        } else if invalid_digit {
+            // `0o9`, `0b5`, etc.
+            // Error recovery result: replace the invalid digit with the maximum valid digit
+            Some("Invalid Numeric literal: invalid digit in this base")
+        } else if invalid_decimal_octal {
+            // `09`, `00.12`, etc.
+            // Error recovery result: treat as if all the extra leading zeros are not there
+            Some("Invalid Numeric literal: decimal literal cannot have leading zeros")
+        } else if invalid_multiple_dots {
+            // `1.2.3`, etc.
+            // Error recovery result: ignore all dots but the first (e.g. `1.2.3` to `1.23`)
+            Some("Invalid Numeric literal: it cannot have multiple decimal points")
+        } else if invalid_rational_exps {
+            // `1e3r`, etc.
+            // Error recovery result: interpret the exponent as it is, unless it is too large
+            Some("Invalid Numeric literal: Rational literal cannot have an exponent")
+        } else if invalid_empty_integral {
+            // `.12`, etc.
+            // Error recovery result: insert a leading zero (e.g. `.12` to `0.12`)
+            // NOTE: the inverse (e.g. `1.`) does not happen because `.` is only included
+            //       when it is followed by a digit.
+            Some("Invalid Numeric literal: the integral part cannot be empty")
+        } else if invalid_empty_body {
+            // `0x`, etc.
+            // Error recovery result: insert a zero (e.g. `0x` to `0x0`)
+            Some("Invalid Numeric literal: the body cannot be empty")
+        } else if invalid_underscore {
+            // `1__2`, `1_.3`, etc.
+            Some("Invalid Numeric literal: invalid underscore placement")
+        } else if has_duplicate_suffixes {
+            // `1ii`, `1rr`, etc.
+            // Error recovery result: ignore the duplicate suffixes
+            Some("Invalid Numeric literal: it cannot have duplicate suffixes")
+        } else if invalid_suffix_order {
+            // `1ir`, etc.
+            // Error recovery result: treat as if the suffixes are in the correct order
+            Some("Invalid Numeric literal: the suffixes are in the wrong order")
+        } else if has_invalid_capital_suffix {
+            // `1R`, `1I`, etc.
+            // Error recovery result: treat as if the suffixes are in lowercase
+            Some("Invalid Numeric literal: the suffixes should be lowercase")
+        } else {
+            None
+        };
+        if let Some(msg) = msg {
+            diag.push(Diagnostic {
+                range,
+                message: msg.to_string(),
+            });
+        }
+
+        let value = if is_rational && (has_dot || has_exp) {
+            let exp = if let Some(pos_exp) = pos_exp {
+                let exp: i32 = str::from_utf8(&body[pos_exp + 1..])
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                body.to_mut().truncate(pos_exp);
+                // Clamp the exponent so that the resulting AST does not
+                // consume too much memory compared to the original source.
+                exp.clamp(-255, 255)
+            } else {
+                0
+            };
+            let point_pos = if let Some(pos_dot) = pos_dot {
+                let n = body.len() - (pos_dot + 1);
+                body.to_mut().remove(pos_dot);
+                n as i32
+            } else {
+                0
+            };
+            let fraction =
+                BigInt::from_str_radix(str::from_utf8(&body).unwrap(), base_value as u32).unwrap();
+            let value = Decimal::from_fraction_and_exponent(fraction, exp - point_pos);
+            NumericValue::Rational(value)
+        } else if has_dot || has_exp {
+            let value: f64 = str::from_utf8(&body).unwrap().parse().unwrap();
+            NumericValue::Float(NotNan::new(value).unwrap())
+        } else {
+            let value: BigInt =
+                BigInt::from_str_radix(str::from_utf8(&body).unwrap(), base_value as u32).unwrap();
+            if is_rational {
+                NumericValue::Rational(Decimal::from(value))
+            } else {
+                NumericValue::Integer(value)
+            }
+        };
+        NumericToken {
+            value,
+            imaginary: is_imaginary,
+        }
     }
 
     pub(super) fn lex_string_like(
@@ -2796,6 +2868,22 @@ impl<'a> Lexer<'a> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum NumericBase {
+    /// `0b` or `0B`
+    Bin,
+    /// Octal number without "o" prefix, i.e. `/^(?=0_*[0-9])/`
+    OctImplicit,
+    /// `0o` or `0O`
+    OctExplicit,
+    /// Decimal number without base prefix, i.e. `/^(?=0(?!_*[0-9])|[1-9])/`
+    DecImplicit,
+    /// `0d` or `0D`
+    DecExplicit,
+    /// `0x` or `0X`
+    Hex,
+}
+
 static KEYWORDS: LazyLock<HashMap<&'static [u8], TokenKind>> = LazyLock::new(|| {
     HashMap::from_iter(vec![
         (
@@ -2886,314 +2974,5 @@ static SUFFIX_KEYWORDS: LazyLock<HashSet<&'static [u8]>> = LazyLock::new(|| {
     ])
 });
 
-fn interpret_numeric(mut s: &[u8]) -> NumericToken {
-    // Validation is already done by the lexer,
-    // so it is just sufficient to loosely parse it.
-
-    // Strip the suffixes and prefixes
-    let mut neg = false;
-    let mut base = 10;
-    let mut imaginary = false;
-    let mut rational = false;
-    loop {
-        if s.starts_with(b"+") {
-            s = &s[1..];
-            continue;
-        } else if s.starts_with(b"-") {
-            s = &s[1..];
-            neg = true;
-            continue;
-        }
-        break;
-    }
-    if s.len() >= 2 && s[0] == b'0' {
-        match s[1] {
-            b'b' | b'B' => {
-                base = 2;
-                s = &s[2..];
-            }
-            b'd' | b'D' => {
-                base = 10;
-                s = &s[2..];
-            }
-            b'o' | b'O' => {
-                base = 8;
-                s = &s[2..];
-            }
-            b'x' | b'X' => {
-                base = 16;
-                s = &s[2..];
-            }
-            decimal_digit!() | b'_' => {
-                base = 8;
-            }
-            _ => {}
-        }
-    }
-    loop {
-        if s.ends_with(b"i") {
-            s = &s[..s.len() - 1];
-            imaginary = true;
-            continue;
-        } else if s.ends_with(b"r") {
-            s = &s[..s.len() - 1];
-            rational = true;
-            continue;
-        }
-        break;
-    }
-    let value = if !rational
-        && (s.contains(&b'.') || (base != 16 && s.iter().any(|&b| b == b'e' || b == b'E')))
-    {
-        // Float
-        if let Some(result) = str::from_utf8(s).ok().and_then(|s| s.parse::<f64>().ok()) {
-            NumericValue::Float(NotNan::new(result).unwrap_or_default())
-        } else {
-            // Get the source reformatted
-            let mut src = String::new();
-            loop {
-                match s.get(0).copied().unwrap_or(b'\0') {
-                    decimal_digit!() => {
-                        src.push(s[0] as char);
-                        s = &s[1..];
-                    }
-                    b'_' => {
-                        s = &s[1..];
-                    }
-                    _ => break,
-                }
-            }
-            if src == "" {
-                src.push('0');
-            }
-            if s.starts_with(b".") {
-                src.push('.');
-                s = &s[1..];
-                let len = s.len();
-                loop {
-                    match s.get(0).copied().unwrap_or(b'\0') {
-                        decimal_digit!() => {
-                            src.push(s[0] as char);
-                            s = &s[1..];
-                        }
-                        b'_' => {
-                            s = &s[1..];
-                        }
-                        _ => break,
-                    }
-                }
-                if len == s.len() {
-                    src.push('0');
-                }
-            }
-            if s.starts_with(b"e") || s.starts_with(b"E") {
-                src.push('e');
-                s = &s[1..];
-                if s.starts_with(b"-") {
-                    src.push('-');
-                    s = &s[1..];
-                } else if s.starts_with(b"+") {
-                    s = &s[1..];
-                }
-                let len = s.len();
-                loop {
-                    match s.get(0).copied().unwrap_or(b'\0') {
-                        decimal_digit!() => {
-                            src.push(s[0] as char);
-                            s = &s[1..];
-                        }
-                        b'_' => {
-                            s = &s[1..];
-                        }
-                        _ => break,
-                    }
-                }
-                if len == s.len() {
-                    src.push('0');
-                }
-            }
-            NumericValue::Float(NotNan::new(src.parse().unwrap_or_default()).unwrap_or_default())
-        }
-    } else if rational && base == 10 {
-        // Decimal Rational
-        let mut fraction = BigInt::ZERO;
-        let mut exponent = 0_i32;
-        loop {
-            match s.get(0).copied().unwrap_or(b'\0') {
-                decimal_digit!() => {
-                    fraction = fraction * 10 + (s[0] - b'0') as i32;
-                    s = &s[1..];
-                }
-                b'_' => {
-                    s = &s[1..];
-                }
-                _ => break,
-            }
-        }
-        if s.starts_with(b".") {
-            s = &s[1..];
-            loop {
-                match s.get(0).copied().unwrap_or(b'\0') {
-                    decimal_digit!() => {
-                        fraction = fraction * 10 + (s[0] - b'0') as i32;
-                        exponent -= 1;
-                        s = &s[1..];
-                    }
-                    b'_' => {
-                        s = &s[1..];
-                    }
-                    _ => break,
-                }
-            }
-        }
-        let value = Decimal::from_fraction_and_exponent(fraction, exponent);
-        NumericValue::Rational(value)
-    } else {
-        // Integer
-        let mut value = BigInt::ZERO;
-        loop {
-            match s.get(0).copied().unwrap_or(b'\0') {
-                decimal_digit!() => {
-                    value = value * base + (s[0] - b'0') as i32;
-                    s = &s[1..];
-                }
-                hex_lower_letter!() => {
-                    value = value * base + (s[0] - b'a' + 10) as i32;
-                    s = &s[1..];
-                }
-                hex_upper_letter!() => {
-                    value = value * base + (s[0] - b'A' + 10) as i32;
-                    s = &s[1..];
-                }
-                b'_' => {
-                    s = &s[1..];
-                }
-                _ => break,
-            }
-        }
-        if rational {
-            NumericValue::Rational(Decimal::from(value))
-        } else {
-            NumericValue::Integer(value)
-        }
-    };
-    let value = if neg {
-        match value {
-            NumericValue::Integer(v) => NumericValue::Integer(-v),
-            NumericValue::Float(v) => NumericValue::Float(-v),
-            NumericValue::Rational(v) => NumericValue::Rational(-v),
-        }
-    } else {
-        value
-    };
-    NumericToken { value, imaginary }
-}
-
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-mod inline_tests {
-    use std::str::FromStr;
-
-    use super::*;
-
-    #[test]
-    fn test_interpret_numeric_integer_simple() {
-        assert_eq!(
-            interpret_numeric(b"123"),
-            NumericToken {
-                value: NumericValue::Integer(BigInt::from(123)),
-                imaginary: false
-            }
-        );
-    }
-
-    #[test]
-    fn test_interpret_numeric_integer_positive() {
-        assert_eq!(
-            interpret_numeric(b"+123"),
-            NumericToken {
-                value: NumericValue::Integer(BigInt::from(123)),
-                imaginary: false
-            }
-        );
-    }
-
-    #[test]
-    fn test_interpret_numeric_integer_negative() {
-        assert_eq!(
-            interpret_numeric(b"-123"),
-            NumericToken {
-                value: NumericValue::Integer(BigInt::from(-123)),
-                imaginary: false
-            }
-        );
-    }
-
-    #[test]
-    fn test_interpret_numeric_integer_underscore() {
-        assert_eq!(
-            interpret_numeric(b"1_2_3"),
-            NumericToken {
-                value: NumericValue::Integer(BigInt::from(123)),
-                imaginary: false
-            }
-        );
-    }
-
-    #[test]
-    fn test_interpret_numeric_float_with_point() {
-        assert_eq!(
-            interpret_numeric(b"123.75"),
-            NumericToken {
-                value: NumericValue::Float(NotNan::new(123.75).unwrap()),
-                imaginary: false
-            }
-        );
-    }
-
-    #[test]
-    fn test_interpret_numeric_float_with_exponent() {
-        assert_eq!(
-            interpret_numeric(b"12375e-2"),
-            NumericToken {
-                value: NumericValue::Float(NotNan::new(123.75).unwrap()),
-                imaginary: false
-            }
-        );
-    }
-
-    #[test]
-    fn test_interpret_numeric_float_negative() {
-        assert_eq!(
-            interpret_numeric(b"-123.75"),
-            NumericToken {
-                value: NumericValue::Float(NotNan::new(-123.75).unwrap()),
-                imaginary: false
-            }
-        );
-    }
-
-    #[test]
-    fn test_interpret_numeric_rational_with_point() {
-        assert_eq!(
-            interpret_numeric(b"123.75r"),
-            NumericToken {
-                value: NumericValue::Rational(Decimal::from_str("123.75").unwrap()),
-                imaginary: false
-            }
-        );
-    }
-
-    #[test]
-    fn test_interpret_numeric_rational_negative() {
-        assert_eq!(
-            interpret_numeric(b"-123.75r"),
-            NumericToken {
-                value: NumericValue::Rational(Decimal::from_str("-123.75").unwrap()),
-                imaginary: false
-            }
-        );
-    }
-}
