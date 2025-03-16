@@ -5,7 +5,7 @@ use crate::{
     ast::{pos_in, Decimal, NumericValue},
     parser::{
         lexer::{NumericToken, TokenKind},
-        UnOpKind,
+        BinOpKind, UnOpKind,
     },
     Diagnostic,
 };
@@ -113,6 +113,30 @@ fn test_lex_integer_invalid_double_underscores() {
 }
 
 #[test]
+fn test_lex_integer_invalid_hex_double_underscores() {
+    assert_lex_with_diag(
+        "0xA__B",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(0xAB)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"0xA__B", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"0xA__B", 0),
+                message: "Invalid Numeric literal: invalid underscore placement".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
 fn test_lex_integer_invalid_trailing_underscore() {
     assert_lex_with_diag(
         "123_",
@@ -130,6 +154,30 @@ fn test_lex_integer_invalid_trailing_underscore() {
         |src| {
             vec![Diagnostic {
                 range: pos_in(src, b"123_", 0),
+                message: "Invalid Numeric literal: invalid underscore placement".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_integer_invalid_hex_trailing_underscore() {
+    assert_lex_with_diag(
+        "0xABC_",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(0xABC)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"0xABC_", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"0xABC_", 0),
                 message: "Invalid Numeric literal: invalid underscore placement".to_owned(),
             }]
         },
@@ -818,6 +866,30 @@ fn test_lex_float_invalid_trailing_underscore_in_integral() {
 }
 
 #[test]
+fn test_lex_float_invalid_trailing_zero_underscore_in_integral() {
+    assert_lex_with_diag(
+        "0_.32",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Float(NotNan::new(0.32).unwrap()),
+                    imaginary: false,
+                }),
+                pos_in(src, b"0_.32", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"0_.32", 0),
+                message: "Invalid Numeric literal: invalid underscore placement".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
 fn test_lex_float_invalid_double_underscores_in_fraction() {
     assert_lex_with_diag(
         "14.3__2",
@@ -1110,6 +1182,84 @@ fn test_lex_float_with_point_and_exponent() {
 }
 
 #[test]
+fn test_lex_float_invalid_broken_nosign_exponent() {
+    assert_lex_with_diag(
+        "1.0e ",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Float(NotNan::new(1.0).unwrap()),
+                    imaginary: false,
+                }),
+                pos_in(src, b"1.0e", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"1.0e", 0),
+                message: "Invalid Numeric literal: unknown suffix".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_float_invalid_broken_positive_exponent() {
+    assert_lex_with_diag(
+        "1.0e+ ",
+        LexerStates::ALL,
+        |src| {
+            vec![
+                token(
+                    TokenKind::Numeric(NumericToken {
+                        value: NumericValue::Float(NotNan::new(1.0).unwrap()),
+                        imaginary: false,
+                    }),
+                    pos_in(src, b"1.0e", 0),
+                    0,
+                ),
+                token(TokenKind::BinOp(BinOpKind::Add), pos_in(src, b"+", 0), 0),
+            ]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"1.0e", 0),
+                message: "Invalid Numeric literal: unknown suffix".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_float_invalid_broken_negative_exponent() {
+    assert_lex_with_diag(
+        "1.0e- ",
+        LexerStates::ALL,
+        |src| {
+            vec![
+                token(
+                    TokenKind::Numeric(NumericToken {
+                        value: NumericValue::Float(NotNan::new(1.0).unwrap()),
+                        imaginary: false,
+                    }),
+                    pos_in(src, b"1.0e", 0),
+                    0,
+                ),
+                token(TokenKind::BinOp(BinOpKind::Sub), pos_in(src, b"-", 0), 0),
+            ]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"1.0e", 0),
+                message: "Invalid Numeric literal: unknown suffix".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
 fn test_lex_float_invalid_duplicate_exponents_nosign() {
     assert_lex_with_diag(
         "1e3e4",
@@ -1293,6 +1443,30 @@ fn test_lex_rational_invalid_duplicate_r() {
 }
 
 #[test]
+fn test_lex_rational_invalid_capital_r() {
+    assert_lex_with_diag(
+        "3R",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Rational(Decimal::from(3)),
+                    imaginary: false,
+                }),
+                pos_in(src, b"3R", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"3R", 0),
+                message: "Invalid Numeric literal: the suffixes should be lowercase".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
 fn test_lex_rational_invalid_exponent() {
     assert_lex_with_diag(
         "3e-1r",
@@ -1398,6 +1572,30 @@ fn test_lex_imaginary_invalid_duplicate_i() {
             vec![Diagnostic {
                 range: pos_in(src, b"9ii", 0),
                 message: "Invalid Numeric literal: it cannot have duplicate suffixes".to_owned(),
+            }]
+        },
+    );
+}
+
+#[test]
+fn test_lex_imaginary_invalid_capital_i() {
+    assert_lex_with_diag(
+        "9I",
+        LexerStates::ALL,
+        |src| {
+            vec![token(
+                TokenKind::Numeric(NumericToken {
+                    value: NumericValue::Integer(BigInt::from(9)),
+                    imaginary: true,
+                }),
+                pos_in(src, b"9I", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"9I", 0),
+                message: "Invalid Numeric literal: the suffixes should be lowercase".to_owned(),
             }]
         },
     );
