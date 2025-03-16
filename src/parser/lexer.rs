@@ -1225,10 +1225,13 @@ impl<'a> Lexer<'a> {
                     match self.peek_byte() {
                         space!() => TokenKind::Question,
                         ident_continue!() => {
+                            let next_len = self
+                                .input
+                                .encoding()
+                                .next_len(&self.bytes()[self.pos..], EncodingState::default());
                             let char_start = self.pos;
                             self.scan_ident();
-                            // TODO: fix char count
-                            if self.pos - char_start == 1 {
+                            if self.pos - char_start == next_len {
                                 TokenKind::CharLiteral
                             } else {
                                 self.pos = char_start;
@@ -2080,8 +2083,11 @@ impl<'a> Lexer<'a> {
                             self.input.encoding(),
                         );
                         if s.is_valid() {
-                            let mut iter = s.char_indices();
-                            if iter.next().is_none() {
+                            let next_len = self
+                                .input
+                                .encoding()
+                                .next_len(&self.bytes()[ident_start..], EncodingState::default());
+                            if s.is_empty() {
                                 // empty (i.e. `$-` alone)
                                 diag.push(Diagnostic {
                                     range: CodeRange {
@@ -2090,13 +2096,12 @@ impl<'a> Lexer<'a> {
                                     },
                                     message: format!("A letter must follow `$-`"),
                                 });
-                            } else if let Some((r, _)) = iter.next() {
-                                let pos = r.start;
+                            } else if next_len < s.len() {
                                 // More than one character
-                                let cont = &s.as_bytes()[pos..];
+                                let cont = &s.as_bytes()[next_len..];
                                 if SUFFIX_KEYWORDS.contains(cont) {
                                     // Split legit pair like `$-aand 0`
-                                    self.pos = ident_start + pos;
+                                    self.pos = ident_start + next_len;
                                 } else {
                                     // Otherwise treat the whole token as an invalid global variable
                                     // like `$-foo`

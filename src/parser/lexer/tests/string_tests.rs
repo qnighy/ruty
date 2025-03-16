@@ -85,3 +85,27 @@ fn test_double_quote_string_tokens_dynamic() {
         ]
     });
 }
+
+#[test]
+fn test_char_literal_simple() {
+    assert_lex(
+        "?a",
+        LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
+        |src| vec![token(TokenKind::CharLiteral, pos_in(src, b"?a", 0), 0)],
+    );
+}
+
+#[test]
+fn test_char_literal_non_ascii() {
+    assert_lex(
+        "?あ",
+        LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
+        |src| {
+            vec![token(
+                TokenKind::CharLiteral,
+                pos_in(src, b"?\xE3\x81\x82", 0),
+                0,
+            )]
+        },
+    );
+}

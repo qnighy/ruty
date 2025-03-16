@@ -467,7 +467,7 @@ fn test_question_separate() {
 }
 
 #[test]
-fn test_char_literal() {
+fn test_question_join_char() {
     assert_lex(
         "?a",
         LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
