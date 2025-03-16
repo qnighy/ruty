@@ -130,3 +130,19 @@ fn test_char_literal_invalid_non_ascii() {
         },
     );
 }
+
+#[test]
+fn test_char_ambiguous_non_ascii() {
+    // 835C = ソ (which bytewise includes a backslash)
+    assert_lex(
+        EStrRef::from_bytes(b"?\x83\x5C", Encoding::Windows_31J),
+        LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
+        |src| {
+            vec![token(
+                TokenKind::CharLiteral,
+                pos_in(src, b"?\x83\x5C", 0),
+                0,
+            )]
+        },
+    );
+}
