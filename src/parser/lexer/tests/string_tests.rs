@@ -1,6 +1,6 @@
-use crate::{ast::pos_in, parser::lexer::TokenKind};
+use crate::{ast::pos_in, encoding::EStrRef, parser::lexer::TokenKind, Diagnostic, Encoding};
 
-use super::{assert_lex, token, LexerStates};
+use super::{assert_lex, assert_lex_with_diag, token, LexerStates};
 
 const LABELABLE: LexerStates = LexerStates::EMPTY
     .or(LexerStates::BeginLabelable)
@@ -106,6 +106,27 @@ fn test_char_literal_non_ascii() {
                 pos_in(src, b"?\xE3\x81\x82", 0),
                 0,
             )]
+        },
+    );
+}
+
+#[test]
+fn test_char_literal_invalid_non_ascii() {
+    assert_lex_with_diag(
+        EStrRef::from_bytes(b"?\xE3\x81", Encoding::UTF_8),
+        LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
+        |src| {
+            vec![token(
+                TokenKind::CharLiteral,
+                pos_in(src, b"?\xE3\x81", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"\xE3\x81", 0),
+                message: "The character literal contains invalid characters".to_owned(),
+            }]
         },
     );
 }

@@ -1231,7 +1231,22 @@ impl<'a> Lexer<'a> {
                                 .next_len(&self.bytes()[self.pos..], EncodingState::default());
                             let char_start = self.pos;
                             self.scan_ident();
-                            if self.pos - char_start == next_len {
+                            let s = EStrRef::from_bytes(
+                                &self.bytes()[char_start..self.pos],
+                                self.input.encoding(),
+                            );
+                            if !s.is_valid() {
+                                diag.push(Diagnostic {
+                                    range: CodeRange {
+                                        start: char_start,
+                                        end: self.pos,
+                                    },
+                                    message: format!(
+                                        "The character literal contains invalid characters"
+                                    ),
+                                });
+                                TokenKind::CharLiteral
+                            } else if self.pos - char_start == next_len {
                                 TokenKind::CharLiteral
                             } else {
                                 self.pos = char_start;
