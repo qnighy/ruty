@@ -223,3 +223,62 @@ fn test_char_literal_invalid_long_non_ascii_ident() {
         },
     );
 }
+
+#[test]
+fn test_char_literal_symbol_simple() {
+    assert_lex(
+        "?/",
+        LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
+        |src| vec![token(TokenKind::CharLiteral, pos_in(src, b"?/", 0), 0)],
+    );
+}
+
+#[test]
+fn test_char_literal_symbol_force_split() {
+    assert_lex(
+        "?<=>",
+        LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
+        |src| {
+            vec![
+                token(TokenKind::CharLiteral, pos_in(src, b"?<", 0), 0),
+                token(TokenKind::FatArrow, pos_in(src, b"=>", 0), 0),
+            ]
+        },
+    );
+}
+
+#[test]
+fn test_char_literal_digit() {
+    assert_lex(
+        "?9",
+        LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
+        |src| vec![token(TokenKind::CharLiteral, pos_in(src, b"?9", 0), 0)],
+    );
+}
+
+#[test]
+fn test_char_literal_c0ctrl() {
+    assert_lex(
+        "?\x1F",
+        LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
+        |src| vec![token(TokenKind::CharLiteral, pos_in(src, b"?\x1F", 0), 0)],
+    );
+}
+
+#[test]
+fn test_no_char_literal_lf() {
+    assert_lex(
+        "?\n",
+        LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
+        |src| vec![token(TokenKind::Question, pos_in(src, b"?", 0), 0)],
+    );
+}
+
+#[test]
+fn test_no_char_literal_space() {
+    assert_lex(
+        "? ",
+        LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
+        |src| vec![token(TokenKind::Question, pos_in(src, b"?", 0), 0)],
+    );
+}

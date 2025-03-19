@@ -1224,6 +1224,7 @@ impl<'a> Lexer<'a> {
                 } else {
                     match self.peek_byte() {
                         space!() => TokenKind::Question,
+                        b'\0' if self.pos >= self.bytes().len() => TokenKind::Question,
                         ident_continue!() => {
                             let next_len = self
                                 .input
@@ -1277,7 +1278,11 @@ impl<'a> Lexer<'a> {
                                 }
                             }
                         }
-                        _ => TokenKind::Question,
+                        _ => {
+                            // Non-space, non-ident ASCII character.
+                            self.pos += 1;
+                            TokenKind::CharLiteral
+                        }
                     }
                 }
             }
