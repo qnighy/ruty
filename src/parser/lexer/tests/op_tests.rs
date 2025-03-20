@@ -1,6 +1,7 @@
 use crate::{
     ast::pos_in,
     parser::lexer::{BinOpKind, NonLocalKind, TokenKind, UnOpKind},
+    EString,
 };
 
 use super::{assert_lex, token, LexerStates};
@@ -471,7 +472,13 @@ fn test_question_join_char() {
     assert_lex(
         "?a",
         LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
-        |src| vec![token(TokenKind::CharLiteral, pos_in(src, b"?a", 0), 0)],
+        |src| {
+            vec![token(
+                TokenKind::CharLiteral(EString::from("a")),
+                pos_in(src, b"?a", 0),
+                0,
+            )]
+        },
     );
 }
 

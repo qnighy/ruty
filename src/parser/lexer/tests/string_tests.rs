@@ -1,4 +1,6 @@
-use crate::{ast::pos_in, encoding::EStrRef, parser::lexer::TokenKind, Diagnostic, Encoding};
+use crate::{
+    ast::pos_in, encoding::EStrRef, parser::lexer::TokenKind, Diagnostic, EString, Encoding,
+};
 
 use super::{assert_lex, assert_lex_with_diag, token, LexerStates};
 
@@ -91,7 +93,13 @@ fn test_char_literal_simple() {
     assert_lex(
         "?a",
         LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
-        |src| vec![token(TokenKind::CharLiteral, pos_in(src, b"?a", 0), 0)],
+        |src| {
+            vec![token(
+                TokenKind::CharLiteral(EString::from("a")),
+                pos_in(src, b"?a", 0),
+                0,
+            )]
+        },
     );
 }
 
@@ -102,7 +110,7 @@ fn test_char_literal_non_ascii() {
         LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
         |src| {
             vec![token(
-                TokenKind::CharLiteral,
+                TokenKind::CharLiteral(EString::from("あ")),
                 pos_in(src, b"?\xE3\x81\x82", 0),
                 0,
             )]
@@ -117,7 +125,10 @@ fn test_char_literal_invalid_non_ascii() {
         LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
         |src| {
             vec![token(
-                TokenKind::CharLiteral,
+                TokenKind::CharLiteral(EString::from_bytes(
+                    b"\xE3\x81"[..].to_owned(),
+                    Encoding::UTF_8,
+                )),
                 pos_in(src, b"?\xE3\x81", 0),
                 0,
             )]
@@ -139,7 +150,10 @@ fn test_char_ambiguous_non_ascii() {
         LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
         |src| {
             vec![token(
-                TokenKind::CharLiteral,
+                TokenKind::CharLiteral(EString::from_bytes(
+                    b"\x83\x5C"[..].to_owned(),
+                    Encoding::Windows_31J,
+                )),
                 pos_in(src, b"?\x83\x5C", 0),
                 0,
             )]
@@ -193,7 +207,11 @@ fn test_char_literal_split_after_non_ascii_letter() {
         LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
         |src| {
             vec![
-                token(TokenKind::CharLiteral, pos_in(src, b"?\xE3\x81\x82", 0), 0),
+                token(
+                    TokenKind::CharLiteral(EString::from("あ")),
+                    pos_in(src, b"?\xE3\x81\x82", 0),
+                    0,
+                ),
                 token(TokenKind::KeywordAnd, pos_in(src, b"and", 0), 0),
             ]
         },
@@ -210,7 +228,7 @@ fn test_char_literal_invalid_long_non_ascii_ident() {
         LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
         |src| {
             vec![token(
-                TokenKind::CharLiteral,
+                TokenKind::CharLiteral(EString::from("あabc")),
                 pos_in(src, b"?\xE3\x81\x82abc", 0),
                 0,
             )]
@@ -229,7 +247,13 @@ fn test_char_literal_symbol_simple() {
     assert_lex(
         "?/",
         LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
-        |src| vec![token(TokenKind::CharLiteral, pos_in(src, b"?/", 0), 0)],
+        |src| {
+            vec![token(
+                TokenKind::CharLiteral(EString::from("/")),
+                pos_in(src, b"?/", 0),
+                0,
+            )]
+        },
     );
 }
 
@@ -240,7 +264,11 @@ fn test_char_literal_symbol_force_split() {
         LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
         |src| {
             vec![
-                token(TokenKind::CharLiteral, pos_in(src, b"?<", 0), 0),
+                token(
+                    TokenKind::CharLiteral(EString::from("<")),
+                    pos_in(src, b"?<", 0),
+                    0,
+                ),
                 token(TokenKind::FatArrow, pos_in(src, b"=>", 0), 0),
             ]
         },
@@ -252,7 +280,13 @@ fn test_char_literal_digit() {
     assert_lex(
         "?9",
         LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
-        |src| vec![token(TokenKind::CharLiteral, pos_in(src, b"?9", 0), 0)],
+        |src| {
+            vec![token(
+                TokenKind::CharLiteral(EString::from("9")),
+                pos_in(src, b"?9", 0),
+                0,
+            )]
+        },
     );
 }
 
@@ -261,7 +295,13 @@ fn test_char_literal_c0ctrl() {
     assert_lex(
         "?\x1F",
         LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
-        |src| vec![token(TokenKind::CharLiteral, pos_in(src, b"?\x1F", 0), 0)],
+        |src| {
+            vec![token(
+                TokenKind::CharLiteral(EString::from("\x1F")),
+                pos_in(src, b"?\x1F", 0),
+                0,
+            )]
+        },
     );
 }
 

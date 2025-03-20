@@ -118,7 +118,7 @@ fn next_state_for_testing(tok: &Token, prev: LexerState) -> LexerState {
         TokenKind::Symbol => LexerState::End,
         TokenKind::NonLocal(_) => LexerState::End,
         TokenKind::Numeric(_) => LexerState::End,
-        TokenKind::CharLiteral => LexerState::End,
+        TokenKind::CharLiteral(_) => LexerState::End,
         TokenKind::StringBegin | TokenKind::StringBeginLabelable => {
             unreachable!()
         }

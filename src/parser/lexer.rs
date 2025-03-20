@@ -12,7 +12,7 @@ use ordered_float::NotNan;
 use crate::{
     ast::{CodeRange, Decimal, NumericValue},
     encoding::{EStrRef, EncodingState},
-    Diagnostic,
+    Diagnostic, EString,
 };
 
 const TAB_WIDTH: usize = 8;
@@ -133,7 +133,7 @@ pub(super) enum TokenKind {
     /// `123` etc., namely `tINTEGER`, `tFLOAT`, `tRATIONAL`, and `tIMAGINARY`
     Numeric(NumericToken),
     /// `?a` etc., namely `tCHAR`
-    CharLiteral,
+    CharLiteral(EString),
 
     /// `"`, `'`, `:"`, `/` etc. in expr context. Namely:
     ///
@@ -1219,6 +1219,7 @@ impl<'a> Lexer<'a> {
             }
             b'?' => {
                 self.pos += 1;
+                let char_start = self.pos;
                 if state.force_single_question_mark() {
                     TokenKind::Question
                 } else {
@@ -1246,9 +1247,9 @@ impl<'a> Lexer<'a> {
                                         "The character literal contains invalid characters"
                                     ),
                                 });
-                                TokenKind::CharLiteral
+                                TokenKind::CharLiteral(self.select_owned(char_start, self.pos))
                             } else if self.pos - char_start == next_len {
-                                TokenKind::CharLiteral
+                                TokenKind::CharLiteral(self.select_owned(char_start, self.pos))
                             } else if self.get_byte(char_start).is_ascii() {
                                 // Long ident starting with an ASCII letter.
                                 // Split before the ident in this case.
@@ -1263,7 +1264,7 @@ impl<'a> Lexer<'a> {
                                     // Valid combination like `?あand`
                                     // (following the current parse.y behavior)
                                     self.pos = char_start + next_len;
-                                    TokenKind::CharLiteral
+                                    TokenKind::CharLiteral(self.select_owned(char_start, self.pos))
                                 } else {
                                     // Something like `?あfoo`, which won't yield a valid syntax.
                                     // Concatenate it and report error here.
@@ -1274,14 +1275,14 @@ impl<'a> Lexer<'a> {
                                         },
                                         message: format!("Character literal too long"),
                                     });
-                                    TokenKind::CharLiteral
+                                    TokenKind::CharLiteral(self.select_owned(char_start, self.pos))
                                 }
                             }
                         }
                         _ => {
                             // Non-space, non-ident ASCII character.
                             self.pos += 1;
-                            TokenKind::CharLiteral
+                            TokenKind::CharLiteral(self.select_owned(char_start, self.pos))
                         }
                     }
                 }
@@ -2905,6 +2906,14 @@ impl<'a> Lexer<'a> {
 
     fn get_byte(&self, pos: usize) -> u8 {
         self.bytes().get(pos).copied().unwrap_or(0)
+    }
+
+    fn select(&self, start: usize, end: usize) -> EStrRef<'a> {
+        EStrRef::from_bytes(&self.bytes()[start..end], self.input.encoding())
+    }
+
+    fn select_owned(&self, start: usize, end: usize) -> EString {
+        self.select(start, end).to_estring()
     }
 
     fn is_beginning_of_line(&self, pos: usize) -> bool {

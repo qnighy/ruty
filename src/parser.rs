@@ -1673,7 +1673,7 @@ fn suffix_token_shift_precedence(token: &Token) -> usize {
         | TokenKind::Symbol
         | TokenKind::NonLocal(_)
         | TokenKind::Numeric(_)
-        | TokenKind::CharLiteral
+        | TokenKind::CharLiteral(_)
         | TokenKind::StringBegin
         | TokenKind::StringBeginLabelable
         | TokenKind::StringEnd
@@ -2743,7 +2743,7 @@ fn is_cmdarg_begin(token: &Token) -> bool {
         | TokenKind::Symbol
         | TokenKind::NonLocal(_)
         | TokenKind::Numeric(_)
-        | TokenKind::CharLiteral
+        | TokenKind::CharLiteral(_)
         | TokenKind::StringBegin
         | TokenKind::StringBeginLabelable
         | TokenKind::UnOp(_)
