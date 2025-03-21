@@ -16,8 +16,7 @@ use crate::{
     Diagnostic, EString, Encoding,
 };
 use lexer::{
-    BinOpKind, Lexer, LexerState, NumericToken, StringDelimiter, StringState, Token, TokenKind,
-    UnOpKind,
+    BinOpKind, Lexer, LexerState, NumericToken, StringVariant, Token, TokenKind, UnOpKind,
 };
 
 pub fn parse(diag: &mut Vec<Diagnostic>, input: EStrRef<'_>, locals: &[EString]) -> Program {
@@ -730,24 +729,11 @@ impl<'a> Parser<'a> {
                 )
             }
             TokenKind::StringBegin | TokenKind::StringBeginLabelable => {
-                let labelable = first_token.kind == TokenKind::StringBeginLabelable;
-                let delim = match self.bytes()[first_token.range.start] {
-                    b'\'' => StringDelimiter::Quote,
-                    b'"' => StringDelimiter::DoubleQuote,
-                    b'`' => StringDelimiter::Backtick,
-                    b'/' => StringDelimiter::Slash,
-                    _ => unreachable!(),
-                };
+                let mut state = self.lexer.prepare_string(&first_token);
                 let mut contents = Vec::<StringContent>::new();
                 let close_range;
                 loop {
-                    let token = self.lexer.lex_string_like(
-                        diag,
-                        StringState {
-                            delim,
-                            allow_label: labelable,
-                        },
-                    );
+                    let token = self.lexer.lex_string_like(diag, &mut state);
                     match token.kind {
                         TokenKind::StringEnd => {
                             close_range = token.range;
@@ -804,8 +790,8 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
-                ExprLike::Expr(match delim {
-                    StringDelimiter::Quote | StringDelimiter::DoubleQuote => StringExpr {
+                ExprLike::Expr(match state.variant {
+                    StringVariant::String => StringExpr {
                         range: first_token.range | close_range,
                         parens: Vec::new(),
                         open_range: first_token.range,
@@ -813,7 +799,7 @@ impl<'a> Parser<'a> {
                         contents,
                     }
                     .into(),
-                    StringDelimiter::Backtick => XStringExpr {
+                    StringVariant::Command => XStringExpr {
                         range: first_token.range | close_range,
                         parens: Vec::new(),
                         open_range: first_token.range,
@@ -821,7 +807,7 @@ impl<'a> Parser<'a> {
                         contents,
                     }
                     .into(),
-                    StringDelimiter::Slash => RegexpExpr {
+                    StringVariant::Regexp => RegexpExpr {
                         range: first_token.range | close_range,
                         parens: Vec::new(),
                         open_range: first_token.range,
@@ -829,6 +815,7 @@ impl<'a> Parser<'a> {
                         contents,
                     }
                     .into(),
+                    StringVariant::Symbol => todo!(),
                 })
             }
             TokenKind::KeywordIf => {
@@ -1681,6 +1668,7 @@ fn suffix_token_shift_precedence(token: &Token) -> usize {
         | TokenKind::StringContent
         | TokenKind::StringInterpolationBegin
         | TokenKind::StringVarInterpolation
+        | TokenKind::StringComma
         | TokenKind::UnOp(_)
         | TokenKind::OpAssign(_)
         | TokenKind::AmpPrefix
@@ -2774,6 +2762,7 @@ fn is_cmdarg_begin(token: &Token) -> bool {
         | TokenKind::StringContent
         | TokenKind::StringInterpolationBegin
         | TokenKind::StringVarInterpolation
+        | TokenKind::StringComma
         | TokenKind::BinOp(_)
         | TokenKind::OpAssign(_)
         | TokenKind::AmpDot

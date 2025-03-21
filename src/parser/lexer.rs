@@ -159,6 +159,8 @@ pub(super) enum TokenKind {
     StringInterpolationBegin,
     /// `#@foo` etc., namely `tSTRING_DVAR` followed by the variable name
     StringVarInterpolation,
+    /// Space in an array-type percent literal. Namely `' '+`
+    StringComma,
 
     /// `<<` etc. One of:
     ///
@@ -645,6 +647,21 @@ impl LexerState {
         }
     }
 
+    fn allow_heredoc(&self) -> bool {
+        match self {
+            LexerState::Begin => true,
+            LexerState::ClassName => false,
+            LexerState::BeginOpt => true,
+            LexerState::BeginLabelable => true,
+            LexerState::FirstArgument => true,
+            LexerState::WeakFirstArgument => false,
+            LexerState::End => false,
+            LexerState::MethForDef => true,
+            LexerState::MethOrSymbolForDef => true,
+            LexerState::MethForCall => false,
+        }
+    }
+
     /// Should we split `||`?
     fn split_vert_vert(&self) -> bool {
         match self {
@@ -673,35 +690,149 @@ impl LexerState {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct StringState {
+    /// Describes the type or the element type of the expression.
+    pub(super) variant: StringVariant,
+    /// The ending delimiter of the string.
     pub(super) delim: StringDelimiter,
+    /// The escape rules of the string.
+    pub(super) escape: StringEscape,
+    /// If true, the string may be suffixed with a colon to become a symbol.
+    /// Only valid for the following types of delimiters:
+    ///
+    /// - `"foo":`
+    /// - `'foo':`
     pub(super) allow_label: bool,
+    /// If true, the literal is a percent literal representing an array.
+    ///
+    /// One of:
+    ///
+    /// - `%W!foo!`
+    /// - `%w!foo!`
+    /// - `%I!foo!`
+    /// - `%i!foo!`
+    pub(super) array: bool,
+    /// Remove indentation from the string content.
+    /// Enabled in `<<~`-style heredocs.
+    pub(super) dedent: bool,
+    /// The position where the heredoc identifier ends.
+    pub(super) heredoc_return: usize,
+    /// The nesting level of the delimiter in
+    /// a certain kind of percent literals.
+    ///
+    /// This is the only mutable state in the struct.
+    pub(super) nest_level: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum StringVariant {
+    /// One of:
+    ///
+    /// - Escaped strings:
+    ///   - `"foo"`
+    ///   - `%!foo!`
+    ///   - `%Q!foo!`
+    ///   - `<<EOS`
+    ///   - `<<"EOS"`
+    /// - Raw strings:
+    ///   - `'foo'`
+    ///   - `%q!foo!`
+    ///   - `<<'EOS'`
+    /// - Escaped string arrays:
+    ///   - `%W!foo!`
+    /// - Raw string arrays:
+    ///   - `%w!foo!`
+    String,
+    /// One of:
+    ///
+    /// - Escaped symbols:
+    ///   - `:"foo"`
+    /// - Raw symbols:
+    ///   - `:'foo'`
+    ///   - `%s!foo!`
+    /// - Escaped symbol arrays:
+    ///   - `%I!foo!`
+    /// - Raw symbol arrays:
+    ///   - `%i!foo!`
+    Symbol,
+    /// One of:
+    ///
+    /// - `/foo/i`
+    /// - `%r!foo!i`
+    ///
+    /// This variant allows options to follow the closing delimiter.
+    Regexp,
+    /// One of:
+    /// - `` `foo` ``
+    /// - `%x!foo!`
+    /// - `` <<`EOS` ``
+    Command,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) enum StringDelimiter {
-    /// `'`
-    Quote,
-    /// `"`
-    DoubleQuote,
-    /// `` ` ``
-    Backtick,
-    /// `/`
-    Slash,
-    // /// `%`
-    // Percent {},
+    /// A single closing delimiter. One of:
+    ///
+    /// - `"` as in `"foo"`
+    /// - `'` as in `'foo'`
+    /// - `` ` `` as in `` `foo` ``
+    /// - `/` as in `/foo/`
+    /// - Homogeneous percent literal delimiter.
+    ///   It can be any ASCII letter except `(`, `[`, `{`, `<`,
+    ///   and ASCII alphanumerics.
+    ///   Typically `!`, `|`, or `+` but also notably:
+    ///
+    ///   - `"`, `'`, or `` ` ``
+    ///   - `)`, `]`, `}`, or `>`. For example, `%)foo)`.
+    ///   - `\` as in `%\foo\`
+    ///   - `%` as in `%%foo%`
+    ///   - `#` as in `%#foo#`
+    ///   - ASCII whitespace as in `% foo `
+    ///   - Carriage Return or Line Feed
+    ///   - The NUL character or the DEL character
+    ///   - Any of the C0 control characters, even.
+    Char(u8),
+    /// Paired delimiters in percent literals. One of:
+    ///
+    /// - `(` and `)`
+    /// - `[` and `]`
+    /// - `{` and `}`
+    /// - `<` and `>`
+    ///
+    /// In these cases, the parentheses of the same type can be nested.
+    Pair(u8, u8),
+    /// Heredoc delimiter.
+    Heredoc {
+        /// a byte range pointing to the heredoc delimiter.
+        ///
+        /// For example, `FOO` as in `<<"FOO"`.
+        delim_range: CodeRange,
+        /// If true, the heredoc delimiter is allowed to be indented.
+        allow_indent: bool,
+    },
 }
-
-impl StringDelimiter {
-    fn allow_interpolation(&self) -> bool {
-        match self {
-            StringDelimiter::Quote => false,
-            StringDelimiter::DoubleQuote => true,
-            StringDelimiter::Backtick => true,
-            StringDelimiter::Slash => true,
-        }
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum StringEscape {
+    /// Full escapes and interpolation are allowed. One of:
+    ///
+    /// - Double-quoted strings and its equivalents
+    /// - Regular expressions
+    /// - Command executions
+    Full,
+    /// Only the following escapes are allowed:
+    ///
+    /// - `\\`
+    /// - `\` followed by a closing delimiter
+    /// - `\` followed by an opening delimiter (for mirrored delimiters)
+    /// - `\` followed by a space character (for array percent literals)
+    ///
+    /// This is used in single-quoted strings and its equivalents
+    /// except for heredocs.
+    Minimal,
+    /// No escapes or interpolations are allowed.
+    /// This is used in single-quoted heredocs.
+    None,
 }
 
 macro_rules! ident_start {
@@ -744,6 +875,12 @@ macro_rules! hex_letter {
 pub(super) struct Lexer<'a> {
     input: EStrRef<'a>,
     pos: usize,
+    /// If present, the range
+    /// `input[next_line(pos)..skip_to.unwrap()]` has already been consumed
+    /// due to the effect of heredoc.
+    /// Upon encountering a newline, the lexer should read this value,
+    /// reset it to `None`, and skip to the position.
+    skip_to: Option<usize>,
     indent: usize,
     eof_token: Option<Token>,
 }
@@ -753,6 +890,7 @@ impl<'a> Lexer<'a> {
         let mut this = Self {
             input,
             pos: 0,
+            skip_to: None,
             indent: 0,
             eof_token: None,
         };
@@ -790,6 +928,7 @@ impl<'a> Lexer<'a> {
                 if self.lookbehind_byte(1) == b'\r' {
                     // Include the preceding CR to form CRLF
                     self.pos += 1;
+                    self.try_skip_heredoc();
                     self.reset_indent();
                     return Token {
                         kind: TokenKind::Newline,
@@ -801,6 +940,7 @@ impl<'a> Lexer<'a> {
                     };
                 }
                 self.pos += 1;
+                self.try_skip_heredoc();
                 self.reset_indent();
                 return Token {
                     kind: TokenKind::Newline,
@@ -922,12 +1062,80 @@ impl<'a> Lexer<'a> {
             b'$' => self.lex_non_local(diag),
             b'%' => {
                 self.pos += 1;
-                match self.peek_byte() {
-                    b'=' => {
-                        self.pos += 1;
-                        TokenKind::OpAssign(BinOpKind::Mod)
+                if state.prefer_prefix_operator(space_before, self.peek_byte() == b'=') ||
+                    // Specially parse `alias %s;foo; bar` as equivalent to `alias :foo bar`
+                    // but do not do the same for `alias %q;foo; bar`, which is `alias % q; foo; bar`.
+                    (state == LexerState::MethOrSymbolForDef && self.lookahead_byte(0) == b's')
+                {
+                    // Try parsing percent-literal type. It is at most 1 byte long but
+                    // consuming the longest one is safe and probably leads to more intuitive diagnostics.
+                    let kind_start = self.pos;
+                    if self.peek_byte() != b'_' {
+                        self.scan_ident();
                     }
-                    _ => TokenKind::BinOp(BinOpKind::Mod),
+                    let kind_name = &self.bytes()[kind_start..self.pos];
+                    match kind_name {
+                        // strings
+                        b"" | b"q" | b"Q" => {}
+                        // arrays of strings
+                        b"w" | b"W" => {}
+                        // symbols
+                        b"s" => {}
+                        // arrays of symbols
+                        b"i" | b"I" => {}
+                        // regexps
+                        b"r" => {}
+                        // command executions
+                        b"x" => {}
+                        _ => {
+                            diag.push(Diagnostic {
+                                range: CodeRange {
+                                    start: kind_start,
+                                    end: self.pos,
+                                },
+                                message: format!("Invalid percent literal type"),
+                            });
+                        }
+                    }
+                    if self.pos >= self.bytes().len() {
+                        diag.push(Diagnostic {
+                            range: CodeRange {
+                                start,
+                                end: self.pos,
+                            },
+                            message: format!("Invalid percent literal"),
+                        });
+                    } else {
+                        let open_delim = self.peek_byte();
+                        // Any ASCII character except alphanumerics is a delimiter.
+                        self.pos += 1;
+                        if matches!(open_delim, b'\t' | b'\n' | b'\x0b' | b'\x0c' | b'\r' | b' ')
+                            && matches!(kind_name, b"w" | b"W" | b"i" | b"I")
+                        {
+                            // In Ruby syntax, array separator takes precedence over the delimiter,
+                            // which means that `%w a b c` never ends until EOF.
+                            // As this is unintuitive, in this lexer, we first issue an error and then
+                            // prefer the delimiter over the array separator.
+                            diag.push(Diagnostic {
+                                range: CodeRange {
+                                    start: kind_start,
+                                    end: self.pos,
+                                },
+                                message: format!(
+                                    "Space is not allowed as a delimiter in array percent literals"
+                                ),
+                            });
+                        }
+                    }
+                    TokenKind::StringBegin
+                } else {
+                    match self.peek_byte() {
+                        b'=' => {
+                            self.pos += 1;
+                            TokenKind::OpAssign(BinOpKind::Mod)
+                        }
+                        _ => TokenKind::BinOp(BinOpKind::Mod),
+                    }
                 }
             }
             // `&`
@@ -1156,6 +1364,70 @@ impl<'a> Lexer<'a> {
                             b'=' => {
                                 self.pos += 1;
                                 TokenKind::OpAssign(BinOpKind::LShift)
+                            }
+                            _ if state.allow_heredoc() => {
+                                let saved = self.pos;
+                                if matches!(self.peek_byte(), b'-' | b'~') {
+                                    self.pos += 1;
+                                }
+                                if matches!(self.peek_byte(), ident_continue!()) {
+                                    // <<EOS
+                                    let ident_start = self.pos;
+                                    self.scan_ident();
+                                    let s = EStrRef::from_bytes(
+                                        &self.bytes()[ident_start..self.pos],
+                                        self.input.encoding(),
+                                    );
+                                    if !s.is_valid() {
+                                        diag.push(Diagnostic {
+                                            range: CodeRange {
+                                                start: ident_start,
+                                                end: self.pos,
+                                            },
+                                            message: format!("Invalid heredoc identifier"),
+                                        });
+                                    }
+                                    TokenKind::StringBegin
+                                } else if matches!(self.peek_byte(), b'"' | b'\'' | b'`') {
+                                    // <<"EOS", <<'EOS', or <<`EOS`
+                                    let delimiter = self.peek_byte();
+                                    self.pos += 1;
+                                    let mut found_cr = false;
+                                    while self.pos < self.bytes().len()
+                                        && self.peek_byte() != b'\n'
+                                        && self.peek_byte() != delimiter
+                                    {
+                                        if self.peek_byte() == b'\r' {
+                                            found_cr = true;
+                                        }
+                                        self.pos += 1;
+                                    }
+                                    if self.peek_byte() != delimiter {
+                                        diag.push(Diagnostic {
+                                            range: CodeRange {
+                                                start,
+                                                end: self.pos,
+                                            },
+                                            message: format!("Unterminated heredoc identifier"),
+                                        });
+                                    } else if found_cr {
+                                        diag.push(Diagnostic {
+                                            range: CodeRange {
+                                                start,
+                                                end: self.pos,
+                                            },
+                                            message: format!(
+                                                "Heredoc identifier contains a carriage return"
+                                            ),
+                                        });
+                                    } else {
+                                        self.pos += 1;
+                                    }
+                                    TokenKind::StringBegin
+                                } else {
+                                    self.pos = saved;
+                                    TokenKind::BinOp(BinOpKind::LShift)
+                                }
                             }
                             _ => TokenKind::BinOp(BinOpKind::LShift),
                         }
@@ -1749,7 +2021,32 @@ impl<'a> Lexer<'a> {
                                     message: format!("Invalid symbol"),
                                 });
                             }
-                            _ => {}
+                            _ => {
+                                let saved = self.pos;
+                                // Check if it is heredoc-like
+                                if matches!(self.peek_byte(), b'-' | b'~') {
+                                    self.pos += 1;
+                                }
+                                if matches!(
+                                    self.peek_byte(),
+                                    b'"' | b'\'' | b'`' | ident_continue!()
+                                ) {
+                                    if matches!(self.peek_byte(), ident_continue!()) {
+                                        self.scan_ident();
+                                    } else {
+                                        self.pos += 1;
+                                    }
+                                    diag.push(Diagnostic {
+                                        range: CodeRange {
+                                            start,
+                                            end: self.pos,
+                                        },
+                                        message: format!("The symbol is ambiguous with heredoc"),
+                                    });
+                                }
+                                // Rollback and emit it as :<<
+                                self.pos = saved;
+                            }
                         }
                     }
                     b'=' => {
@@ -2564,10 +2861,213 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// Prepares consuming a string-like expression.
+    ///
+    /// Especially, it moves the cursor to the next available line in case of heredoc.
+    pub(super) fn prepare_string(&mut self, begin_token: &Token) -> StringState {
+        let start = begin_token.range.start;
+        let allow_label = begin_token.kind == TokenKind::StringBegin;
+        match self.bytes()[start] {
+            b'"' => StringState {
+                variant: StringVariant::String,
+                delim: StringDelimiter::Char(b'"'),
+                escape: StringEscape::Full,
+                allow_label,
+                array: false,
+                dedent: false,
+                heredoc_return: 0,
+                nest_level: 1,
+            },
+            b'\'' => StringState {
+                variant: StringVariant::String,
+                delim: StringDelimiter::Char(b'\''),
+                escape: StringEscape::Minimal,
+                allow_label,
+                array: false,
+                dedent: false,
+                heredoc_return: 0,
+                nest_level: 1,
+            },
+            b'/' => StringState {
+                variant: StringVariant::Regexp,
+                delim: StringDelimiter::Char(b'/'),
+                escape: StringEscape::Full,
+                allow_label,
+                array: false,
+                dedent: false,
+                heredoc_return: 0,
+                nest_level: 1,
+            },
+            b'`' => StringState {
+                variant: StringVariant::Command,
+                delim: StringDelimiter::Char(b'`'),
+                escape: StringEscape::Full,
+                allow_label,
+                array: false,
+                dedent: false,
+                heredoc_return: 0,
+                nest_level: 1,
+            },
+            b':' => match self.bytes()[start + 1] {
+                b'"' => StringState {
+                    variant: StringVariant::Symbol,
+                    delim: StringDelimiter::Char(b'"'),
+                    escape: StringEscape::Full,
+                    allow_label,
+                    array: false,
+                    dedent: false,
+                    heredoc_return: 0,
+                    nest_level: 1,
+                },
+                b'\'' => StringState {
+                    variant: StringVariant::Symbol,
+                    delim: StringDelimiter::Char(b'\''),
+                    escape: StringEscape::Minimal,
+                    allow_label,
+                    array: false,
+                    dedent: false,
+                    heredoc_return: 0,
+                    nest_level: 1,
+                },
+                _ => unreachable!(),
+            },
+            b'%' => {
+                let mut kind_end = start + 1;
+                while kind_end < self.bytes().len()
+                    && matches!(self.bytes()[kind_end], ident_continue!())
+                {
+                    kind_end += 1;
+                }
+                let open_delim = self.bytes().get(kind_end).copied().unwrap_or(b'\0');
+                let close_delim = match open_delim {
+                    b'(' => Some(b')'),
+                    b'[' => Some(b']'),
+                    b'{' => Some(b'}'),
+                    b'<' => Some(b'>'),
+                    _ => None,
+                };
+                let delim = if let Some(close_delim) = close_delim {
+                    StringDelimiter::Pair(open_delim, close_delim)
+                } else {
+                    StringDelimiter::Char(open_delim)
+                };
+                let (variant, has_escape, array) = if start == kind_end {
+                    // Equivalent to %Q
+                    (StringVariant::String, true, false)
+                } else {
+                    // Recognize some additional kinds %R, %X, and %S as part of error recovery
+                    match self.bytes()[start + 1] {
+                        b'Q' => (StringVariant::String, true, false),
+                        b'q' => (StringVariant::String, false, false),
+                        b'W' => (StringVariant::String, true, true),
+                        b'w' => (StringVariant::String, false, true),
+                        b'r' | b'R' => (StringVariant::Regexp, true, false),
+                        b'x' | b'X' => (StringVariant::Command, true, false),
+                        b'S' => (StringVariant::Symbol, true, false),
+                        b's' => (StringVariant::Symbol, false, false),
+                        b'I' => (StringVariant::Symbol, true, true),
+                        b'i' => (StringVariant::Symbol, false, true),
+                        _ => (StringVariant::String, true, false),
+                    }
+                };
+                StringState {
+                    variant,
+                    delim,
+                    escape: if has_escape {
+                        StringEscape::Full
+                    } else {
+                        StringEscape::Minimal
+                    },
+                    allow_label,
+                    array,
+                    dedent: false,
+                    heredoc_return: 0,
+                    nest_level: 1,
+                }
+            }
+            b'<' => {
+                // Skip to the next line
+                let heredoc_return = self.pos;
+                if let Some(skip_to) = self.skip_to {
+                    self.pos = skip_to;
+                    self.skip_to = None;
+                } else {
+                    while self.peek_byte() != b'\n' {
+                        self.pos += 1;
+                    }
+                    if self.peek_byte() == b'\n' {
+                        self.pos += 1;
+                    }
+                }
+                self.reset_indent();
+
+                let (ident_delim_pos, ident_type) = match self.bytes()[start + 2] {
+                    b'-' => (start + 3, b'-'),
+                    b'~' => (start + 3, b'~'),
+                    _ => (start + 2, b'\0'),
+                };
+                let allow_indent = ident_type == b'-' || ident_type == b'~';
+                let dedent = ident_type == b'~';
+                if matches!(self.bytes()[ident_delim_pos], ident_continue!()) {
+                    // <<EOS
+                    StringState {
+                        variant: StringVariant::String,
+                        delim: StringDelimiter::Heredoc {
+                            delim_range: CodeRange {
+                                start: start + 2,
+                                end: begin_token.range.end,
+                            },
+                            allow_indent,
+                        },
+                        escape: StringEscape::Full,
+                        allow_label,
+                        array: false,
+                        dedent,
+                        heredoc_return,
+                        nest_level: 1,
+                    }
+                } else {
+                    // <<"EOS", <<'EOS', or <<`EOS`
+                    let delim_ch = self.bytes()[ident_delim_pos];
+                    let ident_end = if self.bytes()[begin_token.range.end - 1] == delim_ch {
+                        begin_token.range.end - 1
+                    } else {
+                        begin_token.range.end
+                    };
+                    StringState {
+                        variant: if delim_ch == b'`' {
+                            StringVariant::Command
+                        } else {
+                            StringVariant::String
+                        },
+                        delim: StringDelimiter::Heredoc {
+                            delim_range: CodeRange {
+                                start: start + 3,
+                                end: ident_end,
+                            },
+                            allow_indent,
+                        },
+                        escape: if delim_ch == b'\'' {
+                            StringEscape::None
+                        } else {
+                            StringEscape::Full
+                        },
+                        allow_label,
+                        array: false,
+                        dedent,
+                        heredoc_return,
+                        nest_level: 1,
+                    }
+                }
+            }
+            _ => unreachable!(),
+        }
+    }
+
     pub(super) fn lex_string_like(
         &mut self,
         diag: &mut Vec<Diagnostic>,
-        state: StringState,
+        state: &mut StringState,
     ) -> Token {
         if let Some(eof_token) = &self.eof_token {
             return eof_token.clone();
@@ -2591,11 +3091,23 @@ impl<'a> Lexer<'a> {
             };
         }
 
+        let (open_ch, close_ch) = match state.delim {
+            StringDelimiter::Char(ch) => (None, Some(ch)),
+            StringDelimiter::Pair(open, close) => (Some(open), Some(close)),
+            StringDelimiter::Heredoc { .. } => (None, None),
+        };
+
         let start = self.pos;
         match self.peek_byte() {
-            b'\'' if state.delim == StringDelimiter::Quote => {
+            ch if Some(ch) == close_ch && state.nest_level == 1 => {
                 self.pos += 1;
-                let kind = self.extend_string_end(state);
+                state.nest_level -= 1;
+                let kind = if state.allow_label && self.peek_byte() == b':' {
+                    self.pos += 1;
+                    TokenKind::StringEndColon
+                } else {
+                    TokenKind::StringEnd
+                };
                 Token {
                     kind,
                     range: CodeRange {
@@ -2605,41 +3117,7 @@ impl<'a> Lexer<'a> {
                     indent: self.indent,
                 }
             }
-            b'"' if state.delim == StringDelimiter::DoubleQuote => {
-                self.pos += 1;
-                let kind = self.extend_string_end(state);
-                Token {
-                    kind,
-                    range: CodeRange {
-                        start,
-                        end: self.pos,
-                    },
-                    indent: self.indent,
-                }
-            }
-            b'`' if state.delim == StringDelimiter::Backtick => {
-                self.pos += 1;
-                Token {
-                    kind: TokenKind::StringEnd,
-                    range: CodeRange {
-                        start,
-                        end: self.pos,
-                    },
-                    indent: self.indent,
-                }
-            }
-            b'/' if state.delim == StringDelimiter::Slash => {
-                self.pos += 1;
-                Token {
-                    kind: TokenKind::StringEnd,
-                    range: CodeRange {
-                        start,
-                        end: self.pos,
-                    },
-                    indent: self.indent,
-                }
-            }
-            b'#' if state.delim.allow_interpolation() && self.lookahead_interpolation() => {
+            b'#' if state.escape == StringEscape::Full && self.lookahead_interpolation() => {
                 self.pos += 1;
                 match self.peek_byte() {
                     b'{' => {
@@ -2667,20 +3145,90 @@ impl<'a> Lexer<'a> {
                     _ => unreachable!(),
                 }
             }
+            b'\t' | b'\n' | b'\x0B' | b'\x0C' | b'\r' | b' ' if state.array => {
+                while matches!(
+                    self.peek_byte(),
+                    b'\t' | b'\n' | b'\x0B' | b'\x0C' | b'\r' | b' '
+                ) {
+                    if self.peek_byte() == b'\n' {
+                        self.pos += 1;
+                        self.try_skip_heredoc();
+                        self.reset_indent();
+                    } else {
+                        self.pos += 1;
+                    }
+                }
+                Token {
+                    kind: TokenKind::StringComma,
+                    range: CodeRange {
+                        start,
+                        end: self.pos,
+                    },
+                    indent: self.indent,
+                }
+            }
             _ => {
+                let mut check_line = false;
                 while self.pos < self.bytes().len() {
                     match self.peek_byte() {
-                        b'\'' if state.delim == StringDelimiter::Quote => break,
-                        b'"' if state.delim == StringDelimiter::DoubleQuote => break,
-                        b'`' if state.delim == StringDelimiter::Backtick => break,
-                        b'/' if state.delim == StringDelimiter::Slash => break,
-                        b'#' if state.delim.allow_interpolation()
+                        ch if Some(ch) == close_ch && state.nest_level == 1 => break,
+                        ch if Some(ch) == close_ch => {
+                            self.pos += 1;
+                            state.nest_level -= 1;
+                        }
+                        ch if Some(ch) == open_ch => {
+                            self.pos += 1;
+                            state.nest_level += 1;
+                        }
+                        b'#' if state.escape == StringEscape::Full
                             && self.lookahead_interpolation() =>
                         {
                             break
                         }
-                        b'\\' if self.pos + 2 <= self.bytes().len() => {
-                            self.pos += 2;
+                        b'\\' if state.escape != StringEscape::None => {
+                            self.pos += 1;
+                            // Need to skip escapes involving non-alphanumeric
+                            // letters to avoid ambiguity with delimiters.
+                            match self.peek_byte() {
+                                b'\\' => {
+                                    self.pos += 1;
+                                }
+                                ch if Some(ch) == close_ch => {
+                                    self.pos += 1;
+                                }
+                                ch if Some(ch) == open_ch => {
+                                    self.pos += 1;
+                                }
+                                b'M' | b'C' if self.lookahead_byte(1) == b'-' => {
+                                    self.pos += 2;
+                                    if self.peek_byte() != b'\\' && self.peek_byte() != b'\n' {
+                                        self.pos += 1;
+                                    }
+                                }
+                                b'c' => {
+                                    self.pos += 1;
+                                    if self.peek_byte() != b'\\' && self.peek_byte() != b'\n' {
+                                        self.pos += 1;
+                                    }
+                                }
+                                _ => {
+                                    if self.pos < self.bytes().len() {
+                                        self.pos += 1;
+                                    }
+                                }
+                            }
+                        }
+                        b'\t' | b'\n' | b'\x0B' | b'\x0C' | b'\r' | b' ' if state.array => {
+                            break;
+                        }
+                        b'\n' => {
+                            self.pos += 1;
+                            if self.skip_to.is_some() {
+                                check_line = true;
+                                break;
+                            } else {
+                                self.reset_indent();
+                            }
                         }
                         0x00..0x80 => {
                             self.pos += 1;
@@ -2694,24 +3242,18 @@ impl<'a> Lexer<'a> {
                         }
                     }
                 }
+                // Remember the original pos to return the correct token
+                let end = self.pos;
+                if check_line {
+                    self.try_skip_heredoc();
+                    self.reset_indent();
+                }
                 Token {
                     kind: TokenKind::StringContent,
-                    range: CodeRange {
-                        start,
-                        end: self.pos,
-                    },
+                    range: CodeRange { start, end },
                     indent: self.indent,
                 }
             }
-        }
-    }
-
-    fn extend_string_end(&mut self, state: StringState) -> TokenKind {
-        if state.allow_label && self.peek_byte() == b':' {
-            self.pos += 1;
-            TokenKind::StringEndColon
-        } else {
-            TokenKind::StringEnd
         }
     }
 
@@ -3076,6 +3618,7 @@ impl<'a> Lexer<'a> {
                 }
                 b'\n' => {
                     self.pos += 1;
+                    self.try_skip_heredoc();
                     self.reset_indent();
                 }
                 space_inline!() => {
@@ -3084,9 +3627,11 @@ impl<'a> Lexer<'a> {
                 b'\\' => {
                     if self.lookahead_byte(1) == b'\n' {
                         self.pos += 2;
+                        self.try_skip_heredoc();
                         self.reset_indent();
                     } else if self.lookahead_byte(1) == b'\r' && self.lookahead_byte(2) == b'\n' {
                         self.pos += 3;
+                        self.try_skip_heredoc();
                         self.reset_indent();
                     } else {
                         break;
@@ -3106,9 +3651,10 @@ impl<'a> Lexer<'a> {
     }
 
     fn does_force_fold(&mut self) -> bool {
-        let rollback = (self.pos, self.indent);
+        let rollback = (self.pos, self.skip_to, self.indent);
         // Skip the current LF byte
         self.pos += 1;
+        self.try_skip_heredoc();
         self.reset_indent();
 
         loop {
@@ -3117,10 +3663,10 @@ impl<'a> Lexer<'a> {
                     self.pos += 1;
                 }
                 b'#' => {
-                    self.reset_indent();
                     self.skip_line();
                     if self.peek_byte() == b'\n' {
                         self.pos += 1;
+                        self.try_skip_heredoc();
                         self.reset_indent();
                     }
                 }
@@ -3144,9 +3690,16 @@ impl<'a> Lexer<'a> {
         if !force_fold {
             // Rollback when not force-folding as we want to re-scan the current LF byte
             // as a Newline token.
-            (self.pos, self.indent) = rollback;
+            (self.pos, self.skip_to, self.indent) = rollback;
         }
         force_fold
+    }
+
+    fn try_skip_heredoc(&mut self) {
+        if let Some(skip_to) = self.skip_to {
+            self.pos = skip_to;
+            self.skip_to = None;
+        }
     }
 
     fn reset_indent(&mut self) {

@@ -8,7 +8,7 @@ use pretty_assertions::Comparison;
 
 use crate::{ast::CodeRange, encoding::EStrRef, Diagnostic};
 
-use super::{BinOpKind, Lexer, LexerState, StringDelimiter, StringState, Token, TokenKind};
+use super::{BinOpKind, Lexer, LexerState, StringState, Token, TokenKind};
 
 fn lex_all_from(input: EStrRef<'_>, mut state: LexerState) -> (Vec<Token>, Vec<Diagnostic>) {
     let mut diag = Vec::<Diagnostic>::new();
@@ -17,8 +17,8 @@ fn lex_all_from(input: EStrRef<'_>, mut state: LexerState) -> (Vec<Token>, Vec<D
     let mut string_stack = Vec::<StringState>::new();
     let mut current_string: Option<StringState> = None;
     loop {
-        if let Some(current_string_) = &current_string {
-            let token = lexer.lex_string_like(&mut diag, current_string_.clone());
+        if let Some(current_string_) = &mut current_string {
+            let token = lexer.lex_string_like(&mut diag, current_string_);
             if token.kind == TokenKind::EOF {
                 if token.range
                     != (CodeRange {
@@ -52,7 +52,7 @@ fn lex_all_from(input: EStrRef<'_>, mut state: LexerState) -> (Vec<Token>, Vec<D
                 token.kind,
                 TokenKind::StringBegin | TokenKind::StringBeginLabelable
             ) {
-                current_string = Some(next_string_state_for_testing(&token, input.as_bytes()));
+                current_string = Some(lexer.prepare_string(&token));
             } else if matches!(token.kind, TokenKind::RBrace) && !string_stack.is_empty() {
                 current_string = Some(string_stack.pop().unwrap());
             } else {
@@ -127,6 +127,7 @@ fn next_state_for_testing(tok: &Token, prev: LexerState) -> LexerState {
         TokenKind::StringContent => prev,
         TokenKind::StringInterpolationBegin => LexerState::Begin,
         TokenKind::StringVarInterpolation => LexerState::End,
+        TokenKind::StringComma => prev,
         TokenKind::BinOp(BinOpKind::BitwiseOr) => LexerState::BeginLabelable,
         TokenKind::BinOp(_) => LexerState::Begin,
         TokenKind::UnOp(_) => LexerState::Begin,
@@ -159,19 +160,6 @@ fn next_state_for_testing(tok: &Token, prev: LexerState) -> LexerState {
         TokenKind::RBrace => LexerState::End,
         TokenKind::EOF => LexerState::Begin,
         TokenKind::Unknown => LexerState::Begin,
-    }
-}
-
-fn next_string_state_for_testing(tok: &Token, bytes: &[u8]) -> StringState {
-    StringState {
-        delim: match bytes[tok.range.start] {
-            b'\'' => StringDelimiter::Quote,
-            b'"' => StringDelimiter::DoubleQuote,
-            b'`' => StringDelimiter::Backtick,
-            b'/' => StringDelimiter::Slash,
-            _ => unreachable!(),
-        },
-        allow_label: tok.kind == TokenKind::StringBeginLabelable,
     }
 }
 
