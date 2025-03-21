@@ -322,3 +322,55 @@ fn test_no_char_literal_space() {
         |src| vec![token(TokenKind::Question, pos_in(src, b"?", 0), 0)],
     );
 }
+
+#[test]
+fn test_char_literal_escape_simple() {
+    assert_lex(
+        "?\\\\",
+        LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
+        |src| {
+            vec![token(
+                TokenKind::CharLiteral(EString::from("\\")),
+                pos_in(src, b"?\\\\", 0),
+                0,
+            )]
+        },
+    );
+}
+
+#[test]
+fn test_char_literal_escape_named() {
+    assert_lex(
+        "?\\n",
+        LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
+        |src| {
+            vec![token(
+                TokenKind::CharLiteral(EString::from("\n")),
+                pos_in(src, b"?\\n", 0),
+                0,
+            )]
+        },
+    );
+}
+
+#[test]
+fn test_char_literal_escape_invalid_multichar() {
+    assert_lex_with_diag(
+        "?\\u{3042 3044}",
+        LexerStates::BEGIN_ALL | LexerStates::METH_ALL | LexerStates::FirstArgument,
+        |src| {
+            vec![token(
+                TokenKind::CharLiteral(EString::from("あい")),
+                pos_in(src, b"?\\u{3042 3044}", 0),
+                0,
+            )]
+        },
+        |src| {
+            vec![Diagnostic {
+                range: pos_in(src, b"\\u{3042 3044}", 0),
+                message: "Invalid escape sequence: multiple chars in a character literal"
+                    .to_owned(),
+            }]
+        },
+    );
+}

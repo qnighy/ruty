@@ -1279,6 +1279,10 @@ impl<'a> Lexer<'a> {
                                 }
                             }
                         }
+                        b'\\' => {
+                            let ch = self.lex_char_escape(diag, true);
+                            TokenKind::CharLiteral(ch)
+                        }
                         _ => {
                             // Non-space, non-ident ASCII character.
                             self.pos += 1;
@@ -2728,6 +2732,302 @@ impl<'a> Lexer<'a> {
             },
             _ => false,
         }
+    }
+
+    fn lex_char_escape(&mut self, diag: &mut Vec<Diagnostic>, is_single_char: bool) -> EString {
+        let start = self.pos;
+        let mut has_ctrl = false;
+        let mut has_meta = false;
+        let mut invalid_short_escape = false;
+        let mut invalid_broken_raw_non_ascii_character = false;
+        let mut invalid_large_unicode_value = false;
+        let mut invalid_long_unicode_value = false;
+        let mut invalid_multichar_escape = false;
+        let mut invalid_surrogate = false;
+        let mut invalid_modified_non_ascii_escape = false;
+        let mut invalid_duplicate_ctrl = false;
+        let mut invalid_duplicate_meta = false;
+        let val = loop {
+            break if self.peek_byte() == b'\\' {
+                self.pos += 1;
+                match self.peek_byte() {
+                    b'\0' if self.pos >= self.bytes().len() => {
+                        invalid_short_escape = true;
+                        EString::from_bytes(vec![], self.input.encoding())
+                    }
+                    b'0'..=b'7' => {
+                        let mut len = 0;
+                        let mut val = 0_u8;
+                        while len < 3 && matches!(self.peek_byte(), b'0'..=b'7') {
+                            // When 3-digit case, the MSB is silently discarded
+                            // i.e. both \377 and \777 are \xFF
+                            val = (val << 3) + (self.peek_byte() - b'0');
+                            len += 1;
+                            self.pos += 1;
+                        }
+                        // Deliberately skip encoding check
+                        // e.g. "\377" in UTF-8 source may yield an invalid UTF-8 string
+                        EString::from_bytes(vec![val], self.input.encoding())
+                    }
+                    b'x' => {
+                        let mut len = 0;
+                        let mut val = 0_u8;
+                        while len < 2 && self.peek_byte().is_ascii_hexdigit() {
+                            val = (val << 4)
+                                + match self.peek_byte() {
+                                    b'0'..=b'9' => self.peek_byte() - b'0',
+                                    b'a'..=b'f' => self.peek_byte() - b'a' + 10,
+                                    b'A'..=b'F' => self.peek_byte() - b'A' + 10,
+                                    _ => unreachable!(),
+                                };
+                            len += 1;
+                            self.pos += 1;
+                        }
+                        if len < 2 {
+                            invalid_short_escape = true;
+                        }
+                        // Deliberately skip encoding check
+                        // e.g. "\xFF" in UTF-8 source may yield an invalid UTF-8 string
+                        EString::from_bytes(vec![val], self.input.encoding())
+                    }
+                    b'u' => {
+                        // Unicode escape (either \uXXXX or \u{XXXX})
+                        if has_meta || has_ctrl {
+                            invalid_modified_non_ascii_escape = true;
+                        }
+                        self.pos += 1;
+                        if self.peek_byte() == b'{' {
+                            self.pos += 1;
+                            let mut s = String::new();
+                            let mut num_chars = 0;
+                            loop {
+                                while matches!(self.peek_byte(), space_inline!()) {
+                                    self.pos += 1;
+                                }
+                                if self.peek_byte().is_ascii_hexdigit() {
+                                    let mut len = 0;
+                                    let mut val = 0_u32;
+                                    while self.peek_byte().is_ascii_hexdigit() {
+                                        if val < 0x110000 {
+                                            val = (val << 4)
+                                                + match self.peek_byte() {
+                                                    b'0'..=b'9' => self.peek_byte() - b'0',
+                                                    b'a'..=b'f' => self.peek_byte() - b'a' + 10,
+                                                    b'A'..=b'F' => self.peek_byte() - b'A' + 10,
+                                                    _ => unreachable!(),
+                                                }
+                                                    as u32;
+                                        }
+                                        len += 1;
+                                        self.pos += 1;
+                                    }
+                                    if val >= 0x110000 {
+                                        invalid_large_unicode_value = true;
+                                    }
+                                    if len > 6 {
+                                        invalid_long_unicode_value = true;
+                                    }
+                                    let val = char::from_u32(val).unwrap_or_else(|| {
+                                        invalid_surrogate = true;
+                                        '\u{FFFD}'
+                                    });
+                                    s.push(val);
+                                    num_chars += 1;
+                                } else if self.peek_byte() == b'}' {
+                                    self.pos += 1;
+                                    break;
+                                } else {
+                                    invalid_short_escape = true;
+                                    break;
+                                }
+                            }
+                            if is_single_char && num_chars > 1 {
+                                invalid_multichar_escape = true;
+                            }
+                            EString::from(s)
+                        } else {
+                            let mut len = 0;
+                            let mut val = 0_u32;
+                            while len < 4 && self.peek_byte().is_ascii_hexdigit() {
+                                val = (val << 4)
+                                    + match self.peek_byte() {
+                                        b'0'..=b'9' => self.peek_byte() - b'0',
+                                        b'a'..=b'f' => self.peek_byte() - b'a' + 10,
+                                        b'A'..=b'F' => self.peek_byte() - b'A' + 10,
+                                        _ => unreachable!(),
+                                    } as u32;
+                                len += 1;
+                                self.pos += 1;
+                            }
+                            if len < 4 {
+                                invalid_short_escape = true;
+                            }
+                            let val = char::from_u32(val).unwrap_or_else(|| {
+                                invalid_surrogate = true;
+                                '\u{FFFD}'
+                            });
+                            EString::from(String::from(val))
+                        }
+                    }
+                    b'M' => {
+                        // Meta escape
+                        self.pos += 1;
+                        if has_meta {
+                            invalid_duplicate_meta = true;
+                        }
+                        has_meta = true;
+                        if self.peek_byte() == b'-' {
+                            self.pos += 1;
+                            continue;
+                        } else {
+                            invalid_short_escape = true;
+                            EString::from_bytes(vec![], self.input.encoding())
+                        }
+                    }
+                    b'C' => {
+                        // Ctrl escape
+                        self.pos += 1;
+                        if has_ctrl {
+                            invalid_duplicate_ctrl = true;
+                        }
+                        has_ctrl = true;
+                        if self.peek_byte() == b'-' {
+                            self.pos += 1;
+                            if self.peek_byte() == b'?' {
+                                // Special DEL escape
+                                EString::from_bytes(vec![0x7F], self.input.encoding())
+                            } else {
+                                continue;
+                            }
+                        } else {
+                            invalid_short_escape = true;
+                            EString::from_bytes(vec![], self.input.encoding())
+                        }
+                    }
+                    b'c' => {
+                        // Short ctrl escape
+                        self.pos += 1;
+                        if has_ctrl {
+                            invalid_duplicate_ctrl = true;
+                        }
+                        has_ctrl = true;
+                        if self.peek_byte() == b'?' {
+                            // Special DEL escape
+                            EString::from_bytes(vec![0x7F], self.input.encoding())
+                        } else {
+                            continue;
+                        }
+                    }
+                    b'a' => {
+                        self.pos += 1;
+                        EString::from_bytes(vec![0x07], self.input.encoding())
+                    }
+                    b'b' => {
+                        self.pos += 1;
+                        EString::from_bytes(vec![0x08], self.input.encoding())
+                    }
+                    b't' => {
+                        self.pos += 1;
+                        EString::from_bytes(vec![0x09], self.input.encoding())
+                    }
+                    b'n' => {
+                        self.pos += 1;
+                        EString::from_bytes(vec![0x0A], self.input.encoding())
+                    }
+                    b'v' => {
+                        self.pos += 1;
+                        EString::from_bytes(vec![0x0B], self.input.encoding())
+                    }
+                    b'f' => {
+                        self.pos += 1;
+                        EString::from_bytes(vec![0x0C], self.input.encoding())
+                    }
+                    b'r' => {
+                        self.pos += 1;
+                        EString::from_bytes(vec![0x0D], self.input.encoding())
+                    }
+                    b'e' => {
+                        self.pos += 1;
+                        EString::from_bytes(vec![0x1B], self.input.encoding())
+                    }
+                    b's' => {
+                        self.pos += 1;
+                        EString::from_bytes(vec![0x20], self.input.encoding())
+                    }
+                    b'\x80'.. => {
+                        // non-ascii itself-escape
+                        if has_meta || has_ctrl {
+                            invalid_modified_non_ascii_escape = true;
+                        }
+                        let len = self
+                            .input
+                            .encoding()
+                            .next_len(&self.bytes()[self.pos..], EncodingState::default());
+                        let val = self.select_owned(self.pos, self.pos + len);
+                        invalid_broken_raw_non_ascii_character =
+                            invalid_broken_raw_non_ascii_character || !val.is_valid();
+                        self.pos += len;
+                        val
+                    }
+                    b'\r' if self.lookahead_byte(1) == b'\n' => {
+                        // variant of itself-escape but CRLF representing LF
+                        self.pos += 2;
+                        EString::from_bytes(vec![0x0A], self.input.encoding())
+                    }
+                    _ => {
+                        // itself-escape
+                        let b = self.peek_byte();
+                        self.pos += 1;
+                        EString::from_bytes(vec![b], self.input.encoding())
+                    }
+                }
+            } else {
+                // The so-called "escape" does not start with `\`.
+                // We must be in the second or later iteration of the loop (e.g. `\C-a`).
+                if self.pos < self.bytes().len() {
+                    let b = self.peek_byte();
+                    self.pos += 1;
+                    EString::from_bytes(vec![b], self.input.encoding())
+                } else {
+                    invalid_short_escape = true;
+                    EString::from_bytes(vec![], self.input.encoding())
+                }
+            };
+        };
+
+        // Report one error
+        let msg = if invalid_short_escape {
+            Some("Invalid escape sequence: escape is terminated too early")
+        } else if invalid_multichar_escape {
+            Some("Invalid escape sequence: multiple chars in a character literal")
+        } else if invalid_large_unicode_value {
+            Some("Invalid escape sequence: Unicode value is too large")
+        } else if invalid_long_unicode_value {
+            Some("Invalid escape sequence: Unicode value has too many digits (max 6)")
+        } else if invalid_surrogate {
+            Some("Invalid escape sequence: Unicode value cannot be a surrogate")
+        } else if invalid_broken_raw_non_ascii_character {
+            Some("Invalid escape sequence: invalid encoded character")
+        } else if invalid_modified_non_ascii_escape {
+            Some("Invalid escape sequence: Meta/Ctrl modifiers can only be added to ASCII characters")
+        } else if invalid_duplicate_ctrl {
+            Some("Invalid escape sequence: duplicate Ctrl escapes")
+        } else if invalid_duplicate_meta {
+            Some("Invalid escape sequence: duplicate Meta escapes")
+        } else {
+            None
+        };
+        if let Some(msg) = msg {
+            diag.push(Diagnostic {
+                range: CodeRange {
+                    start,
+                    end: self.pos,
+                },
+                message: msg.to_owned(),
+            });
+        }
+
+        val
     }
 
     fn scan_ident(&mut self) {
